@@ -23,8 +23,11 @@ Após configurar o git, faça o commit e push:
 ```bash
 git add .
 git commit -m "Initial commit: SaudeNold app structure"
+git branch -M main  # Renomeia a branch para main se necessário
 git push -u origin main
 ```
+
+**Nota**: Se o Git criar a branch como `master`, use `git branch -M main` para renomear antes do push.
 
 ## Repositório Remoto
 

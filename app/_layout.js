@@ -1,7 +1,23 @@
 import { Stack } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { useEffect } from 'react';
+import { fullSync } from '../services/sync';
 
 export default function RootLayout() {
+  useEffect(() => {
+    // Sincronizar ao abrir o app
+    const syncData = async () => {
+      try {
+        await fullSync();
+      } catch (error) {
+        console.error('Erro na sincronização inicial:', error);
+        // Continua mesmo se a sincronização falhar
+      }
+    };
+
+    syncData();
+  }, []);
+
   return (
     <SafeAreaProvider>
       <Stack
@@ -15,15 +31,7 @@ export default function RootLayout() {
             fontSize: 24,
           },
         }}
-      >
-        <Stack.Screen 
-          name="index" 
-          options={{ 
-            title: 'SaudeNold',
-            headerShown: true,
-          }} 
-        />
-      </Stack>
+      />
     </SafeAreaProvider>
   );
 }

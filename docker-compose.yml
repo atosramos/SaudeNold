@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: saudenold-postgres
+    environment:
+      POSTGRES_USER: saudenold
+      POSTGRES_PASSWORD: saudenold123
+      POSTGRES_DB: saudenold
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U saudenold"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    container_name: saudenold-backend
+    environment:
+      DATABASE_URL: postgresql://saudenold:saudenold123@postgres:5432/saudenold
+      CORS_ORIGINS: http://localhost:8082,exp://*
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+volumes:
+  postgres_data:
+
+
+
+
+

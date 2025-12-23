@@ -6,24 +6,9 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
     "scheme": "saudenold",
     "plugins": [
-      "expo-router",
-      [
-        "expo-notifications",
-        {
-          "icon": "./assets/icon.png",
-          "color": "#4ECDC4"
-        }
-      ],
-      [
-        "expo-image-picker",
-        {
-          "photosPermission": "O app precisa acessar suas fotos para adicionar imagens de medicamentos e contatos.",
-          "cameraPermission": "O app precisa acessar a câmera para tirar fotos de medicamentos e contatos."
-        }
-      ]
+      "expo-router"
     ],
     "splash": {
       "image": "./assets/splash-icon.png",
@@ -43,7 +28,6 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#4ECDC4"
       },
-      "edgeToEdgeEnabled": true,
       "package": "com.saudenold.app",
       "permissions": [
         "CAMERA",
@@ -53,16 +37,13 @@
       ]
     },
     "web": {
-      "favicon": "./assets/favicon.png",
-      "bundler": "metro"
+      "favicon": "./assets/favicon.png"
     },
     "extra": {
-      "router": {
-        "origin": false
-      },
       "eas": {
         "projectId": ""
-      }
+      },
+      "apiUrl": "http://localhost:8000"
     }
   }
 }

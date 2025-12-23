@@ -1,39 +1,51 @@
-import { StyleSheet, Text, View, TouchableOpacity } from 'react-native';
-import { useRouter } from 'expo-router';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 
 export default function Home() {
   const router = useRouter();
 
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
       <View style={styles.header}>
         <Text style={styles.title}>Bem-vindo ao SaudeNold</Text>
         <Text style={styles.subtitle}>Seu assistente de saúde pessoal</Text>
       </View>
 
       <View style={styles.menu}>
-        <TouchableOpacity style={[styles.menuButton, styles.medicationsButton]}>
+        <TouchableOpacity 
+          style={[styles.menuButton, styles.medicationsButton]}
+          onPress={() => router.push('/medications')}
+        >
           <Ionicons name="medical" size={48} color="#fff" />
           <Text style={styles.menuButtonText}>Meus Medicamentos</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={[styles.menuButton, styles.emergencyButton]}>
+        <TouchableOpacity 
+          style={[styles.menuButton, styles.emergencyButton]}
+          onPress={() => router.push('/emergency-contacts')}
+        >
           <Ionicons name="call" size={48} color="#fff" />
           <Text style={styles.menuButtonText}>Contatos de Emergência</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={[styles.menuButton, styles.visitsButton]}>
+        <TouchableOpacity 
+          style={[styles.menuButton, styles.visitsButton]}
+          onPress={() => router.push('/doctor-visits')}
+        >
           <Ionicons name="calendar" size={48} color="#fff" />
           <Text style={styles.menuButtonText}>Visitas ao Médico</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={[styles.menuButton, styles.historyButton]}>
+        <TouchableOpacity 
+          style={[styles.menuButton, styles.historyButton, styles.lastButton]}
+          onPress={() => router.push('/history')}
+        >
           <Ionicons name="time" size={48} color="#fff" />
           <Text style={styles.menuButtonText}>Histórico</Text>
         </TouchableOpacity>
       </View>
-    </View>
+    </ScrollView>
   );
 }
 
@@ -41,7 +53,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
+  },
+  contentContainer: {
     padding: 24,
+    flexGrow: 1,
   },
   header: {
     marginTop: 32,
@@ -59,8 +74,6 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   menu: {
-    flex: 1,
-    gap: 24,
   },
   menuButton: {
     flexDirection: 'row',
@@ -69,7 +82,7 @@ const styles = StyleSheet.create({
     padding: 32,
     borderRadius: 16,
     minHeight: 120,
-    gap: 24,
+    marginBottom: 24,
   },
   medicationsButton: {
     backgroundColor: '#4ECDC4',
@@ -83,10 +96,13 @@ const styles = StyleSheet.create({
   historyButton: {
     backgroundColor: '#F38181',
   },
+  lastButton: {
+    marginBottom: 0,
+  },
   menuButtonText: {
     fontSize: 28,
     fontWeight: 'bold',
     color: '#fff',
+    marginLeft: 16,
   },
 });
-

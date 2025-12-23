@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: saudenold
+data:
+  DATABASE_URL: postgresql://saudenold:saudenold123@postgres.saudenold.svc.cluster.local:5432/saudenold
+  CORS_ORIGINS: "http://localhost:8082,exp://*"
+
