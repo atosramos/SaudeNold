@@ -1,23 +1,73 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, Security, status, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+import os
+import logging
+import hashlib
+import secrets
+from typing import Optional
 from database import SessionLocal, engine, Base
 import models
 import schemas
+
+# Configurar logging de segurança
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+security_logger = logging.getLogger("security")
 
 # Criar tabelas
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="SaudeNold API", version="1.0.0")
 
-# CORS
+# Rate Limiting
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# CORS - Restringir origins permitidas
+cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:8082,exp://*").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Em produção, especificar origins
+    allow_origins=cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Content-Type", "Authorization"],
+    expose_headers=["X-Request-ID"],
 )
+
+# Security Headers Middleware
+@app.middleware("http")
+async def add_security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["Content-Security-Policy"] = "default-src 'self'"
+    return response
+
+# Autenticação simples baseada em API Key
+security = HTTPBearer()
+API_KEY = os.getenv("API_KEY", secrets.token_urlsafe(32))
+
+def verify_api_key(credentials: HTTPAuthorizationCredentials = Security(security)):
+    """Verifica a API key fornecida"""
+    if credentials.credentials != API_KEY:
+        security_logger.warning(f"Tentativa de acesso com API key inválida")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid API Key",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return credentials.credentials
 
 # Dependency
 def get_db():
@@ -28,16 +78,61 @@ def get_db():
         db.close()
 
 
+# Funções de validação e sanitização
+def validate_base64_image_size(base64_string: Optional[str], max_size_mb: int = 5) -> bool:
+    """Valida o tamanho de uma imagem base64"""
+    if not base64_string:
+        return True
+    
+    # Remover prefixo data:image se existir
+    if ',' in base64_string:
+        base64_string = base64_string.split(',')[1]
+    
+    # Calcular tamanho aproximado (base64 é ~33% maior que o original)
+    size_bytes = len(base64_string) * 3 / 4
+    size_mb = size_bytes / (1024 * 1024)
+    
+    if size_mb > max_size_mb:
+        security_logger.warning(f"Tentativa de upload de imagem muito grande: {size_mb:.2f}MB")
+        return False
+    return True
+
+
+def sanitize_string(value: str, max_length: int = 1000) -> str:
+    """Sanitiza strings removendo caracteres perigosos e limitando tamanho"""
+    if not value:
+        return value
+    # Remover caracteres de controle e limitar tamanho
+    sanitized = ''.join(char for char in value if ord(char) >= 32 or char in '\n\r\t')[:max_length]
+    return sanitized.strip()
+
+
 # ========== MEDICAMENTOS ==========
 @app.get("/api/medications")
-def get_medications():
+@limiter.limit("100/minute")
+def get_medications(request: Request, api_key: str = Depends(verify_api_key)):
+    security_logger.info(f"Acesso GET /api/medications de {get_remote_address(request)}")
     db = next(get_db())
     medications = db.query(models.Medication).all()
     return [schemas.MedicationResponse.model_validate(m).model_dump() for m in medications]
 
 
 @app.post("/api/medications")
-def create_medication(medication: schemas.MedicationCreate):
+@limiter.limit("20/minute")
+def create_medication(request: Request, medication: schemas.MedicationCreate, api_key: str = Depends(verify_api_key)):
+    security_logger.info(f"Acesso POST /api/medications de {get_remote_address(request)}")
+    
+    # Validar tamanho da imagem
+    if medication.image_base64 and not validate_base64_image_size(medication.image_base64):
+        raise HTTPException(status_code=400, detail="Image size exceeds maximum allowed (5MB)")
+    
+    # Sanitizar dados
+    medication.name = sanitize_string(medication.name, 200)
+    if medication.dosage:
+        medication.dosage = sanitize_string(medication.dosage, 100)
+    if medication.notes:
+        medication.notes = sanitize_string(medication.notes, 5000)
+    
     db = next(get_db())
     db_medication = models.Medication(**medication.model_dump())
     db.add(db_medication)
@@ -47,7 +142,21 @@ def create_medication(medication: schemas.MedicationCreate):
 
 
 @app.put("/api/medications/{medication_id}")
-def update_medication(medication_id: int, medication: schemas.MedicationCreate):
+@limiter.limit("20/minute")
+def update_medication(request: Request, medication_id: int, medication: schemas.MedicationCreate, api_key: str = Depends(verify_api_key)):
+    security_logger.info(f"Acesso PUT /api/medications/{medication_id} de {get_remote_address(request)}")
+    
+    # Validar tamanho da imagem
+    if medication.image_base64 and not validate_base64_image_size(medication.image_base64):
+        raise HTTPException(status_code=400, detail="Image size exceeds maximum allowed (5MB)")
+    
+    # Sanitizar dados
+    medication.name = sanitize_string(medication.name, 200)
+    if medication.dosage:
+        medication.dosage = sanitize_string(medication.dosage, 100)
+    if medication.notes:
+        medication.notes = sanitize_string(medication.notes, 5000)
+    
     db = next(get_db())
     db_medication = db.query(models.Medication).filter(models.Medication.id == medication_id).first()
     if not db_medication:
@@ -62,7 +171,9 @@ def update_medication(medication_id: int, medication: schemas.MedicationCreate):
 
 
 @app.delete("/api/medications/{medication_id}")
-def delete_medication(medication_id: int):
+@limiter.limit("20/minute")
+def delete_medication(request: Request, medication_id: int, api_key: str = Depends(verify_api_key)):
+    security_logger.info(f"Acesso DELETE /api/medications/{medication_id} de {get_remote_address(request)}")
     db = next(get_db())
     db_medication = db.query(models.Medication).filter(models.Medication.id == medication_id).first()
     if not db_medication:
@@ -75,14 +186,24 @@ def delete_medication(medication_id: int):
 
 # ========== MEDICATION LOGS ==========
 @app.get("/api/medication-logs")
-def get_medication_logs():
+@limiter.limit("100/minute")
+def get_medication_logs(request: Request, api_key: str = Depends(verify_api_key)):
+    security_logger.info(f"Acesso GET /api/medication-logs de {get_remote_address(request)}")
     db = next(get_db())
     logs = db.query(models.MedicationLog).all()
     return [schemas.MedicationLogResponse.model_validate(l).model_dump() for l in logs]
 
 
 @app.post("/api/medication-logs")
-def create_medication_log(log: schemas.MedicationLogCreate):
+@limiter.limit("30/minute")
+def create_medication_log(request: Request, log: schemas.MedicationLogCreate, api_key: str = Depends(verify_api_key)):
+    security_logger.info(f"Acesso POST /api/medication-logs de {get_remote_address(request)}")
+    
+    # Sanitizar dados
+    log.medication_name = sanitize_string(log.medication_name, 200)
+    if log.status not in ["taken", "skipped", "postponed"]:
+        raise HTTPException(status_code=400, detail="Invalid status. Must be: taken, skipped, or postponed")
+    
     db = next(get_db())
     db_log = models.MedicationLog(**log.model_dump())
     db.add(db_log)
@@ -93,14 +214,29 @@ def create_medication_log(log: schemas.MedicationLogCreate):
 
 # ========== CONTATOS DE EMERGÊNCIA ==========
 @app.get("/api/emergency-contacts")
-def get_emergency_contacts():
+@limiter.limit("100/minute")
+def get_emergency_contacts(request: Request, api_key: str = Depends(verify_api_key)):
+    security_logger.info(f"Acesso GET /api/emergency-contacts de {get_remote_address(request)}")
     db = next(get_db())
     contacts = db.query(models.EmergencyContact).order_by(models.EmergencyContact.order).all()
     return [schemas.EmergencyContactResponse.model_validate(c).model_dump() for c in contacts]
 
 
 @app.post("/api/emergency-contacts")
-def create_emergency_contact(contact: schemas.EmergencyContactCreate):
+@limiter.limit("20/minute")
+def create_emergency_contact(request: Request, contact: schemas.EmergencyContactCreate, api_key: str = Depends(verify_api_key)):
+    security_logger.info(f"Acesso POST /api/emergency-contacts de {get_remote_address(request)}")
+    
+    # Validar tamanho da imagem
+    if contact.photo_base64 and not validate_base64_image_size(contact.photo_base64):
+        raise HTTPException(status_code=400, detail="Image size exceeds maximum allowed (5MB)")
+    
+    # Sanitizar dados
+    contact.name = sanitize_string(contact.name, 200)
+    contact.phone = sanitize_string(contact.phone, 20)
+    if contact.relation:
+        contact.relation = sanitize_string(contact.relation, 100)
+    
     db = next(get_db())
     
     # Verificar limite de 5 contatos
@@ -116,7 +252,20 @@ def create_emergency_contact(contact: schemas.EmergencyContactCreate):
 
 
 @app.put("/api/emergency-contacts/{contact_id}")
-def update_emergency_contact(contact_id: int, contact: schemas.EmergencyContactCreate):
+@limiter.limit("20/minute")
+def update_emergency_contact(request: Request, contact_id: int, contact: schemas.EmergencyContactCreate, api_key: str = Depends(verify_api_key)):
+    security_logger.info(f"Acesso PUT /api/emergency-contacts/{contact_id} de {get_remote_address(request)}")
+    
+    # Validar tamanho da imagem
+    if contact.photo_base64 and not validate_base64_image_size(contact.photo_base64):
+        raise HTTPException(status_code=400, detail="Image size exceeds maximum allowed (5MB)")
+    
+    # Sanitizar dados
+    contact.name = sanitize_string(contact.name, 200)
+    contact.phone = sanitize_string(contact.phone, 20)
+    if contact.relation:
+        contact.relation = sanitize_string(contact.relation, 100)
+    
     db = next(get_db())
     db_contact = db.query(models.EmergencyContact).filter(models.EmergencyContact.id == contact_id).first()
     if not db_contact:
@@ -131,7 +280,9 @@ def update_emergency_contact(contact_id: int, contact: schemas.EmergencyContactC
 
 
 @app.delete("/api/emergency-contacts/{contact_id}")
-def delete_emergency_contact(contact_id: int):
+@limiter.limit("20/minute")
+def delete_emergency_contact(request: Request, contact_id: int, api_key: str = Depends(verify_api_key)):
+    security_logger.info(f"Acesso DELETE /api/emergency-contacts/{contact_id} de {get_remote_address(request)}")
     db = next(get_db())
     db_contact = db.query(models.EmergencyContact).filter(models.EmergencyContact.id == contact_id).first()
     if not db_contact:
@@ -144,14 +295,29 @@ def delete_emergency_contact(contact_id: int):
 
 # ========== VISITAS AO MÉDICO ==========
 @app.get("/api/doctor-visits")
-def get_doctor_visits():
+@limiter.limit("100/minute")
+def get_doctor_visits(request: Request, api_key: str = Depends(verify_api_key)):
+    security_logger.info(f"Acesso GET /api/doctor-visits de {get_remote_address(request)}")
     db = next(get_db())
     visits = db.query(models.DoctorVisit).order_by(models.DoctorVisit.visit_date.desc()).all()
     return [schemas.DoctorVisitResponse.model_validate(v).model_dump() for v in visits]
 
 
 @app.post("/api/doctor-visits")
-def create_doctor_visit(visit: schemas.DoctorVisitCreate):
+@limiter.limit("20/minute")
+def create_doctor_visit(request: Request, visit: schemas.DoctorVisitCreate, api_key: str = Depends(verify_api_key)):
+    security_logger.info(f"Acesso POST /api/doctor-visits de {get_remote_address(request)}")
+    
+    # Validar tamanho da imagem
+    if visit.prescription_image and not validate_base64_image_size(visit.prescription_image):
+        raise HTTPException(status_code=400, detail="Image size exceeds maximum allowed (5MB)")
+    
+    # Sanitizar dados
+    visit.doctor_name = sanitize_string(visit.doctor_name, 200)
+    visit.specialty = sanitize_string(visit.specialty, 200)
+    if visit.notes:
+        visit.notes = sanitize_string(visit.notes, 5000)
+    
     db = next(get_db())
     db_visit = models.DoctorVisit(**visit.model_dump())
     db.add(db_visit)
@@ -161,7 +327,20 @@ def create_doctor_visit(visit: schemas.DoctorVisitCreate):
 
 
 @app.put("/api/doctor-visits/{visit_id}")
-def update_doctor_visit(visit_id: int, visit: schemas.DoctorVisitCreate):
+@limiter.limit("20/minute")
+def update_doctor_visit(request: Request, visit_id: int, visit: schemas.DoctorVisitCreate, api_key: str = Depends(verify_api_key)):
+    security_logger.info(f"Acesso PUT /api/doctor-visits/{visit_id} de {get_remote_address(request)}")
+    
+    # Validar tamanho da imagem
+    if visit.prescription_image and not validate_base64_image_size(visit.prescription_image):
+        raise HTTPException(status_code=400, detail="Image size exceeds maximum allowed (5MB)")
+    
+    # Sanitizar dados
+    visit.doctor_name = sanitize_string(visit.doctor_name, 200)
+    visit.specialty = sanitize_string(visit.specialty, 200)
+    if visit.notes:
+        visit.notes = sanitize_string(visit.notes, 5000)
+    
     db = next(get_db())
     db_visit = db.query(models.DoctorVisit).filter(models.DoctorVisit.id == visit_id).first()
     if not db_visit:
@@ -176,7 +355,9 @@ def update_doctor_visit(visit_id: int, visit: schemas.DoctorVisitCreate):
 
 
 @app.delete("/api/doctor-visits/{visit_id}")
-def delete_doctor_visit(visit_id: int):
+@limiter.limit("20/minute")
+def delete_doctor_visit(request: Request, visit_id: int, api_key: str = Depends(verify_api_key)):
+    security_logger.info(f"Acesso DELETE /api/doctor-visits/{visit_id} de {get_remote_address(request)}")
     db = next(get_db())
     db_visit = db.query(models.DoctorVisit).filter(models.DoctorVisit.id == visit_id).first()
     if not db_visit:

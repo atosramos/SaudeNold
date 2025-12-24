@@ -2,14 +2,40 @@ import axios from 'axios';
 import Constants from 'expo-constants';
 
 const API_URL = Constants.expoConfig?.extra?.apiUrl || 'http://localhost:8000';
+const API_KEY = Constants.expoConfig?.extra?.apiKey || process.env.EXPO_PUBLIC_API_KEY || '';
 
 const api = axios.create({
   baseURL: API_URL,
   headers: {
     'Content-Type': 'application/json',
+    'Authorization': `Bearer ${API_KEY}`,
   },
   timeout: 10000,
 });
+
+// Interceptor para adicionar token em todas as requisições
+api.interceptors.request.use(
+  (config) => {
+    if (API_KEY) {
+      config.headers.Authorization = `Bearer ${API_KEY}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Interceptor para tratar erros de autenticação
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      console.error('Erro de autenticação: API Key inválida ou ausente');
+    }
+    return Promise.reject(error);
+  }
+);
 
 // ========== MEDICAMENTOS ==========
 export const medicationsAPI = {
@@ -45,6 +71,7 @@ export const doctorVisitsAPI = {
 export const healthCheck = () => api.get('/health');
 
 export default api;
+
 
 
 
