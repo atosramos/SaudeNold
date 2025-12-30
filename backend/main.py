@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -78,6 +79,20 @@ def get_db():
         db.close()
 
 
+def safe_db_commit(db: Session):
+    """Helper function para fazer commit seguro com tratamento de exceções"""
+    try:
+        db.commit()
+    except IntegrityError as e:
+        db.rollback()
+        security_logger.error(f"Database integrity error: {str(e)}")
+        raise HTTPException(status_code=400, detail="Database integrity error. Check your data.")
+    except SQLAlchemyError as e:
+        db.rollback()
+        security_logger.error(f"Database error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Database error occurred")
+
+
 # Funções de validação e sanitização
 def validate_base64_image_size(base64_string: Optional[str], max_size_mb: int = 5) -> bool:
     """Valida o tamanho de uma imagem base64"""
@@ -103,7 +118,10 @@ def sanitize_string(value: str, max_length: int = 1000) -> str:
     if not value:
         return value
     # Remover caracteres de controle e limitar tamanho
-    sanitized = ''.join(char for char in value if ord(char) >= 32 or char in '\n\r\t')[:max_length]
+    sanitized = ''.join(char for char in value if ord(char) >= 32 or char in '\n\r\t')
+    # Aplicar limite de tamanho após sanitização
+    if len(sanitized) > max_length:
+        sanitized = sanitized[:max_length]
     return sanitized.strip()
 
 
@@ -134,11 +152,18 @@ def create_medication(request: Request, medication: schemas.MedicationCreate, ap
         medication.notes = sanitize_string(medication.notes, 5000)
     
     db = next(get_db())
-    db_medication = models.Medication(**medication.model_dump())
-    db.add(db_medication)
-    db.commit()
-    db.refresh(db_medication)
-    return schemas.MedicationResponse.model_validate(db_medication).model_dump()
+    try:
+        db_medication = models.Medication(**medication.model_dump())
+        db.add(db_medication)
+        safe_db_commit(db)
+        db.refresh(db_medication)
+        return schemas.MedicationResponse.model_validate(db_medication).model_dump()
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        security_logger.error(f"Error creating medication: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.put("/api/medications/{medication_id}")
@@ -162,12 +187,19 @@ def update_medication(request: Request, medication_id: int, medication: schemas.
     if not db_medication:
         raise HTTPException(status_code=404, detail="Medication not found")
     
-    for key, value in medication.model_dump().items():
-        setattr(db_medication, key, value)
-    
-    db.commit()
-    db.refresh(db_medication)
-    return schemas.MedicationResponse.model_validate(db_medication).model_dump()
+    try:
+        for key, value in medication.model_dump().items():
+            setattr(db_medication, key, value)
+        
+        safe_db_commit(db)
+        db.refresh(db_medication)
+        return schemas.MedicationResponse.model_validate(db_medication).model_dump()
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        security_logger.error(f"Error updating medication: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.delete("/api/medications/{medication_id}")
@@ -179,9 +211,16 @@ def delete_medication(request: Request, medication_id: int, api_key: str = Depen
     if not db_medication:
         raise HTTPException(status_code=404, detail="Medication not found")
     
-    db.delete(db_medication)
-    db.commit()
-    return {"message": "Medication deleted"}
+    try:
+        db.delete(db_medication)
+        safe_db_commit(db)
+        return {"message": "Medication deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        security_logger.error(f"Error deleting medication: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ========== MEDICATION LOGS ==========
@@ -205,11 +244,18 @@ def create_medication_log(request: Request, log: schemas.MedicationLogCreate, ap
         raise HTTPException(status_code=400, detail="Invalid status. Must be: taken, skipped, or postponed")
     
     db = next(get_db())
-    db_log = models.MedicationLog(**log.model_dump())
-    db.add(db_log)
-    db.commit()
-    db.refresh(db_log)
-    return schemas.MedicationLogResponse.model_validate(db_log).model_dump()
+    try:
+        db_log = models.MedicationLog(**log.model_dump())
+        db.add(db_log)
+        safe_db_commit(db)
+        db.refresh(db_log)
+        return schemas.MedicationLogResponse.model_validate(db_log).model_dump()
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        security_logger.error(f"Error creating medication log: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ========== CONTATOS DE EMERGÊNCIA ==========
@@ -244,11 +290,18 @@ def create_emergency_contact(request: Request, contact: schemas.EmergencyContact
     if count >= 5:
         raise HTTPException(status_code=400, detail="Maximum of 5 emergency contacts allowed")
     
-    db_contact = models.EmergencyContact(**contact.model_dump())
-    db.add(db_contact)
-    db.commit()
-    db.refresh(db_contact)
-    return schemas.EmergencyContactResponse.model_validate(db_contact).model_dump()
+    try:
+        db_contact = models.EmergencyContact(**contact.model_dump())
+        db.add(db_contact)
+        safe_db_commit(db)
+        db.refresh(db_contact)
+        return schemas.EmergencyContactResponse.model_validate(db_contact).model_dump()
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        security_logger.error(f"Error creating emergency contact: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.put("/api/emergency-contacts/{contact_id}")
@@ -271,12 +324,19 @@ def update_emergency_contact(request: Request, contact_id: int, contact: schemas
     if not db_contact:
         raise HTTPException(status_code=404, detail="Contact not found")
     
-    for key, value in contact.model_dump().items():
-        setattr(db_contact, key, value)
-    
-    db.commit()
-    db.refresh(db_contact)
-    return schemas.EmergencyContactResponse.model_validate(db_contact).model_dump()
+    try:
+        for key, value in contact.model_dump().items():
+            setattr(db_contact, key, value)
+        
+        safe_db_commit(db)
+        db.refresh(db_contact)
+        return schemas.EmergencyContactResponse.model_validate(db_contact).model_dump()
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        security_logger.error(f"Error updating emergency contact: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.delete("/api/emergency-contacts/{contact_id}")
@@ -288,9 +348,16 @@ def delete_emergency_contact(request: Request, contact_id: int, api_key: str = D
     if not db_contact:
         raise HTTPException(status_code=404, detail="Contact not found")
     
-    db.delete(db_contact)
-    db.commit()
-    return {"message": "Contact deleted"}
+    try:
+        db.delete(db_contact)
+        safe_db_commit(db)
+        return {"message": "Contact deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        security_logger.error(f"Error deleting emergency contact: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ========== VISITAS AO MÉDICO ==========
@@ -319,11 +386,18 @@ def create_doctor_visit(request: Request, visit: schemas.DoctorVisitCreate, api_
         visit.notes = sanitize_string(visit.notes, 5000)
     
     db = next(get_db())
-    db_visit = models.DoctorVisit(**visit.model_dump())
-    db.add(db_visit)
-    db.commit()
-    db.refresh(db_visit)
-    return schemas.DoctorVisitResponse.model_validate(db_visit).model_dump()
+    try:
+        db_visit = models.DoctorVisit(**visit.model_dump())
+        db.add(db_visit)
+        safe_db_commit(db)
+        db.refresh(db_visit)
+        return schemas.DoctorVisitResponse.model_validate(db_visit).model_dump()
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        security_logger.error(f"Error creating doctor visit: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.put("/api/doctor-visits/{visit_id}")
@@ -346,12 +420,19 @@ def update_doctor_visit(request: Request, visit_id: int, visit: schemas.DoctorVi
     if not db_visit:
         raise HTTPException(status_code=404, detail="Visit not found")
     
-    for key, value in visit.model_dump().items():
-        setattr(db_visit, key, value)
-    
-    db.commit()
-    db.refresh(db_visit)
-    return schemas.DoctorVisitResponse.model_validate(db_visit).model_dump()
+    try:
+        for key, value in visit.model_dump().items():
+            setattr(db_visit, key, value)
+        
+        safe_db_commit(db)
+        db.refresh(db_visit)
+        return schemas.DoctorVisitResponse.model_validate(db_visit).model_dump()
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        security_logger.error(f"Error updating doctor visit: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.delete("/api/doctor-visits/{visit_id}")
@@ -363,9 +444,16 @@ def delete_doctor_visit(request: Request, visit_id: int, api_key: str = Depends(
     if not db_visit:
         raise HTTPException(status_code=404, detail="Visit not found")
     
-    db.delete(db_visit)
-    db.commit()
-    return {"message": "Visit deleted"}
+    try:
+        db.delete(db_visit)
+        safe_db_commit(db)
+        return {"message": "Visit deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        security_logger.error(f"Error deleting doctor visit: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.get("/health")
