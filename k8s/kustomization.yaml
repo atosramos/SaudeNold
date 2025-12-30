@@ -11,9 +11,11 @@ resources:
   - postgres-deployment.yaml
   - postgres-service.yaml
   - backend-configmap.yaml
+  - backend-secret.yaml
   - backend-deployment.yaml
   - backend-service.yaml
   - backend-ingress.yaml
+
 
 
 

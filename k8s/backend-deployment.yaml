@@ -13,6 +13,10 @@ spec:
       labels:
         app: backend
     spec:
+      tolerations:
+      - key: node.kubernetes.io/disk-pressure
+        operator: Exists
+        effect: NoSchedule
       containers:
       - name: backend
         image: saudenold-backend:latest
@@ -21,16 +25,36 @@ spec:
         - containerPort: 8000
           name: http
         env:
-        - name: DATABASE_URL
+        - name: DATABASE_USER
           valueFrom:
             configMapKeyRef:
-              name: backend-config
-              key: DATABASE_URL
+              name: postgres-config
+              key: POSTGRES_USER
+        - name: DATABASE_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: postgres-config
+              key: POSTGRES_DB
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: POSTGRES_PASSWORD
+        - name: DATABASE_HOST
+          value: "postgres.saudenold.svc.cluster.local"
+        - name: DATABASE_PORT
+          value: "5432"
+        # DATABASE_URL será construída no código a partir das variáveis acima
         - name: CORS_ORIGINS
           valueFrom:
             configMapKeyRef:
               name: backend-config
               key: CORS_ORIGINS
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: backend-secret
+              key: API_KEY
         resources:
           requests:
             memory: "128Mi"
