@@ -18,7 +18,8 @@
 - **Testes para visitas médicas**: Cobertura completa de testes para endpoints de visitas
 - **Testes para logs de medicamentos**: Testes para criação e listagem de logs
 - **Testes de autenticação e segurança**: Testes para validação de API keys, sanitização de strings, validação de imagens e validação de entrada
-- **Configuração de banco de teste**: SQLite em memória para testes rápidos e isolados
+- **Configuração de banco de teste**: SQLite usando arquivo temporário para evitar problemas de thread safety
+- **Correção de configuração de testes**: Corrigido problema de compatibilidade com SQLAlchemy 2.0 e thread safety do SQLite
 
 ### Arquivos Adicionados
 - `pytest.ini`: Configuração do pytest
@@ -31,6 +32,7 @@
 - `tests/test_auth_and_security.py`: Testes de autenticação e segurança
 - `tests/README.md`: Documentação sobre como executar os testes
 - `.gitignore`: Arquivos ignorados pelo git
+- `run_tests.sh` e `run_tests.ps1`: Scripts para executar os testes
 
 ### Dependências Adicionadas
 - `pytest==7.4.3`: Framework de testes
@@ -45,5 +47,13 @@ pip install -r requirements.txt
 pytest
 ```
 
+Ou usando os scripts:
+
+- **Linux/Mac**: `./run_tests.sh`
+- **Windows**: `.\run_tests.ps1`
+
 Para mais detalhes, consulte `tests/README.md`.
 
+### Status dos Testes
+
+✅ **Todos os 46 testes passam com sucesso**

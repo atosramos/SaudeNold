@@ -54,11 +54,12 @@ pytest --cov=. --cov-report=html
 
 ## Configuração
 
-Os testes usam SQLite em memória como banco de dados de teste, configurado automaticamente pelo `conftest.py`. Isso garante que:
+Os testes usam SQLite com arquivo temporário como banco de dados de teste, configurado automaticamente pelo `conftest.py`. Isso garante que:
 
 - Cada teste executa em isolamento
 - Não há necessidade de configurar um banco de dados externo
 - Os testes são rápidos e não deixam dados residuais
+- Problemas de thread safety são evitados usando arquivo temporário ao invés de `:memory:`
 
 ## API Key para Testes
 
