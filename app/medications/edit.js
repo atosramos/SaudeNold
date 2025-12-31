@@ -1,13 +1,14 @@
 import { StyleSheet, Text, View, TouchableOpacity, ScrollView, TextInput, Alert, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
+import { useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
-import { scheduleMedicationAlarms } from '../../services/alarm';
+import { rescheduleMedicationAlarms } from '../../services/alarm';
 
-export default function NewMedication() {
+export default function EditMedication() {
   const router = useRouter();
+  const { id, medication: medicationParam } = useLocalSearchParams();
   const [name, setName] = useState('');
   const [dosage, setDosage] = useState('');
   const [schedules, setSchedules] = useState([]);
@@ -24,6 +25,51 @@ export default function NewMedication() {
   const [showIntervalSchedule, setShowIntervalSchedule] = useState(false);
   const [showCustomTime, setShowCustomTime] = useState(false);
   const [showDaysOfWeek, setShowDaysOfWeek] = useState(false);
+
+  // Recarregar dados sempre que a tela receber foco
+  useFocusEffect(
+    useCallback(() => {
+      loadMedication();
+    }, [id])
+  );
+
+  const loadMedication = async () => {
+    try {
+      // Sempre buscar do AsyncStorage para ter os dados mais recentes
+      const stored = await AsyncStorage.getItem('medications');
+      if (stored) {
+        const medications = JSON.parse(stored);
+        const medicationData = medications.find(m => m.id === id);
+        
+        if (medicationData) {
+          setName(medicationData.name || '');
+          setDosage(medicationData.dosage || '');
+          setSchedules(medicationData.schedules || []);
+          setNotes(medicationData.notes || '');
+          setImage(medicationData.image || null);
+          setDaysOfWeek(medicationData.daysOfWeek || [0, 1, 2, 3, 4, 5, 6]);
+          setFasting(medicationData.fasting || false);
+          return;
+        }
+      }
+      
+      // Se não encontrou no AsyncStorage, tentar usar o param (fallback)
+      if (medicationParam) {
+        try {
+          const medicationData = JSON.parse(medicationParam);
+          setName(medicationData.name || '');
+          setDosage(medicationData.dosage || '');
+          setSchedules(medicationData.schedules || []);
+          setNotes(medicationData.notes || '');
+          setImage(medicationData.image || null);
+        } catch (e) {
+          console.error('Erro ao parsear medicationParam:', e);
+        }
+      }
+    } catch (error) {
+      console.error('Erro ao carregar medicamento:', error);
+    }
+  };
 
   // Gerar todos os horários do dia (de hora em hora)
   const generateQuickTimes = () => {
@@ -122,77 +168,58 @@ export default function NewMedication() {
   };
 
   const validateTime = (time) => {
-    // Validar formato HH:MM (24 horas)
     const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
     return timeRegex.test(time);
   };
 
-  // Função para formatar o horário com máscara automática
   const formatTimeInput = (text) => {
-    // Remove tudo que não é número
     const numbers = text.replace(/\D/g, '');
-    
-    // Limita a 4 dígitos
     const limitedNumbers = numbers.slice(0, 4);
     
-    // Se não tem nada, retorna vazio
     if (limitedNumbers.length === 0) {
       return '';
     }
     
-    // Se tem apenas 1 dígito, mostra "X:"
     if (limitedNumbers.length === 1) {
       return `${limitedNumbers}:`;
     }
     
-    // Se tem 2 dígitos, valida e mostra "XX:"
     if (limitedNumbers.length === 2) {
       const hour = parseInt(limitedNumbers);
-      // Se a hora é maior que 23, ajusta para o primeiro dígito como hora e segundo como início do minuto
       if (hour > 23) {
         return `${limitedNumbers[0]}:${limitedNumbers[1]}`;
       }
       return `${limitedNumbers}:`;
     }
     
-    // Se tem 3 dígitos, mostra "XX:X"
     if (limitedNumbers.length === 3) {
       const hour = limitedNumbers.slice(0, 2);
       const minute = limitedNumbers.slice(2, 3);
       const hourInt = parseInt(hour);
       
-      // Valida hora (0-23)
       if (hourInt > 23) {
-        // Se hora inválida, usa apenas o primeiro dígito como hora
         return `${hour[0]}:${hour[1]}${minute}`;
       }
       
-      // Valida minuto (0-5 para primeiro dígito)
       const minuteInt = parseInt(minute);
       if (minuteInt > 5) {
-        // Se minuto inválido, limita a 5
         return `${hour}:5`;
       }
       
       return `${hour}:${minute}`;
     }
     
-    // Se tem 4 dígitos, mostra "XX:XX"
     if (limitedNumbers.length === 4) {
       const hour = limitedNumbers.slice(0, 2);
       const minute = limitedNumbers.slice(2, 4);
       const hourInt = parseInt(hour);
       const minuteInt = parseInt(minute);
       
-      // Valida hora (0-23)
       if (hourInt > 23) {
-        // Se hora inválida, usa apenas o primeiro dígito como hora
         return `${hour[0]}:${hour[1]}${minute}`;
       }
       
-      // Valida minuto (0-59)
       if (minuteInt > 59) {
-        // Se minuto inválido, ajusta para 59
         return `${hour}:59`;
       }
       
@@ -225,7 +252,6 @@ export default function NewMedication() {
       return;
     }
 
-    // Formatar para garantir dois dígitos na hora
     const [hours, minutes] = time.split(':');
     const formattedTime = `${hours.padStart(2, '0')}:${minutes}`;
 
@@ -290,35 +316,40 @@ export default function NewMedication() {
       const stored = await AsyncStorage.getItem('medications');
       const medications = stored ? JSON.parse(stored) : [];
       
-      const newMedication = {
-        id: Date.now().toString(),
-        name: name.trim(),
-        dosage: dosage.trim(),
-        schedules: schedules.sort(),
-        notes: notes.trim(),
-        image: image,
-        active: true,
-        daysOfWeek: daysOfWeek.sort(), // Dias da semana selecionados (0=Domingo, 6=Sábado)
-        fasting: fasting, // Se deve ser tomado em jejum
-      };
+      const updatedMedications = medications.map(m => 
+        m.id === id 
+          ? {
+              ...m,
+              name: name.trim(),
+              dosage: dosage.trim(),
+              schedules: schedules.sort(),
+              notes: notes.trim(),
+              image: image,
+              daysOfWeek: daysOfWeek.sort(),
+              fasting: fasting,
+            }
+          : m
+      );
 
-      medications.push(newMedication);
-      await AsyncStorage.setItem('medications', JSON.stringify(medications));
+      await AsyncStorage.setItem('medications', JSON.stringify(updatedMedications));
       
-      // Agendar alarmes para o medicamento
-      try {
-        await scheduleMedicationAlarms(newMedication);
-      } catch (error) {
-        console.error('Erro ao agendar alarmes:', error);
-        // Não bloquear o cadastro se o agendamento falhar
+      // Reagendar alarmes para o medicamento atualizado
+      const updatedMedication = updatedMedications.find(m => m.id === id);
+      if (updatedMedication) {
+        try {
+          await rescheduleMedicationAlarms(updatedMedication);
+        } catch (error) {
+          console.error('Erro ao reagendar alarmes:', error);
+          // Não bloquear a atualização se o reagendamento falhar
+        }
       }
       
-      Alert.alert('Sucesso', 'Medicamento cadastrado com sucesso!', [
+      Alert.alert('Sucesso', 'Medicamento atualizado com sucesso!', [
         { text: 'OK', onPress: () => router.back() }
       ]);
     } catch (error) {
-      console.error('Erro ao salvar medicamento:', error);
-      Alert.alert('Erro', 'Não foi possível salvar o medicamento');
+      console.error('Erro ao atualizar medicamento:', error);
+      Alert.alert('Erro', 'Não foi possível atualizar o medicamento');
     }
   };
 
@@ -331,7 +362,7 @@ export default function NewMedication() {
         >
           <Ionicons name="arrow-back" size={32} color="#4ECDC4" />
         </TouchableOpacity>
-        <Text style={styles.title}>Novo Medicamento</Text>
+        <Text style={styles.title}>Editar Medicamento</Text>
       </View>
 
       <View style={styles.form}>
@@ -380,8 +411,23 @@ export default function NewMedication() {
           </View>
         </View>
 
+        {/* Agendamento por Intervalo - Submenu Colapsável */}
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Agendamento por Intervalo</Text>
+          <TouchableOpacity
+            style={styles.collapsibleHeader}
+            onPress={() => setShowIntervalSchedule(!showIntervalSchedule)}
+          >
+            <View style={styles.collapsibleHeaderLeft}>
+              <Ionicons name="repeat-outline" size={28} color="#4ECDC4" />
+              <Text style={styles.collapsibleHeaderText}>Agendamento por Intervalo</Text>
+            </View>
+            <Ionicons 
+              name={showIntervalSchedule ? "chevron-up" : "chevron-down"} 
+              size={28} 
+              color="#4ECDC4" 
+            />
+          </TouchableOpacity>
+          {showIntervalSchedule && (
           <View style={styles.intervalContainer}>
             <Text style={styles.intervalLabel}>Horário Inicial:</Text>
             <View style={styles.intervalTimeContainer}>
@@ -538,7 +584,7 @@ export default function NewMedication() {
         </View>
 
         <TouchableOpacity style={styles.saveButton} onPress={saveMedication}>
-          <Text style={styles.saveButtonText}>Salvar Medicamento</Text>
+          <Text style={styles.saveButtonText}>Salvar Alterações</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -800,7 +846,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#fff',
   },
-  // Estilos para submenus colapsáveis
   collapsibleHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -822,7 +867,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#333',
   },
-  // Estilos para opção de jejum
   fastingToggle: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -861,7 +905,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: '#666',
   },
-  // Estilos para dias da semana
   daysOfWeekContainer: {
     backgroundColor: '#f9f9f9',
     borderRadius: 12,

@@ -8,7 +8,8 @@
     "userInterfaceStyle": "light",
     "scheme": "saudenold",
     "plugins": [
-      "expo-router"
+      "expo-router",
+      "@react-native-community/datetimepicker"
     ],
     "splash": {
       "image": "./assets/splash-icon.png",
@@ -33,7 +34,9 @@
         "CAMERA",
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE",
-        "RECEIVE_BOOT_COMPLETED"
+        "RECEIVE_BOOT_COMPLETED",
+        "RECORD_AUDIO",
+        "MODIFY_AUDIO_SETTINGS"
       ]
     },
     "web": {
@@ -41,10 +44,11 @@
     },
     "extra": {
       "eas": {
-        "projectId": ""
+        "projectId": "652a1313-f0f8-4a45-b835-94cbb1f72ae6"
       },
       "apiUrl": "http://localhost:8000",
-      "apiKey": ""
+      "apiKey": "",
+      "router": {}
     }
   }
 }

@@ -38,6 +38,14 @@ export default function Home() {
         </TouchableOpacity>
 
         <TouchableOpacity 
+          style={[styles.menuButton, styles.anamnesisButton]}
+          onPress={() => router.push('/anamnesis')}
+        >
+          <Ionicons name="document-text" size={48} color="#fff" />
+          <Text style={styles.menuButtonText}>Ficha de Anamnese</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
           style={[styles.menuButton, styles.historyButton, styles.lastButton]}
           onPress={() => router.push('/history')}
         >
@@ -93,8 +101,11 @@ const styles = StyleSheet.create({
   visitsButton: {
     backgroundColor: '#95E1D3',
   },
+  anamnesisButton: {
+    backgroundColor: '#FFA07A',
+  },
   historyButton: {
-    backgroundColor: '#F38181',
+    backgroundColor: '#9B59B6',
   },
   lastButton: {
     marginBottom: 0,

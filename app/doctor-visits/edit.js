@@ -1,10 +1,10 @@
 import { StyleSheet, Text, View, TouchableOpacity, ScrollView, TextInput, Alert, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { scheduleVisitAlarms } from '../../services/alarm';
+import { cancelVisitAlarms, scheduleVisitAlarms } from '../../services/alarm';
 
 const specialties = [
   'Cardiologista',
@@ -18,8 +18,9 @@ const specialties = [
   'Outro',
 ];
 
-export default function NewDoctorVisit() {
+export default function EditDoctorVisit() {
   const router = useRouter();
+  const { id, visit: visitParam } = useLocalSearchParams();
   const [doctorName, setDoctorName] = useState('');
   const [specialty, setSpecialty] = useState('');
   const [visitDate, setVisitDate] = useState(new Date());
@@ -27,7 +28,38 @@ export default function NewDoctorVisit() {
   const [notes, setNotes] = useState('');
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
-  const [reminderBefore, setReminderBefore] = useState('1h'); // 1h antes, 1 dia antes, etc.
+  const [reminderBefore, setReminderBefore] = useState('1h');
+
+  useEffect(() => {
+    loadVisit();
+  }, []);
+
+  const loadVisit = async () => {
+    try {
+      let visitData;
+      if (visitParam) {
+        visitData = JSON.parse(visitParam);
+      } else {
+        const stored = await AsyncStorage.getItem('doctorVisits');
+        if (stored) {
+          const visits = JSON.parse(stored);
+          visitData = visits.find(v => v.id === id);
+        }
+      }
+      
+      if (visitData) {
+        setDoctorName(visitData.doctorName || '');
+        setSpecialty(visitData.specialty || '');
+        const date = visitData.visitDate ? new Date(visitData.visitDate) : new Date();
+        setVisitDate(date);
+        setVisitTime(date);
+        setNotes(visitData.notes || '');
+        setReminderBefore(visitData.reminderBefore || '1h');
+      }
+    } catch (error) {
+      console.error('Erro ao carregar visita:', error);
+    }
+  };
 
   const saveVisit = async () => {
     if (!doctorName.trim()) {
@@ -51,32 +83,39 @@ export default function NewDoctorVisit() {
       combinedDateTime.setSeconds(0);
       combinedDateTime.setMilliseconds(0);
 
-      const newVisit = {
-        id: Date.now().toString(),
-        doctorName: doctorName.trim(),
-        specialty: specialty,
-        visitDate: combinedDateTime.toISOString(),
-        notes: notes.trim(),
-        reminderBefore: reminderBefore,
-      };
+      const updatedVisits = visits.map(v => 
+        v.id === id
+          ? {
+              ...v,
+              doctorName: doctorName.trim(),
+              specialty: specialty,
+              visitDate: combinedDateTime.toISOString(),
+              notes: notes.trim(),
+              reminderBefore: reminderBefore,
+            }
+          : v
+      );
 
-      visits.push(newVisit);
-      await AsyncStorage.setItem('doctorVisits', JSON.stringify(visits));
+      await AsyncStorage.setItem('doctorVisits', JSON.stringify(updatedVisits));
       
-      // Agendar alarmes para a consulta
+      // Cancelar alarmes antigos e agendar novos
       try {
-        await scheduleVisitAlarms(newVisit);
+        await cancelVisitAlarms(id);
+        const updatedVisit = updatedVisits.find(v => v.id === id);
+        if (updatedVisit) {
+          await scheduleVisitAlarms(updatedVisit);
+        }
       } catch (error) {
-        console.error('Erro ao agendar alarmes da consulta:', error);
-        // Não bloquear o cadastro se o agendamento falhar
+        console.error('Erro ao atualizar alarmes da consulta:', error);
+        // Não bloquear a atualização se o reagendamento falhar
       }
       
-      Alert.alert('Sucesso', 'Visita cadastrada com sucesso!', [
+      Alert.alert('Sucesso', 'Visita atualizada com sucesso!', [
         { text: 'OK', onPress: () => router.back() }
       ]);
     } catch (error) {
-      console.error('Erro ao salvar visita:', error);
-      Alert.alert('Erro', 'Não foi possível salvar a visita');
+      console.error('Erro ao atualizar visita:', error);
+      Alert.alert('Erro', 'Não foi possível atualizar a visita');
     }
   };
 
@@ -97,7 +136,7 @@ export default function NewDoctorVisit() {
         >
           <Ionicons name="arrow-back" size={32} color="#95E1D3" />
         </TouchableOpacity>
-        <Text style={styles.title}>Nova Visita</Text>
+        <Text style={styles.title}>Editar Visita</Text>
       </View>
 
       <View style={styles.form}>
@@ -223,7 +262,7 @@ export default function NewDoctorVisit() {
         </View>
 
         <TouchableOpacity style={styles.saveButton} onPress={saveVisit}>
-          <Text style={styles.saveButtonText}>Salvar Visita</Text>
+          <Text style={styles.saveButtonText}>Salvar Alterações</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -362,4 +401,5 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
 });
+
 
