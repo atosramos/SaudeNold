@@ -68,7 +68,7 @@ export const performOCROnline = async (imageBase64, apiKey = null) => {
  * Suporta imagens e PDFs
  * Não requer chave de API, mas tem limite de requisições
  */
-export const performOCROnlineFree = async (fileBase64, fileType = 'image', fileInput = null) => {
+export const performOCROnlineFree = async (fileBase64, fileType = 'image', fileInput = null, addDebugLog = null) => {
   try {
     // Timeout de 120 segundos (aumentado para evitar timeouts)
     const controller = new AbortController();
@@ -211,9 +211,11 @@ export const performOCROnlineFree = async (fileBase64, fileType = 'image', fileI
       });
     }
 
+    if (addDebugLog) addDebugLog(`Enviando ${fileType} para OCR online (${Math.round(body.length / 1024)} KB)...`, 'info');
     console.log(`[OCR Online] Mobile: Enviando ${fileType} para OCR online via JSON...`);
     console.log(`[OCR Online] Mobile: Tamanho do body: ${body.length} bytes`);
 
+    if (addDebugLog) addDebugLog('Aguardando resposta do servidor OCR...', 'info');
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -225,6 +227,8 @@ export const performOCROnlineFree = async (fileBase64, fileType = 'image', fileI
     });
 
     clearTimeout(timeoutId);
+    
+    if (addDebugLog) addDebugLog(`Resposta recebida: ${response.status} ${response.statusText}`, response.ok ? 'success' : 'error');
 
     if (!response.ok) {
       let errorText = '';
@@ -260,6 +264,7 @@ export const performOCROnlineFree = async (fileBase64, fileType = 'image', fileI
       throw new Error(errorMessage);
     }
 
+    if (addDebugLog) addDebugLog('Processando resposta do OCR...', 'info');
     const data = await response.json();
     
     console.log('Resposta da API OCR:', {
@@ -273,9 +278,11 @@ export const performOCROnlineFree = async (fileBase64, fileType = 'image', fileI
       const text = result.ParsedText;
       
       if (text && text.trim().length > 0) {
+        if (addDebugLog) addDebugLog(`OCR extraiu ${text.length} caracteres com sucesso!`, 'success');
         console.log(`OCR extraiu ${text.length} caracteres`);
         return text.trim();
       } else {
+        if (addDebugLog) addDebugLog('OCR retornou resultado vazio', 'error');
         console.log('OCR retornou resultado vazio');
       }
     }

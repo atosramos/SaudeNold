@@ -539,11 +539,14 @@ export default function NewMedicalExam() {
           setOcrProgress(progress);
           if (progress.progress !== undefined) {
             const percent = Math.round(progress.progress * 100);
-            console.log(`📊 OCR: ${progress.status} - ${percent}%`);
+            const statusMsg = `OCR: ${progress.status} - ${percent}%`;
+            addDebugLog(statusMsg, 'info');
+            console.log(`📊 ${statusMsg}`);
           } else {
+            addDebugLog(`OCR: ${progress.status}`, 'info');
             console.log(`📊 OCR: ${progress.status}`);
           }
-        });
+        }, addDebugLog); // Passar callback de debug
         
         if (ocrText) {
           console.log(`✅ OCR extraiu ${ocrText.length} caracteres`);
@@ -610,11 +613,14 @@ export default function NewMedicalExam() {
             throw new Error('Arquivo selecionado está vazio. Selecione um arquivo válido e tente novamente.');
           }
           
+          addDebugLog('Segunda tentativa de OCR...', 'info');
           ocrText = await performOCR(fileForOCR, fileType, (progress) => {
             setOcrProgress(progress);
-          });
+            addDebugLog(`OCR retry: ${progress.status}`, 'info');
+          }, addDebugLog);
           
           if (!ocrText || ocrText.trim().length === 0) {
+            addDebugLog('ERRO: OCR falhou após 2 tentativas', 'error');
             throw new Error('OCR não conseguiu extrair texto após 2 tentativas');
           }
         } catch (retryError) {
