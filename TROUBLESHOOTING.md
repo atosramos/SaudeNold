@@ -39,3 +39,18 @@ Quando tentar abrir no Android, verifique o terminal onde o Expo está rodando. 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

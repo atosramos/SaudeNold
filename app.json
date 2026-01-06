@@ -6,49 +6,25 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "scheme": "saudenold",
-    "plugins": [
-      "expo-router",
-      "@react-native-community/datetimepicker"
-    ],
+    "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#4ECDC4"
+      "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.saudenold.app",
-      "infoPlist": {
-        "NSPhotoLibraryUsageDescription": "O app precisa acessar suas fotos para adicionar imagens de medicamentos e contatos.",
-        "NSCameraUsageDescription": "O app precisa acessar a câmera para tirar fotos de medicamentos e contatos."
-      }
+      "supportsTablet": true
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#4ECDC4"
+        "backgroundColor": "#ffffff"
       },
-      "package": "com.saudenold.app",
-      "permissions": [
-        "CAMERA",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE",
-        "RECEIVE_BOOT_COMPLETED",
-        "RECORD_AUDIO",
-        "MODIFY_AUDIO_SETTINGS"
-      ]
+      "edgeToEdgeEnabled": true,
+      "package": "com.atosramos.SaudeNold"
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    },
-    "extra": {
-      "eas": {
-        "projectId": "652a1313-f0f8-4a45-b835-94cbb1f72ae6"
-      },
-      "apiUrl": "http://localhost:8000",
-      "apiKey": "",
-      "router": {}
     }
   }
 }

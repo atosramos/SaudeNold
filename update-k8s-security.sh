@@ -92,3 +92,17 @@ echo "   1. Atualize o app.json do frontend com a API Key: $api_key"
 echo "   2. Teste a API com: curl -H 'Authorization: Bearer $api_key' http://localhost:8000/api/medications"
 echo "   3. Verifique os logs: kubectl logs -f deployment/backend -n saudenold"
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+

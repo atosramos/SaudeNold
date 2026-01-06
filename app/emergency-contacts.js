@@ -1,17 +1,23 @@
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, FlatList, Alert } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, FlatList, Image, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { useState, useEffect } from 'react';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Linking from 'expo-linking';
+import { useCustomModal } from '../hooks/useCustomModal';
 
 export default function EmergencyContacts() {
   const router = useRouter();
+  const { showModal, ModalComponent } = useCustomModal();
   const [contacts, setContacts] = useState([]);
+  const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
+  const [selectedPhone, setSelectedPhone] = useState('');
 
-  useEffect(() => {
-    loadContacts();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      loadContacts();
+    }, [])
+  );
 
   const loadContacts = async () => {
     try {
@@ -28,18 +34,77 @@ export default function EmergencyContacts() {
     Linking.openURL(`tel:${phone}`);
   };
 
-  const whatsappContact = (phone) => {
+  const whatsappChat = async (phone) => {
     const formattedPhone = phone.replace(/\D/g, '');
-    Linking.openURL(`whatsapp://send?phone=${formattedPhone}`);
+    // Usa formato https://wa.me/ que funciona tanto no app quanto no navegador
+    try {
+      await Linking.openURL(`https://wa.me/${formattedPhone}`);
+    } catch (err) {
+      console.error('Erro ao abrir WhatsApp chat:', err);
+      showModal('Erro', 'Não foi possível abrir o WhatsApp', 'error');
+      throw err;
+    }
+  };
+
+  const whatsappCall = async (phone) => {
+    const formattedPhone = phone.replace(/\D/g, '');
+    
+    // O WhatsApp não tem deep link oficial para ligação direta
+    // Vamos tentar abrir o chat primeiro, que é a forma mais confiável
+    try {
+      // Abre o chat do WhatsApp
+      await whatsappChat(phone);
+    } catch (error) {
+      console.error('Erro ao abrir WhatsApp:', error);
+      showModal('Erro', 'Não foi possível abrir o WhatsApp. Verifique se o aplicativo está instalado.', 'error');
+    }
+  };
+
+  const showWhatsAppOptions = (phone) => {
+    setSelectedPhone(phone);
+    setShowWhatsAppModal(true);
+  };
+
+  const handleWhatsAppChat = () => {
+    setShowWhatsAppModal(false);
+    whatsappChat(selectedPhone);
+  };
+
+  const handleWhatsAppCall = () => {
+    setShowWhatsAppModal(false);
+    whatsappCall(selectedPhone);
+  };
+
+  const deleteContact = async (id) => {
+    showModal(
+      'Confirmar Exclusão',
+      'Tem certeza que deseja excluir este contato?',
+      'confirm',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Excluir',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const updated = contacts.filter(c => c.id !== id);
+              await AsyncStorage.setItem('emergencyContacts', JSON.stringify(updated));
+              setContacts(updated);
+            } catch (error) {
+              console.error('Erro ao excluir contato:', error);
+              showModal('Erro', 'Não foi possível excluir o contato', 'error');
+            }
+          }
+        }
+      ]
+    );
   };
 
   const renderContact = ({ item }) => (
     <View style={styles.contactCard}>
       <View style={styles.contactPhoto}>
         {item.photo ? (
-          <View style={styles.photoPlaceholder}>
-            <Ionicons name="person" size={60} color="#fff" />
-          </View>
+          <Image source={{ uri: item.photo }} style={styles.contactPhotoImage} />
         ) : (
           <View style={styles.photoPlaceholder}>
             <Ionicons name="person" size={60} color="#fff" />
@@ -47,9 +112,30 @@ export default function EmergencyContacts() {
         )}
       </View>
       <View style={styles.contactInfo}>
-        <Text style={styles.contactName}>{item.name}</Text>
-        <Text style={styles.contactRelation}>{item.relation}</Text>
-        <Text style={styles.contactPhone}>{item.phone}</Text>
+        <View style={styles.contactHeader}>
+          <View style={styles.contactHeaderText}>
+            <Text style={styles.contactName}>{item.name}</Text>
+            <Text style={styles.contactRelation}>{item.relation}</Text>
+            <Text style={styles.contactPhone}>{item.phone}</Text>
+          </View>
+          <View style={styles.contactCardActions}>
+            <TouchableOpacity
+              style={styles.editButton}
+              onPress={() => router.push({
+                pathname: '/emergency-contacts/edit',
+                params: { id: item.id, contact: JSON.stringify(item) }
+              })}
+            >
+              <Ionicons name="create-outline" size={24} color="#FF6B6B" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.deleteButton}
+              onPress={() => deleteContact(item.id)}
+            >
+              <Ionicons name="trash-outline" size={24} color="#FF6B6B" />
+            </TouchableOpacity>
+          </View>
+        </View>
         <View style={styles.contactActions}>
           <TouchableOpacity
             style={styles.actionButton}
@@ -60,7 +146,7 @@ export default function EmergencyContacts() {
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.actionButton, styles.whatsappButton]}
-            onPress={() => whatsappContact(item.phone)}
+            onPress={() => showWhatsAppOptions(item.phone)}
           >
             <Ionicons name="logo-whatsapp" size={32} color="#fff" />
             <Text style={styles.actionButtonText}>WhatsApp</Text>
@@ -114,6 +200,50 @@ export default function EmergencyContacts() {
           <Text style={styles.limitText}>Limite de 5 contatos atingido</Text>
         </View>
       )}
+
+      {/* Modal customizado para escolha do WhatsApp */}
+      <Modal
+        visible={showWhatsAppModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowWhatsAppModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Ionicons name="logo-whatsapp" size={48} color="#25D366" />
+              <Text style={styles.modalTitle}>WhatsApp</Text>
+              <Text style={styles.modalSubtitle}>Escolha uma opção</Text>
+            </View>
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.chatButton]}
+                onPress={handleWhatsAppChat}
+              >
+                <Ionicons name="chatbubbles" size={40} color="#fff" />
+                <Text style={styles.modalButtonText}>Chat</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.modalButton, styles.callButton]}
+                onPress={handleWhatsAppCall}
+              >
+                <Ionicons name="call" size={40} color="#fff" />
+                <Text style={styles.modalButtonText}>Ligação</Text>
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              style={styles.modalCancelButton}
+              onPress={() => setShowWhatsAppModal(false)}
+            >
+              <Text style={styles.modalCancelText}>Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+      <ModalComponent />
     </ScrollView>
   );
 }
@@ -167,6 +297,33 @@ const styles = StyleSheet.create({
   contactInfo: {
     alignItems: 'center',
     width: '100%',
+  },
+  contactHeader: {
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 16,
+  },
+  contactHeaderText: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  contactCardActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  editButton: {
+    padding: 8,
+  },
+  deleteButton: {
+    padding: 8,
+  },
+  contactPhotoImage: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    resizeMode: 'cover',
   },
   contactName: {
     fontSize: 28,
@@ -254,7 +411,81 @@ const styles = StyleSheet.create({
     color: '#999',
     textAlign: 'center',
   },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 24,
+    padding: 32,
+    width: '100%',
+    maxWidth: 400,
+    alignItems: 'center',
+  },
+  modalHeader: {
+    alignItems: 'center',
+    marginBottom: 32,
+  },
+  modalTitle: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: '#333',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  modalSubtitle: {
+    fontSize: 22,
+    color: '#666',
+  },
+  modalButtons: {
+    width: '100%',
+    gap: 16,
+    marginBottom: 24,
+  },
+  modalButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+    borderRadius: 16,
+    gap: 12,
+    minHeight: 100,
+  },
+  chatButton: {
+    backgroundColor: '#25D366',
+  },
+  callButton: {
+    backgroundColor: '#4ECDC4',
+  },
+  modalButtonText: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  modalCancelButton: {
+    padding: 16,
+    width: '100%',
+    alignItems: 'center',
+  },
+  modalCancelText: {
+    fontSize: 24,
+    color: '#999',
+    fontWeight: '600',
+  },
 });
+
+
+
+
+
+
+
+
+
 
 
 

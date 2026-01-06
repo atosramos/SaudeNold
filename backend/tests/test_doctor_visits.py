@@ -163,3 +163,10 @@ class TestDoctorVisits:
         response = client.post("/api/doctor-visits", json=visit_data)
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
+
+
+
+
+
+
+

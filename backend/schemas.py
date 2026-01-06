@@ -93,3 +93,60 @@ class DoctorVisitResponse(DoctorVisitBase):
     class Config:
         from_attributes = True
 
+
+# ========== EXAMES MÉDICOS ==========
+class MedicalExamBase(BaseModel):
+    exam_date: Optional[datetime] = None
+    exam_type: Optional[str] = None
+
+
+class MedicalExamCreate(MedicalExamBase):
+    image_base64: str  # Imagem ou PDF em base64
+    file_type: Optional[str] = 'image'  # 'image' ou 'pdf'
+
+
+class MedicalExamResponse(MedicalExamBase):
+    id: int
+    image_base64: Optional[str] = None
+    file_type: str = 'image'
+    raw_ocr_text: Optional[str] = None
+    extracted_data: Optional[dict] = None
+    processing_status: str
+    processing_error: Optional[str] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class MedicalExamUpdate(BaseModel):
+    exam_date: Optional[datetime] = None
+    exam_type: Optional[str] = None
+
+
+# ========== DADOS DE EXAMES (PARA ANÁLISE TEMPORAL) ==========
+class ExamDataPointResponse(BaseModel):
+    id: int
+    exam_id: int
+    parameter_name: str
+    value: str
+    numeric_value: Optional[str] = None
+    unit: Optional[str] = None
+    reference_range_min: Optional[str] = None
+    reference_range_max: Optional[str] = None
+    exam_date: datetime
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ExamTimelineData(BaseModel):
+    """Dados para gráfico de linha do tempo"""
+    parameter_name: str
+    unit: Optional[str] = None
+    data_points: List[dict]  # Lista de {exam_date, value, exam_id}
+    reference_range_min: Optional[str] = None
+    reference_range_max: Optional[str] = None
+

@@ -127,3 +127,18 @@ Este é o comportamento **normal** do Kubernetes quando há disk pressure:
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

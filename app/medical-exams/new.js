@@ -1,5 +1,7 @@
 import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Image, ActivityIndicator, Alert, TextInput, Modal, Platform } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
+import Pdf from 'react-native-pdf';
 import { useRouter } from 'expo-router';
 import { useState, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -23,6 +25,8 @@ export default function NewMedicalExam() {
   const [originalFile, setOriginalFile] = useState(null); // Para browser: manter File object
   const [debugLogs, setDebugLogs] = useState([]); // Logs para debug visual no mobile
   const [showDebugPanel, setShowDebugPanel] = useState(false); // Mostrar/ocultar painel de debug
+  const [showPdfModal, setShowPdfModal] = useState(false); // Mostrar/ocultar modal do PDF
+  const [processedFile, setProcessedFile] = useState(null); // Arquivo processado para visualização
 
   const pickImage = async () => {
     try {
@@ -47,16 +51,16 @@ export default function NewMedicalExam() {
       }
 
       // No mobile, usar ImagePicker
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [4, 3],
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [4, 3],
         quality: 0.7,
-      });
+    });
 
-      if (!result.canceled) {
-        setFile(result.assets[0].uri);
-        setFileType('image');
+    if (!result.canceled) {
+      setFile(result.assets[0].uri);
+      setFileType('image');
       }
     } catch (error) {
       console.error('Erro ao selecionar imagem:', error);
@@ -73,15 +77,15 @@ export default function NewMedicalExam() {
         return;
       }
 
-      const result = await ImagePicker.launchCameraAsync({
-        allowsEditing: true,
-        aspect: [4, 3],
+    const result = await ImagePicker.launchCameraAsync({
+      allowsEditing: true,
+      aspect: [4, 3],
         quality: 0.7,
-      });
+    });
 
-      if (!result.canceled) {
-        setFile(result.assets[0].uri);
-        setFileType('image');
+    if (!result.canceled) {
+      setFile(result.assets[0].uri);
+      setFileType('image');
       }
     } catch (error) {
       console.error('Erro ao tirar foto:', error);
@@ -129,7 +133,7 @@ export default function NewMedicalExam() {
         // Verificar se o arquivo tem tamanho válido
         if (selectedFile.size && selectedFile.size > 0) {
           setFile(selectedFile.uri);
-          setFileType('pdf');
+        setFileType('pdf');
           console.log('✅ PDF configurado com sucesso');
         } else {
           console.error('❌ Arquivo selecionado está vazio');
@@ -228,8 +232,8 @@ export default function NewMedicalExam() {
         // Se temos o File object original, usar ele
         if (originalFile && originalFile instanceof File) {
           console.log('Browser: Usando originalFile (File object) para converter para base64...');
-          return new Promise((resolve, reject) => {
-            const reader = new FileReader();
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
             reader.onload = (event) => {
               try {
                 const dataUrl = event.target.result;
@@ -239,7 +243,7 @@ export default function NewMedicalExam() {
                 if (base64Index !== -1) {
                   const base64 = dataUrl.substring(base64Index + 1);
                   console.log('Browser: Base64 extraído, tamanho:', base64.length);
-                  resolve(base64);
+          resolve(base64);
                 } else {
                   reject(new Error('Erro ao extrair base64: data URL inválida'));
                 }
@@ -404,12 +408,13 @@ export default function NewMedicalExam() {
         return;
       }
 
-      // NOVO FLUXO: Tentar Gemini direto primeiro (sem OCR)
+      // FLUXO: Apenas Gemini Direct (SEM OCR)
       // IMPORTANTE: No mobile, variáveis de ambiente só funcionam após rebuild do app
       // Se estiver usando Expo Go, as variáveis não estarão disponíveis
       const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY || null;
       let extractedData = null;
       
+      addDebugLog(`Verificando chave Gemini... hasKey: ${!!GEMINI_API_KEY}`, 'info');
       console.log('🔍 Verificando chave Gemini...', { 
         hasKey: !!GEMINI_API_KEY, 
         keyLength: GEMINI_API_KEY?.length || 0,
@@ -417,253 +422,118 @@ export default function NewMedicalExam() {
         envKeys: Object.keys(process.env).filter(k => k.includes('GEMINI') || k.includes('EXPO_PUBLIC'))
       });
       
-      // No mobile, se não tiver chave, pular direto para OCR
-      if (GEMINI_API_KEY && GEMINI_API_KEY.length > 0) {
-        try {
-          console.log('🚀 Tentando Gemini Direct (processamento direto do arquivo)...');
-          console.log('📁 Arquivo para processar:', { 
-            type: typeof file, 
-            uri: file?.substring(0, 50) || 'N/A',
-            fileType,
-            platform: Platform.OS 
-          });
-          
-          showAlert('Processando', 'Analisando documento diretamente com Gemini... Isso pode levar alguns segundos.', 'info');
-          
-          // Preparar arquivo para Gemini - SEMPRE usar originalFile se disponível e válido
-          let fileForGemini;
-          if (Platform.OS === 'web' && originalFile && originalFile instanceof File && originalFile.size > 0) {
-            fileForGemini = originalFile;
-            console.log('✅ Usando originalFile para Gemini Direct, tamanho:', originalFile.size);
-          } else {
-            fileForGemini = file;
-            console.log('✅ Usando file (URI/blob) para Gemini Direct:', typeof fileForGemini, fileForGemini?.substring?.(0, 50) || 'N/A');
-          }
-          
-          console.log('📤 Enviando para Gemini Direct...');
-          console.log('📤 Detalhes do envio:', {
-            fileType: typeof fileForGemini,
-            fileUri: typeof fileForGemini === 'string' ? fileForGemini.substring(0, 50) : 'File object',
-            fileTypeParam: fileType,
-            hasApiKey: !!GEMINI_API_KEY,
-            apiKeyLength: GEMINI_API_KEY?.length || 0
-          });
-          
-          try {
-            extractedData = await extractDataWithGeminiDirect(fileForGemini, fileType, GEMINI_API_KEY);
-            console.log('📥 Resposta do Gemini Direct:', { 
-              hasData: !!extractedData, 
-              parametersCount: extractedData?.parameters?.length || 0,
-              examDate: extractedData?.exam_date,
-              examType: extractedData?.exam_type
-            });
-          } catch (geminiError) {
-            console.error('❌ Erro detalhado no Gemini Direct:', geminiError);
-            console.error('❌ Mensagem:', geminiError.message);
-            console.error('❌ Stack:', geminiError.stack);
-            throw geminiError; // Re-throw para ser capturado pelo catch externo
-          }
-          
-          if (extractedData && extractedData.parameters && extractedData.parameters.length > 0) {
-            console.log(`✅ Gemini Direct extraiu ${extractedData.parameters.length} parâmetros diretamente do arquivo!`);
-            showAlert('Sucesso', `Análise concluída! ${extractedData.parameters.length} parâmetro(s) extraído(s) diretamente.`, 'success');
-            
-            // Salvar exame com dados extraídos
-            await processAndSaveExam(fileBase64, null, extractedData);
-            return; // Sucesso! Não precisa continuar
-          } else {
-            console.log('⚠️ Gemini Direct não retornou dados suficientes, tentando OCR...');
-            if (Platform.OS !== 'web') {
-              showAlert('Aviso', 'Gemini não conseguiu extrair dados. Tentando OCR...', 'info');
-            }
-          }
-        } catch (error) {
-          addDebugLog(`ERRO Gemini Direct: ${error.message || 'Erro desconhecido'}`, 'error');
-          console.error('❌ Erro no Gemini Direct:', error);
-          console.error('❌ Stack trace:', error.stack);
-          console.log('⚠️ Gemini Direct falhou, tentando OCR como fallback...');
-          if (Platform.OS !== 'web') {
-            showAlert('Aviso', 'Gemini falhou. Tentando OCR...', 'info');
-          }
-          // Continuar para tentar OCR
-        }
-      } else {
-        console.log('⚠️ Chave Gemini não configurada, usando OCR...');
+      // Verificar se tem chave Gemini
+      if (!GEMINI_API_KEY || GEMINI_API_KEY.length === 0) {
+        const errorMsg = '❌ Chave Gemini não configurada. Configure EXPO_PUBLIC_GEMINI_API_KEY no .env';
+        console.error(errorMsg);
+        addDebugLog(errorMsg, 'error');
         if (Platform.OS !== 'web') {
-          console.log('💡 Dica: No mobile, variáveis de ambiente precisam estar no build do app.');
-          console.log('💡 Se estiver usando APK, a chave precisa estar configurada no EAS Build.');
+          addDebugLog('💡 Dica: No mobile, variáveis de ambiente precisam estar no build do app.', 'info');
+          addDebugLog('💡 Se estiver usando APK, a chave precisa estar configurada no EAS Build.', 'info');
         }
-      }
-
-      // FALLBACK: Tentar realizar OCR automaticamente usando APENAS OCR online
-      let ocrText = null;
-      
-      try {
-        addDebugLog('Iniciando OCR online...', 'info');
-        console.log('📄 Iniciando OCR online...');
-        console.log('📁 Arquivo para OCR:', { 
-          type: typeof file, 
-          uri: file?.substring?.(0, 50) || file || 'N/A',
-          fileType,
-          platform: Platform.OS,
-          hasOriginalFile: !!originalFile
-        });
-        
-        showAlert('Processando', `Realizando OCR online no ${fileType === 'pdf' ? 'PDF' : 'arquivo'}... Isso pode levar até 90 segundos.`, 'info');
-        
-        // No browser, SEMPRE usar originalFile (File object) se disponível e válido
-        // Isso evita problemas de conversão e garante que o arquivo seja válido
-        let fileForOCR;
-        if (Platform.OS === 'web' && originalFile && originalFile instanceof File && originalFile.size > 0) {
-          fileForOCR = originalFile;
-          console.log('✅ Usando originalFile para OCR, tamanho:', originalFile.size);
-        } else {
-          fileForOCR = file;
-          console.log('✅ Usando file (URI/blob) para OCR:', typeof fileForOCR, fileForOCR?.substring?.(0, 50) || 'N/A');
-        }
-        
-        console.log('📤 Enviando para OCR...', { 
-          type: typeof fileForOCR, 
-          isFile: fileForOCR instanceof File,
-          fileSize: fileForOCR instanceof File ? fileForOCR.size : 'N/A',
-          platform: Platform.OS
-        });
-        
-        // Validar arquivo antes de processar
-        if (Platform.OS === 'web' && fileForOCR instanceof File && fileForOCR.size === 0) {
-          throw new Error('Arquivo selecionado está vazio. Selecione um arquivo válido e tente novamente.');
-        }
-        
-        ocrText = await performOCR(fileForOCR, fileType, (progress) => {
-          // Atualizar progresso do OCR
-          setOcrProgress(progress);
-          if (progress.progress !== undefined) {
-            const percent = Math.round(progress.progress * 100);
-            const statusMsg = `OCR: ${progress.status} - ${percent}%`;
-            addDebugLog(statusMsg, 'info');
-            console.log(`📊 ${statusMsg}`);
-          } else {
-            addDebugLog(`OCR: ${progress.status}`, 'info');
-            console.log(`📊 OCR: ${progress.status}`);
-          }
-        }, addDebugLog); // Passar callback de debug
-        
-        if (ocrText) {
-          console.log(`✅ OCR extraiu ${ocrText.length} caracteres`);
-          showAlert('Sucesso', `OCR concluído! ${ocrText.length} caracteres extraídos.`, 'success');
-        } else {
-          console.log('⚠️ OCR não extraiu texto suficiente');
-        }
-      } catch (error) {
-        addDebugLog(`ERRO no OCR: ${error.message}`, 'error');
-        console.error('❌ Erro no OCR:', error);
-        console.error('❌ Stack trace:', error.stack);
-        const errorMessage = error.message || 'Erro desconhecido';
-        
-        // Mensagem de erro mais amigável
-        let userMessage = 'Não foi possível processar o arquivo automaticamente.\n\n';
-        
-        if (errorMessage.includes('conexão') || errorMessage.includes('network') || errorMessage.includes('fetch')) {
-          userMessage += 'Verifique sua conexão com a internet e tente novamente.';
-        } else if (errorMessage.includes('vazio') || errorMessage.includes('empty')) {
-          userMessage += 'O arquivo selecionado está vazio ou corrompido. Selecione outro arquivo.';
-        } else if (errorMessage.includes('tamanho') || errorMessage.includes('size') || errorMessage.includes('grande')) {
-          userMessage += 'O arquivo é muito grande. Tente com um arquivo menor.';
-        } else if (errorMessage.includes('formato') || errorMessage.includes('format')) {
-          userMessage += 'Formato de arquivo não suportado. Use PDF ou imagem (JPG, PNG).';
-        } else if (errorMessage.includes('indisponível') || errorMessage.includes('unavailable')) {
-          userMessage += 'Serviço temporariamente indisponível. Tente novamente em alguns instantes.';
-        } else {
-          userMessage += `Erro: ${errorMessage}\n\nVocê pode inserir os dados manualmente se necessário.`;
-        }
-        
-        // No mobile, mostrar detalhes do erro para debug
-        if (Platform.OS !== 'web') {
-          const debugInfo = `\n\n🔍 Debug Info:\nPlataforma: ${Platform.OS}\nTipo: ${fileType}\nURI: ${file?.substring?.(0, 50) || 'N/A'}`;
-          userMessage += debugInfo;
-        }
-        
-        showAlert('Erro no OCR', userMessage, 'error');
+        showAlert('Erro', 'Chave Gemini não configurada. Configure EXPO_PUBLIC_GEMINI_API_KEY no arquivo .env', 'error');
         setProcessing(false);
         setUploading(false);
-        setOcrProgress(null);
-        return; // Não continuar se OCR falhar
-      } finally {
-        setOcrProgress(null);
+        return; // Para aqui - não tenta OCR
       }
-
-      // Se OCR não retornou texto, tentar novamente uma vez
-      if (!ocrText || ocrText.trim().length === 0) {
-        console.log('OCR falhou, tentando novamente...');
-        try {
-          setOcrProgress({ status: 'Tentando novamente...', progress: 0.5 });
+      
+      // Tentar Gemini Direct
+      addDebugLog('Chave Gemini encontrada! Tentando processar PDF diretamente...', 'success');
+      try {
+        console.log('🚀 Tentando Gemini Direct (processamento direto do arquivo)...');
+        console.log('📁 Arquivo para processar:', { 
+          type: typeof file, 
+          uri: file?.substring(0, 50) || 'N/A',
+          fileType,
+          platform: Platform.OS 
+        });
+        
+        showAlert('Processando', 'Analisando documento diretamente com Gemini... Isso pode levar alguns segundos.', 'info');
+        
+        // Preparar arquivo para Gemini - SEMPRE usar originalFile se disponível e válido
+        let fileForGemini;
+        if (Platform.OS === 'web' && originalFile && originalFile instanceof File && originalFile.size > 0) {
+          fileForGemini = originalFile;
+          console.log('✅ Usando originalFile para Gemini Direct, tamanho:', originalFile.size);
+        } else {
+          fileForGemini = file;
+          console.log('✅ Usando file (URI/blob) para Gemini Direct:', typeof fileForGemini, fileForGemini?.substring?.(0, 50) || 'N/A');
+        }
+        
+        console.log('📤 Enviando para Gemini Direct...');
+        console.log('📤 Detalhes do envio:', {
+          fileType: typeof fileForGemini,
+          fileUri: typeof fileForGemini === 'string' ? fileForGemini.substring(0, 50) : 'File object',
+          fileTypeParam: fileType,
+          hasApiKey: !!GEMINI_API_KEY,
+          apiKeyLength: GEMINI_API_KEY?.length || 0
+        });
+        
+        addDebugLog('Chamando Gemini Direct...', 'info');
+        extractedData = await extractDataWithGeminiDirect(fileForGemini, fileType, GEMINI_API_KEY, addDebugLog);
+        const responseMsg = `📥 Resposta do Gemini Direct: hasData=${!!extractedData}, params=${extractedData?.parameters?.length || 0}`;
+        console.log(responseMsg, { 
+          hasData: !!extractedData, 
+          parametersCount: extractedData?.parameters?.length || 0,
+          examDate: extractedData?.exam_date,
+          examType: extractedData?.exam_type
+        });
+        if (addDebugLog) addDebugLog(responseMsg, 'info');
+        
+        // Verificar se Gemini retornou dados válidos
+        if (extractedData && extractedData.parameters && Array.isArray(extractedData.parameters) && extractedData.parameters.length > 0) {
+          const successMsg = `✅ Gemini Direct extraiu ${extractedData.parameters.length} parâmetros diretamente do arquivo!`;
+          console.log(successMsg);
+          addDebugLog(successMsg, 'success');
+          showAlert('Sucesso', `Análise concluída! ${extractedData.parameters.length} parâmetro(s) extraído(s) diretamente.`, 'success');
           
-          // Segunda tentativa - usar originalFile no browser se disponível e válido
-          let fileForOCR;
-          if (Platform.OS === 'web' && originalFile && originalFile instanceof File && originalFile.size > 0) {
-            fileForOCR = originalFile;
-            console.log('Segunda tentativa OCR: Usando originalFile, tamanho:', originalFile.size);
-          } else {
-            fileForOCR = file;
-            console.log('Segunda tentativa OCR: Usando file (blob/data URL)');
-          }
+          // Salvar exame com dados extraídos - SEM OCR
+          addDebugLog('Salvando exame com dados do Gemini (SEM OCR)...', 'success');
+          await processAndSaveExam(fileBase64, null, extractedData);
+          addDebugLog('✅ Exame salvo com sucesso!', 'success');
           
-          // Validar arquivo antes de processar
-          if (Platform.OS === 'web' && fileForOCR instanceof File && fileForOCR.size === 0) {
-            throw new Error('Arquivo selecionado está vazio. Selecione um arquivo válido e tente novamente.');
-          }
-          
-          addDebugLog('Segunda tentativa de OCR...', 'info');
-          ocrText = await performOCR(fileForOCR, fileType, (progress) => {
-            setOcrProgress(progress);
-            addDebugLog(`OCR retry: ${progress.status}`, 'info');
-          }, addDebugLog);
-          
-          if (!ocrText || ocrText.trim().length === 0) {
-            addDebugLog('ERRO: OCR falhou após 2 tentativas', 'error');
-            throw new Error('OCR não conseguiu extrair texto após 2 tentativas');
-          }
-        } catch (retryError) {
-          console.error('❌ Segunda tentativa de OCR também falhou:', retryError);
-          console.error('❌ Stack trace:', retryError.stack);
-          
-          const retryErrorMessage = retryError.message || 'Erro desconhecido';
-          let userMessage = 'Não foi possível processar o arquivo automaticamente após 2 tentativas.\n\n';
-          
-          if (retryErrorMessage.includes('conexão') || retryErrorMessage.includes('network') || retryErrorMessage.includes('fetch')) {
-            userMessage += 'Verifique sua conexão com a internet e tente novamente.';
-          } else if (retryErrorMessage.includes('vazio') || retryErrorMessage.includes('empty')) {
-            userMessage += 'O arquivo selecionado está vazio ou corrompido. Selecione outro arquivo.';
-          } else if (retryErrorMessage.includes('tamanho') || retryErrorMessage.includes('size') || retryErrorMessage.includes('grande')) {
-            userMessage += 'O arquivo é muito grande. Tente com um arquivo menor.';
-          } else if (retryErrorMessage.includes('formato') || retryErrorMessage.includes('format')) {
-            userMessage += 'Formato de arquivo não suportado. Use PDF ou imagem (JPG, PNG).';
-          } else if (retryErrorMessage.includes('indisponível') || retryErrorMessage.includes('unavailable')) {
-            userMessage += 'Serviço temporariamente indisponível. Tente novamente em alguns instantes.';
-          } else {
-            userMessage += `Erro: ${retryErrorMessage}\n\nVocê pode inserir os dados manualmente se necessário.`;
-          }
-          
-          // No mobile, mostrar detalhes do erro para debug
-          if (Platform.OS !== 'web') {
-            const debugInfo = `\n\n🔍 Debug Info (2ª tentativa):\nPlataforma: ${Platform.OS}\nTipo: ${fileType}\nURI: ${file?.substring?.(0, 50) || 'N/A'}\nErro: ${retryErrorMessage}`;
-            userMessage += debugInfo;
-          }
-          
-          showAlert('Erro', userMessage, 'error');
+          // FINALIZAR AQUI - NÃO CONTINUAR PARA OCR
+          setUploading(false);
+          setProcessing(false);
+          setOcrProgress(null);
+          addDebugLog('✅ Processo concluído com Gemini. OCR NÃO será executado.', 'success');
+          console.log('✅ Gemini funcionou! Retornando SEM tentar OCR.');
+          return; // Sucesso! NÃO CONTINUA PARA OCR - RETORNA IMEDIATAMENTE
+        } else {
+          // Gemini não retornou dados suficientes
+          const errorMsg = extractedData 
+            ? '❌ Gemini retornou dados, mas sem parâmetros válidos'
+            : '❌ Gemini não conseguiu extrair dados do documento';
+          console.error(errorMsg);
+          addDebugLog(errorMsg, 'error');
+          showAlert('Erro', 'Não foi possível extrair dados do documento. Verifique se o arquivo está legível e tente novamente.', 'error');
           setProcessing(false);
           setUploading(false);
           setOcrProgress(null);
-          return;
-        } finally {
-          setOcrProgress(null);
+          return; // Para aqui - NÃO tenta OCR
         }
+      } catch (error) {
+        addDebugLog(`ERRO Gemini Direct: ${error.message || 'Erro desconhecido'}`, 'error');
+        console.error('❌ Erro no Gemini Direct:', error);
+        console.error('❌ Stack trace:', error.stack);
+        showAlert('Erro', `Erro ao processar documento: ${error.message || 'Erro desconhecido'}. Verifique sua conexão e tente novamente.`, 'error');
+        setProcessing(false);
+        setUploading(false);
+        setOcrProgress(null);
+        return; // Para aqui - NÃO tenta OCR
       }
 
-      // Processar exame com o texto OCR
-      console.log('Processando e salvando exame...');
-      await processAndSaveExam(fileBase64, ocrText);
-      console.log('Exame processado e salvo com sucesso!');
+      // OCR REMOVIDO - Apenas Gemini Direct funciona
+      // Se chegou aqui, significa que o Gemini não funcionou ou não retornou dados
+      // Não tentar OCR - apenas mostrar erro
+      const finalErrorMsg = 'Não foi possível processar o documento. Verifique se o arquivo está legível e tente novamente.';
+      console.error(finalErrorMsg);
+      addDebugLog(finalErrorMsg, 'error');
+      showAlert('Erro', finalErrorMsg, 'error');
+      setProcessing(false);
+      setUploading(false);
+      setOcrProgress(null);
+      return; // Finaliza aqui - não tenta OCR
 
     } catch (error) {
       console.error('Erro ao processar exame:', error);
@@ -717,12 +587,12 @@ export default function NewMedicalExam() {
         // Se não conseguiu extrair, salvar apenas com o texto OCR
         const exam = {
           id: Date.now(),
-          image_base64: fileBase64,
-          file_type: fileType,
+        image_base64: fileBase64,
+        file_type: fileType,
           raw_ocr_text: ocrText,
           extracted_data: {
-            exam_date: null,
-            exam_type: null,
+        exam_date: null,
+        exam_type: null,
             parameters: [],
           },
           processing_status: 'completed',
@@ -756,18 +626,24 @@ export default function NewMedicalExam() {
       };
 
       // Salvar localmente
-      const stored = await AsyncStorage.getItem('medicalExams');
-      const exams = stored ? JSON.parse(stored) : [];
-      exams.push(exam);
-      await AsyncStorage.setItem('medicalExams', JSON.stringify(exams));
+        const stored = await AsyncStorage.getItem('medicalExams');
+        const exams = stored ? JSON.parse(stored) : [];
+        exams.push(exam);
+        await AsyncStorage.setItem('medicalExams', JSON.stringify(exams));
 
       const paramsCount = extractedData.parameters?.length || 0;
+      
+      // Salvar arquivo processado para visualização
+      setProcessedFile(file);
+      
       showAlert(
         'Sucesso',
         `Exame processado com sucesso! ${paramsCount} parâmetro(s) extraído(s).`,
         'success'
       );
-      router.back();
+      
+      // Não fechar imediatamente - deixar usuário visualizar o PDF se quiser
+      // router.back(); // Comentado para permitir visualização
     } catch (error) {
       console.error('Erro ao salvar exame:', error);
       showAlert('Erro', 'Não foi possível salvar o exame. Tente novamente.', 'error');
@@ -862,14 +738,37 @@ export default function NewMedicalExam() {
           <View style={styles.debugPanel}>
             <View style={styles.debugPanelHeader}>
               <Text style={styles.debugPanelTitle}>🔍 Debug Logs</Text>
-              <TouchableOpacity onPress={() => setShowDebugPanel(false)}>
-                <Ionicons name="close" size={24} color="#666" />
-              </TouchableOpacity>
+              <View style={styles.debugPanelHeaderButtons}>
+                <TouchableOpacity 
+                  style={styles.debugCopyButton}
+                  onPress={async () => {
+                    try {
+                      const allLogs = debugLogs.map(log => log.message).join('\n');
+                      await Clipboard.setStringAsync(allLogs);
+                      showAlert('Sucesso', 'Logs copiados para a área de transferência!', 'success');
+                    } catch (error) {
+                      console.error('Erro ao copiar logs:', error);
+                      showAlert('Erro', 'Não foi possível copiar os logs.', 'error');
+                    }
+                  }}
+                >
+                  <Ionicons name="copy-outline" size={20} color="#fff" />
+                  <Text style={styles.debugCopyButtonText}>Copiar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setShowDebugPanel(false)}>
+                  <Ionicons name="close" size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
             </View>
-            <ScrollView style={styles.debugLogsContainer} nestedScrollEnabled>
+            <ScrollView 
+              style={styles.debugLogsContainer} 
+              nestedScrollEnabled
+              contentContainerStyle={styles.debugLogsContent}
+            >
               {debugLogs.map((log, index) => (
                 <Text 
                   key={index} 
+                  selectable={true}
                   style={[
                     styles.debugLogText,
                     log.type === 'error' && styles.debugLogError,
@@ -880,12 +779,16 @@ export default function NewMedicalExam() {
                 </Text>
               ))}
             </ScrollView>
-            <TouchableOpacity 
-              style={styles.debugClearButton}
-              onPress={() => setDebugLogs([])}
-            >
-              <Text style={styles.debugClearButtonText}>Limpar Logs</Text>
-            </TouchableOpacity>
+            <View style={styles.debugPanelFooter}>
+              <TouchableOpacity 
+                style={styles.debugClearButton}
+                onPress={() => setDebugLogs([])}
+              >
+                <Ionicons name="trash-outline" size={18} color="#fff" />
+                <Text style={styles.debugClearButtonText}>Limpar</Text>
+              </TouchableOpacity>
+              <Text style={styles.debugLogCount}>{debugLogs.length} logs</Text>
+            </View>
           </View>
         )}
 
@@ -908,6 +811,84 @@ export default function NewMedicalExam() {
             </>
           )}
         </TouchableOpacity>
+
+        {/* Botão compacto para visualizar PDF após processamento */}
+        {processedFile && fileType === 'pdf' && !processing && !uploading && (
+          <TouchableOpacity 
+            style={styles.viewPdfButton}
+            onPress={() => setShowPdfModal(true)}
+          >
+            <Ionicons name="document-text-outline" size={20} color="#9B59B6" />
+            <Text style={styles.viewPdfButtonText}>Visualizar PDF Processado</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Modal para visualizar PDF */}
+        <Modal
+          visible={showPdfModal}
+          animationType="slide"
+          transparent={false}
+          onRequestClose={() => setShowPdfModal(false)}
+        >
+          <View style={styles.pdfModalContainer}>
+            <View style={styles.pdfModalHeader}>
+              <Text style={styles.pdfModalTitle}>PDF do Exame</Text>
+              <TouchableOpacity 
+                style={styles.pdfModalCloseButton}
+                onPress={() => setShowPdfModal(false)}
+              >
+                <Ionicons name="close" size={28} color="#333" />
+              </TouchableOpacity>
+            </View>
+            {processedFile && (
+              <View style={styles.pdfViewerContainer}>
+                {Platform.OS === 'web' ? (
+                  <View style={{ flex: 1 }}>
+                    {/* eslint-disable-next-line react/no-unknown-property */}
+                    <object 
+                      data={processedFile} 
+                      type="application/pdf"
+                      style={styles.pdfWebViewer}
+                    >
+                      <View style={{ padding: 20, alignItems: 'center', justifyContent: 'center', flex: 1 }}>
+                        <Text style={{ color: '#fff', marginBottom: 10, textAlign: 'center' }}>
+                          Seu navegador não suporta visualização de PDF.
+                        </Text>
+                        <TouchableOpacity 
+                          onPress={() => {
+                            if (typeof window !== 'undefined') {
+                              window.open(processedFile, '_blank');
+                            }
+                          }}
+                          style={{ padding: 10, backgroundColor: '#4ECDC4', borderRadius: 8 }}
+                        >
+                          <Text style={{ color: '#fff', fontWeight: 'bold' }}>
+                            Abrir PDF em nova aba
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </object>
+                  </View>
+                ) : (
+                  <Pdf
+                    source={{ uri: processedFile, cache: true }}
+                    onLoadComplete={(numberOfPages) => {
+                      console.log(`PDF carregado: ${numberOfPages} páginas`);
+                    }}
+                    onPageChanged={(page, numberOfPages) => {
+                      console.log(`Página ${page} de ${numberOfPages}`);
+                    }}
+                    onError={(error) => {
+                      console.error('Erro ao carregar PDF:', error);
+                      showAlert('Erro', 'Não foi possível carregar o PDF.', 'error');
+                    }}
+                    style={styles.pdfViewer}
+                  />
+                )}
+              </View>
+            )}
+          </View>
+        </Modal>
       </View>
 
       <AlertComponent />
@@ -1050,7 +1031,7 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     borderWidth: 1,
     borderColor: '#ddd',
-    maxHeight: 300,
+    maxHeight: 400,
   },
   debugPanelHeader: {
     flexDirection: 'row',
@@ -1058,20 +1039,47 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
+  debugPanelHeaderButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   debugPanelTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#333',
   },
+  debugCopyButton: {
+    backgroundColor: '#4ECDC4',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  debugCopyButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
   debugLogsContainer: {
-    maxHeight: 200,
-    marginBottom: 12,
+    maxHeight: 250,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  debugLogsContent: {
+    paddingBottom: 8,
   },
   debugLogText: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#666',
-    fontFamily: 'monospace',
-    marginBottom: 4,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    marginBottom: 6,
+    lineHeight: 16,
   },
   debugLogError: {
     color: '#FF6B6B',
@@ -1081,16 +1089,82 @@ const styles = StyleSheet.create({
     color: '#4ECDC4',
     fontWeight: 'bold',
   },
+  debugPanelFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 12,
+  },
   debugClearButton: {
     backgroundColor: '#9B59B6',
-    padding: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     borderRadius: 8,
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 6,
   },
   debugClearButtonText: {
     color: '#fff',
     fontSize: 14,
     fontWeight: 'bold',
+  },
+  debugLogCount: {
+    fontSize: 12,
+    color: '#999',
+    fontStyle: 'italic',
+  },
+  viewPdfButton: {
+    backgroundColor: '#fff',
+    borderWidth: 2,
+    borderColor: '#9B59B6',
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 16,
+    marginBottom: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  viewPdfButtonText: {
+    color: '#9B59B6',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  pdfModalContainer: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+  pdfModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    backgroundColor: '#f5f5f5',
+  },
+  pdfModalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  pdfModalCloseButton: {
+    padding: 8,
+  },
+  pdfViewerContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  pdfViewer: {
+    flex: 1,
+    width: '100%',
+  },
+  pdfWebViewer: {
+    width: '100%',
+    height: '100%',
+    border: 'none',
   },
   modalOverlay: {
     flex: 1,

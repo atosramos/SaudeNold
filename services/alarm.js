@@ -8,47 +8,41 @@ import * as Speech from 'expo-speech';
 // Configurar como as notificações devem ser tratadas quando o app está em foreground
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
-    // Se for uma notificação de medicamento, tocar som e voz
+    // Se for uma notificação de medicamento, garantir que o som toque
     if (notification.request.content.data?.type === 'medication_alarm') {
       const medicationName = notification.request.content.data.medicationName || '';
       const dosage = notification.request.content.data.dosage || '';
       
-      // Tocar som e voz quando app está em foreground
+      // Configurar áudio para garantir que toque mesmo em modo silencioso
       try {
-        // Configurar modo de áudio
         await Audio.setAudioModeAsync({
           playsInSilentModeIOS: true,
           staysActiveInBackground: true,
           shouldDuckAndroid: false,
         });
 
-        // Falar o nome do medicamento imediatamente
-        const message = `Hora de tomar ${medicationName}${dosage ? ', dosagem ' + dosage : ''}`;
-        Speech.speak(message, {
-          language: 'pt-BR',
-          pitch: 1.2, // Voz mais aguda (feminina)
-          rate: 0.9, // Velocidade um pouco mais lenta para idosos
-        });
-
-        // Tentar tocar som de alarme (após um pequeno delay para não sobrepor a voz)
-        setTimeout(async () => {
-          try {
-            const { sound: alarmSound } = await Audio.Sound.createAsync(
-              { uri: 'https://assets.mixkit.co/active_storage/sfx/2704/2704-preview.mp3' },
-              { shouldPlay: true, isLooping: true, volume: 1.0 }
-            );
-          } catch (e) {
-            console.log('Erro ao tocar som de alarme no handler:', e);
-          }
-        }, 2000); // Aguardar 2 segundos para a voz falar primeiro
+        // Tentar falar o nome do medicamento (opcional, não bloqueia o alarme)
+        try {
+          const message = `Hora de tomar ${medicationName}${dosage ? ', dosagem ' + dosage : ''}`;
+          Speech.speak(message, {
+            language: 'pt-BR',
+            pitch: 1.2,
+            rate: 0.9,
+          });
+        } catch (speechError) {
+          // Se falhar a voz, continua - o som da notificação já está tocando
+          console.log('Voz não disponível, mas o alarme continua tocando');
+        }
       } catch (error) {
-        console.error('Erro ao tocar alarme no handler:', error);
+        // Mesmo com erro, garantir que o som toque
+        console.error('Erro ao configurar áudio, mas notificação continuará:', error);
       }
     }
     
+    // IMPORTANTE: Sempre retornar shouldPlaySound: true para garantir que o som toque
     return {
       shouldShowAlert: true,
-      shouldPlaySound: true, // Importante: garantir que o som toque
+      shouldPlaySound: true, // CRÍTICO: garantir que o som toque sempre
       shouldSetBadge: true,
     };
   },
@@ -79,9 +73,10 @@ export const requestNotificationPermissions = async () => {
         importance: Notifications.AndroidImportance.MAX,
         vibrationPattern: [0, 250, 250, 250],
         lightColor: '#FF6B6B',
-        sound: 'default', // Som padrão do sistema
+        sound: 'default', // Som padrão do sistema (garante que toque)
         enableVibrate: true,
         showBadge: true,
+        enableLights: true,
       });
     }
     
@@ -134,7 +129,7 @@ export const scheduleMedicationAlarms = async (medication) => {
                 type: 'medication_alarm',
                 fasting: medication.fasting || false,
               },
-              sound: true,
+              sound: 'default', // Usar som padrão do sistema (mais confiável)
               priority: Notifications.AndroidNotificationPriority.MAX,
               ...(Platform.OS === 'android' && { channelId: 'medication-alarm' }),
             },
@@ -165,7 +160,7 @@ export const scheduleMedicationAlarms = async (medication) => {
               type: 'medication_alarm',
               fasting: medication.fasting || false,
             },
-            sound: true,
+            sound: 'default', // Usar som padrão do sistema (mais confiável)
             priority: Notifications.AndroidNotificationPriority.MAX,
             ...(Platform.OS === 'android' && { channelId: 'medication-alarm' }),
           },

@@ -102,3 +102,17 @@ Consulte os seguintes arquivos para mais detalhes:
 - [ ] API Key gerada e configurada (ação necessária antes do merge)
 - [ ] Frontend atualizado com API Key (ação necessária antes do merge)
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+

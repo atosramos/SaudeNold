@@ -1,16 +1,21 @@
 import { StyleSheet, Text, View, TouchableOpacity, ScrollView, FlatList } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { useState, useEffect } from 'react';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { cancelVisitAlarms } from '../services/alarm';
+import { useCustomModal } from '../hooks/useCustomModal';
 
 export default function DoctorVisits() {
   const router = useRouter();
+  const { showModal, ModalComponent } = useCustomModal();
   const [visits, setVisits] = useState([]);
 
-  useEffect(() => {
-    loadVisits();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      loadVisits();
+    }, [])
+  );
 
   const loadVisits = async () => {
     try {
@@ -35,16 +40,63 @@ export default function DoctorVisits() {
     });
   };
 
+  const deleteVisit = async (id) => {
+    showModal(
+      'Confirmar Exclusão',
+      'Tem certeza que deseja excluir esta visita?',
+      'confirm',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Excluir',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Cancelar alarmes da visita
+              await cancelVisitAlarms(id);
+              
+              const updated = visits.filter(v => v.id !== id);
+              await AsyncStorage.setItem('doctorVisits', JSON.stringify(updated));
+              setVisits(updated);
+            } catch (error) {
+              console.error('Erro ao excluir visita:', error);
+              showModal('Erro', 'Não foi possível excluir a visita', 'error');
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const renderVisit = ({ item }) => (
     <View style={styles.visitCard}>
       <View style={styles.visitHeader}>
-        <View>
+        <View style={styles.visitHeaderText}>
           <Text style={styles.doctorName}>{item.doctorName}</Text>
           <Text style={styles.specialty}>{item.specialty}</Text>
         </View>
-        <View style={styles.dateBadge}>
-          <Ionicons name="calendar" size={24} color="#95E1D3" />
-          <Text style={styles.dateText}>{formatDate(item.visitDate)}</Text>
+        <View style={styles.visitHeaderRight}>
+          <View style={styles.dateBadge}>
+            <Ionicons name="calendar" size={24} color="#95E1D3" />
+            <Text style={styles.dateText}>{formatDate(item.visitDate)}</Text>
+          </View>
+          <View style={styles.visitActions}>
+            <TouchableOpacity
+              style={styles.editButton}
+              onPress={() => router.push({
+                pathname: '/doctor-visits/edit',
+                params: { id: item.id, visit: JSON.stringify(item) }
+              })}
+            >
+              <Ionicons name="create-outline" size={24} color="#95E1D3" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.deleteButton}
+              onPress={() => deleteVisit(item.id)}
+            >
+              <Ionicons name="trash-outline" size={24} color="#FF6B6B" />
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
       {item.notes && (
@@ -91,6 +143,7 @@ export default function DoctorVisits() {
         <Ionicons name="add" size={40} color="#fff" />
         <Text style={styles.addButtonText}>Nova Visita</Text>
       </TouchableOpacity>
+      <ModalComponent />
     </ScrollView>
   );
 }
@@ -131,6 +184,23 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     marginBottom: 16,
+  },
+  visitHeaderText: {
+    flex: 1,
+  },
+  visitHeaderRight: {
+    alignItems: 'flex-end',
+    gap: 8,
+  },
+  visitActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  editButton: {
+    padding: 8,
+  },
+  deleteButton: {
+    padding: 8,
   },
   doctorName: {
     fontSize: 28,
@@ -209,6 +279,15 @@ const styles = StyleSheet.create({
     marginLeft: 12,
   },
 });
+
+
+
+
+
+
+
+
+
 
 
 

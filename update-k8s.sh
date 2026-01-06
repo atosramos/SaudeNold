@@ -37,3 +37,18 @@ echo "View logs with: kubectl logs -f deployment/backend -n saudenold"
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

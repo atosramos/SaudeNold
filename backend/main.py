@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Security, status, Request
+from fastapi import FastAPI, HTTPException, Depends, Security, status, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import JSONResponse
@@ -15,6 +15,9 @@ from typing import Optional
 from database import SessionLocal, engine, Base
 import models
 import schemas
+from ocr_service import perform_ocr
+from data_extraction import extract_data_from_ocr_text
+from datetime import datetime as dt
 
 # Configurar logging de segurança
 logging.basicConfig(
@@ -23,8 +26,10 @@ logging.basicConfig(
 )
 security_logger = logging.getLogger("security")
 
-# Criar tabelas
-Base.metadata.create_all(bind=engine)
+# Criar tabelas (apenas se não estiver em modo de teste)
+# Em testes, as tabelas são criadas pelo conftest.py
+if not os.getenv("TESTING"):
+    Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="SaudeNold API", version="1.0.0")
 
@@ -454,6 +459,231 @@ def delete_doctor_visit(request: Request, visit_id: int, api_key: str = Depends(
         db.rollback()
         security_logger.error(f"Error deleting doctor visit: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ========== EXAMES MÉDICOS ==========
+def process_exam_ocr(exam_id: int):
+    """Função para processar OCR em background"""
+    db = SessionLocal()
+    try:
+        exam = db.query(models.MedicalExam).filter(models.MedicalExam.id == exam_id).first()
+        if not exam:
+            return
+        
+        # Atualizar status para processing
+        exam.processing_status = "processing"
+        db.commit()
+        
+        try:
+            # Realizar OCR (suporta imagem e PDF)
+            file_type = exam.file_type or 'image'
+            ocr_text = perform_ocr(exam.image_base64, file_type=file_type)
+            exam.raw_ocr_text = ocr_text[:50000]  # Limitar tamanho do texto
+            
+            # Extrair dados
+            extracted_data = extract_data_from_ocr_text(ocr_text)
+            exam.extracted_data = extracted_data
+            
+            # Se encontrou data, usar ela
+            if extracted_data.get('exam_date'):
+                try:
+                    exam.exam_date = dt.fromisoformat(extracted_data['exam_date'])
+                except:
+                    pass
+            
+            # Se encontrou tipo, usar ele
+            if extracted_data.get('exam_type'):
+                exam.exam_type = extracted_data['exam_type']
+            
+            # Salvar data points no banco
+            exam_date = exam.exam_date or exam.created_at
+            for param in extracted_data.get('parameters', []):
+                data_point = models.ExamDataPoint(
+                    exam_id=exam.id,
+                    parameter_name=param['name'],
+                    value=param['value'],
+                    numeric_value=param.get('numeric_value'),
+                    unit=param.get('unit'),
+                    reference_range_min=param.get('reference_range_min'),
+                    reference_range_max=param.get('reference_range_max'),
+                    exam_date=exam_date
+                )
+                db.add(data_point)
+            
+            exam.processing_status = "completed"
+            db.commit()
+        except Exception as e:
+            exam.processing_status = "error"
+            exam.processing_error = str(e)[:500]  # Limitar tamanho do erro
+            db.commit()
+            security_logger.error(f"Erro ao processar OCR do exame {exam_id}: {str(e)}")
+    finally:
+        db.close()
+
+
+@app.post("/api/medical-exams")
+@limiter.limit("10/minute")
+def create_medical_exam(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    exam: schemas.MedicalExamCreate,
+    api_key: str = Depends(verify_api_key)
+):
+    security_logger.info(f"Acesso POST /api/medical-exams de {get_remote_address(request)}")
+    
+    # Validar tamanho da imagem
+    if not validate_base64_image_size(exam.image_base64, max_size_mb=10):
+        raise HTTPException(status_code=400, detail="Image size exceeds maximum allowed (10MB)")
+    
+    db = next(get_db())
+    try:
+        # Criar exame com status pending
+        db_exam = models.MedicalExam(
+            exam_date=exam.exam_date,
+            exam_type=exam.exam_type,
+            image_base64=exam.image_base64,
+            file_type=exam.file_type or 'image',
+            processing_status="pending"
+        )
+        db.add(db_exam)
+        safe_db_commit(db)
+        db.refresh(db_exam)
+        
+        # Adicionar tarefa de processamento em background
+        background_tasks.add_task(process_exam_ocr, db_exam.id)
+        
+        return schemas.MedicalExamResponse.model_validate(db_exam).model_dump()
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        security_logger.error(f"Error creating medical exam: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.get("/api/medical-exams")
+@limiter.limit("100/minute")
+def get_medical_exams(request: Request, api_key: str = Depends(verify_api_key)):
+    security_logger.info(f"Acesso GET /api/medical-exams de {get_remote_address(request)}")
+    db = next(get_db())
+    exams = db.query(models.MedicalExam).order_by(models.MedicalExam.created_at.desc()).all()
+    
+    # Não retornar image_base64 na lista (muito grande)
+    result = []
+    for exam in exams:
+        exam_dict = schemas.MedicalExamResponse.model_validate(exam).model_dump()
+        exam_dict['image_base64'] = None  # Remover imagem para economizar banda
+        result.append(exam_dict)
+    
+    return result
+
+
+@app.get("/api/medical-exams/{exam_id}")
+@limiter.limit("100/minute")
+def get_medical_exam(request: Request, exam_id: int, api_key: str = Depends(verify_api_key)):
+    security_logger.info(f"Acesso GET /api/medical-exams/{exam_id} de {get_remote_address(request)}")
+    db = next(get_db())
+    exam = db.query(models.MedicalExam).filter(models.MedicalExam.id == exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="Exam not found")
+    
+    return schemas.MedicalExamResponse.model_validate(exam).model_dump()
+
+
+@app.put("/api/medical-exams/{exam_id}")
+@limiter.limit("20/minute")
+def update_medical_exam(
+    request: Request,
+    exam_id: int,
+    exam_update: schemas.MedicalExamUpdate,
+    api_key: str = Depends(verify_api_key)
+):
+    security_logger.info(f"Acesso PUT /api/medical-exams/{exam_id} de {get_remote_address(request)}")
+    
+    db = next(get_db())
+    db_exam = db.query(models.MedicalExam).filter(models.MedicalExam.id == exam_id).first()
+    if not db_exam:
+        raise HTTPException(status_code=404, detail="Exam not found")
+    
+    try:
+        if exam_update.exam_date:
+            db_exam.exam_date = exam_update.exam_date
+        if exam_update.exam_type:
+            db_exam.exam_type = sanitize_string(exam_update.exam_type, 200)
+        
+        safe_db_commit(db)
+        db.refresh(db_exam)
+        return schemas.MedicalExamResponse.model_validate(db_exam).model_dump()
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        security_logger.error(f"Error updating medical exam: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.delete("/api/medical-exams/{exam_id}")
+@limiter.limit("20/minute")
+def delete_medical_exam(request: Request, exam_id: int, api_key: str = Depends(verify_api_key)):
+    security_logger.info(f"Acesso DELETE /api/medical-exams/{exam_id} de {get_remote_address(request)}")
+    db = next(get_db())
+    db_exam = db.query(models.MedicalExam).filter(models.MedicalExam.id == exam_id).first()
+    if not db_exam:
+        raise HTTPException(status_code=404, detail="Exam not found")
+    
+    try:
+        # Deletar data points associados
+        db.query(models.ExamDataPoint).filter(models.ExamDataPoint.exam_id == exam_id).delete()
+        db.delete(db_exam)
+        safe_db_commit(db)
+        return {"message": "Exam deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        security_logger.error(f"Error deleting medical exam: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.get("/api/medical-exams/{exam_id}/timeline/{parameter_name}")
+@limiter.limit("100/minute")
+def get_parameter_timeline(
+    request: Request,
+    exam_id: int,
+    parameter_name: str,
+    api_key: str = Depends(verify_api_key)
+):
+    """Retorna dados temporais de um parâmetro específico para gráfico"""
+    security_logger.info(f"Acesso GET /api/medical-exams/{exam_id}/timeline/{parameter_name} de {get_remote_address(request)}")
+    
+    db = next(get_db())
+    
+    # Buscar todos os data points deste parâmetro (não apenas do exame atual)
+    data_points = db.query(models.ExamDataPoint).filter(
+        models.ExamDataPoint.parameter_name.ilike(f"%{parameter_name}%")
+    ).order_by(models.ExamDataPoint.exam_date.asc()).all()
+    
+    if not data_points:
+        raise HTTPException(status_code=404, detail="Parameter data not found")
+    
+    # Preparar dados para gráfico
+    timeline_data = {
+        "parameter_name": parameter_name,
+        "unit": data_points[0].unit if data_points else None,
+        "reference_range_min": data_points[0].reference_range_min if data_points else None,
+        "reference_range_max": data_points[0].reference_range_max if data_points else None,
+        "data_points": [
+            {
+                "exam_date": point.exam_date.isoformat(),
+                "value": point.value,
+                "numeric_value": point.numeric_value,
+                "exam_id": point.exam_id
+            }
+            for point in data_points
+        ]
+    }
+    
+    return timeline_data
 
 
 @app.get("/health")

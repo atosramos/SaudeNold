@@ -90,3 +90,18 @@ Depois de resolver o disk pressure:
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -180,56 +180,62 @@ export const performOCROnlineFree = async (fileBase64, fileType = 'image', fileI
       return null;
     }
 
-    // No mobile, usar JSON com base64 (funciona normalmente)
-    let url, body;
+    // No mobile, usar o MESMO endpoint do browser (/parse/image) com FormData
+    // Isso garante compatibilidade e evita erro 404
+    console.log(`[OCR Online] Mobile: Preparando ${fileType} para OCR, tamanho base64: ${fileBase64.length}`);
     
     // Validar base64 antes de enviar
     if (!fileBase64 || fileBase64.length === 0) {
       throw new Error('Dados do arquivo vazios. Não foi possível ler o arquivo.');
     }
     
+    const mimeType = fileType === 'pdf' ? 'application/pdf' : 'image/jpeg';
+    
+    if (addDebugLog) addDebugLog('Preparando arquivo para OCR (React Native)...', 'info');
     console.log(`[OCR Online] Mobile: Preparando ${fileType} para OCR, tamanho base64: ${fileBase64.length}`);
     
+    // Remover prefixo data URL se existir
+    const cleanBase64 = fileBase64.replace(/^data:[^;]+;base64,/, '');
+    
+    // No React Native, usar endpoint /parse/imagebase64 que aceita base64 em JSON
+    // Este é o formato correto para React Native (sem necessidade de Blob)
+    const url = 'https://api.ocr.space/parse/imagebase64';
+    
+    const requestBody = {
+      base64Image: `data:${mimeType};base64,${cleanBase64}`,
+      language: 'por',
+      isOverlayRequired: false,
+      OCREngine: 2,
+      detectOrientation: true,
+    };
+    
     if (fileType === 'pdf') {
-      url = 'https://api.ocr.space/parse/imagebase64';
-      body = JSON.stringify({
-        base64Image: fileBase64,
-        language: 'por',
-        isOverlayRequired: false,
-        filetype: 'PDF',
-        OCREngine: 2,
-        detectOrientation: true,
-      });
-    } else {
-      url = 'https://api.ocr.space/parse/imagebase64';
-      body = JSON.stringify({
-        base64Image: fileBase64,
-        language: 'por',
-        isOverlayRequired: false,
-        OCREngine: 2,
-        detectOrientation: true,
-      });
+      requestBody.filetype = 'PDF';
     }
-
-    if (addDebugLog) addDebugLog(`Enviando ${fileType} para OCR online (${Math.round(body.length / 1024)} KB)...`, 'info');
-    console.log(`[OCR Online] Mobile: Enviando ${fileType} para OCR online via JSON...`);
-    console.log(`[OCR Online] Mobile: Tamanho do body: ${body.length} bytes`);
-
+    
+    const fileSizeKB = Math.round(cleanBase64.length * 0.75 / 1024);
+    if (addDebugLog) addDebugLog(`Enviando ${fileType} para OCR online (${fileSizeKB} KB)...`, 'info');
+    console.log(`[OCR Online] Mobile: Enviando ${fileType} para OCR online via JSON (base64)...`);
+    console.log(`[OCR Online] Mobile: Tamanho base64: ${cleanBase64.length} bytes (~${fileSizeKB} KB)`);
+    console.log(`[OCR Online] Mobile: URL: ${url}`);
+    
     if (addDebugLog) addDebugLog('Aguardando resposta do servidor OCR...', 'info');
+    
     const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
         'apikey': 'helloworld',
+        'Content-Type': 'application/json',
       },
-      body: body,
+      body: JSON.stringify(requestBody),
       signal: controller.signal,
     });
-
+    
     clearTimeout(timeoutId);
     
     if (addDebugLog) addDebugLog(`Resposta recebida: ${response.status} ${response.statusText}`, response.ok ? 'success' : 'error');
-
+    console.log(`[OCR Online] Mobile: Status da resposta: ${response.status} ${response.statusText}`);
+    
     if (!response.ok) {
       let errorText = '';
       try {
@@ -253,6 +259,10 @@ export const performOCROnlineFree = async (fileBase64, fileType = 'image', fileI
       let errorMessage = `Erro na API OCR: ${response.status}`;
       if (response.status === 400) {
         errorMessage = 'Arquivo inválido ou formato não suportado. Verifique se o PDF está corrompido.';
+      } else if (response.status === 404) {
+        errorMessage = 'Endpoint OCR não encontrado. A API pode ter mudado. Tente novamente ou use entrada manual.';
+        console.error('[OCR Online] Mobile: Erro 404 - Endpoint não encontrado. URL:', url);
+        console.error('[OCR Online] Mobile: Verifique se a API OCR.space está funcionando.');
       } else if (response.status === 413) {
         errorMessage = 'Arquivo muito grande. Tente com um arquivo menor.';
       } else if (response.status === 500 || response.status === 503) {
@@ -261,6 +271,7 @@ export const performOCROnlineFree = async (fileBase64, fileType = 'image', fileI
         errorMessage = `${errorMessage} - ${errorText.substring(0, 100)}`;
       }
       
+      if (addDebugLog) addDebugLog(`Erro no OCR: ${errorMessage}`, 'error');
       throw new Error(errorMessage);
     }
 

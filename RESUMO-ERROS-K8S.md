@@ -106,3 +106,18 @@ Isso permite continuar o desenvolvimento enquanto o problema de espa√ßo no K8s √
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

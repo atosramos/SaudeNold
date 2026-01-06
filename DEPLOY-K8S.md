@@ -126,3 +126,18 @@ kubectl describe pod <nome-do-pod> -n saudenold
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

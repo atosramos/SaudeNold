@@ -6,7 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function History() {
   const router = useRouter();
-  const [visits, setVisits] = useState([]);
+  const [visits, setVisits] = useState({ upcoming: [], past: [] });
   const [medications, setMedications] = useState([]);
 
   useFocusEffect(
@@ -85,7 +85,15 @@ export default function History() {
     const isTomorrow = daysUntil === 1;
 
     return (
-      <View key={visit.id} style={[styles.visitCard, isToday && styles.visitCardToday]}>
+      <TouchableOpacity 
+        key={visit.id} 
+        style={[styles.visitCard, isToday && styles.visitCardToday]}
+        onPress={() => router.push({
+          pathname: '/doctor-visits/edit',
+          params: { id: visit.id, visit: JSON.stringify(visit) }
+        })}
+        activeOpacity={0.7}
+      >
         <View style={styles.visitHeader}>
           <View style={styles.visitHeaderLeft}>
             <Ionicons 
@@ -118,12 +126,20 @@ export default function History() {
             </View>
           )}
         </View>
-      </View>
+      </TouchableOpacity>
     );
   };
 
   const renderPastVisit = (visit) => (
-    <View key={visit.id} style={styles.visitCard}>
+    <TouchableOpacity 
+      key={visit.id} 
+      style={styles.visitCard}
+      onPress={() => router.push({
+        pathname: '/doctor-visits/edit',
+        params: { id: visit.id, visit: JSON.stringify(visit) }
+      })}
+      activeOpacity={0.7}
+    >
       <View style={styles.visitHeader}>
         <View style={styles.visitHeaderLeft}>
           <Ionicons name="checkmark-circle" size={32} color="#4ECDC4" />
@@ -141,7 +157,7 @@ export default function History() {
           <Text style={styles.detailText} numberOfLines={3}>{visit.notes}</Text>
         </View>
       )}
-    </View>
+    </TouchableOpacity>
   );
 
   return (
@@ -168,6 +184,13 @@ export default function History() {
               </View>
             )}
           </View>
+          <TouchableOpacity 
+            style={styles.addButton}
+            onPress={() => router.push('/doctor-visits/new')}
+          >
+            <Ionicons name="add-circle" size={32} color="#fff" />
+            <Text style={styles.addButtonText}>Agendar Consulta</Text>
+          </TouchableOpacity>
           {visits.upcoming && visits.upcoming.length > 0 ? (
             <View style={styles.listContainer}>
               {visits.upcoming.map(visit => renderUpcomingVisit(visit))}
@@ -481,5 +504,21 @@ const styles = StyleSheet.create({
     color: '#666',
     alignSelf: 'center',
     marginLeft: 4,
+  },
+  addButton: {
+    backgroundColor: '#95E1D3',
+    borderRadius: 16,
+    padding: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    marginBottom: 16,
+    minHeight: 70,
+  },
+  addButtonText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#fff',
   },
 });

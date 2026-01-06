@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, TextInput, Alert } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, TextInput, Alert, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
@@ -13,6 +13,8 @@ export default function NewEmergencyContact() {
   const [phone, setPhone] = useState('');
   const [relation, setRelation] = useState('');
   const [photo, setPhoto] = useState(null);
+  const [customRelation, setCustomRelation] = useState('');
+  const [showCustomRelationForm, setShowCustomRelationForm] = useState(false);
 
   const pickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -51,6 +53,26 @@ export default function NewEmergencyContact() {
     );
   };
 
+  const handleRelationSelect = (rel) => {
+    if (rel === 'Outro') {
+      setShowCustomRelationForm(true);
+      setRelation(''); // Limpar seleção anterior
+    } else {
+      setRelation(rel);
+      setShowCustomRelationForm(false);
+      setCustomRelation('');
+    }
+  };
+
+  const saveCustomRelation = () => {
+    if (!customRelation.trim()) {
+      Alert.alert('Erro', 'Por favor, digite o parentesco');
+      return;
+    }
+    setRelation(customRelation.trim());
+    setShowCustomRelationForm(false);
+  };
+
   const saveContact = async () => {
     if (!name.trim()) {
       Alert.alert('Erro', 'Por favor, preencha o nome');
@@ -63,7 +85,7 @@ export default function NewEmergencyContact() {
     }
 
     if (!relation) {
-      Alert.alert('Erro', 'Por favor, selecione o parentesco');
+      Alert.alert('Erro', 'Por favor, selecione ou digite o parentesco');
       return;
     }
 
@@ -112,10 +134,10 @@ export default function NewEmergencyContact() {
         <View style={styles.photoSection}>
           <TouchableOpacity style={styles.photoButton} onPress={showImageOptions}>
             {photo ? (
-              <View style={styles.photoPlaceholder}>
-                <Ionicons name="checkmark-circle" size={40} color="#FF6B6B" />
-                <Text style={styles.photoText}>Foto adicionada</Text>
-              </View>
+              <Image 
+                source={{ uri: photo }} 
+                style={styles.photoImage}
+              />
             ) : (
               <View style={styles.photoPlaceholder}>
                 <Ionicons name="camera" size={40} color="#FF6B6B" />
@@ -156,19 +178,73 @@ export default function NewEmergencyContact() {
                 key={rel}
                 style={[
                   styles.relationButton,
-                  relation === rel && styles.relationButtonActive
+                  rel !== 'Outro' && relation === rel && styles.relationButtonActive,
+                  rel === 'Outro' && showCustomRelationForm && styles.relationButtonActive
                 ]}
-                onPress={() => setRelation(rel)}
+                onPress={() => handleRelationSelect(rel)}
               >
                 <Text style={[
                   styles.relationText,
-                  relation === rel && styles.relationTextActive
+                  (rel !== 'Outro' && relation === rel) || 
+                  (rel === 'Outro' && showCustomRelationForm)
+                    ? styles.relationTextActive
+                    : null
                 ]}>
                   {rel}
                 </Text>
               </TouchableOpacity>
             ))}
           </View>
+          
+          {/* Formulário para parentesco customizado */}
+          {showCustomRelationForm && (
+            <View style={styles.customRelationForm}>
+              <Text style={styles.customRelationLabel}>Digite o parentesco:</Text>
+              <View style={styles.customRelationInputContainer}>
+                <TextInput
+                  style={styles.customRelationInput}
+                  value={customRelation}
+                  onChangeText={setCustomRelation}
+                  placeholder="Ex: Sobrinho, Vizinho"
+                  placeholderTextColor="#999"
+                />
+                <TouchableOpacity
+                  style={styles.addCustomRelationButton}
+                  onPress={saveCustomRelation}
+                >
+                  <Ionicons name="checkmark-circle" size={32} color="#FF6B6B" />
+                </TouchableOpacity>
+              </View>
+              <TouchableOpacity
+                style={styles.cancelCustomRelationButton}
+                onPress={() => {
+                  setShowCustomRelationForm(false);
+                  setCustomRelation('');
+                  setRelation('');
+                }}
+              >
+                <Text style={styles.cancelCustomRelationText}>Cancelar</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          
+          {/* Mostrar parentesco customizado selecionado */}
+          {relation && !relations.includes(relation) && (
+            <View style={styles.customRelationDisplay}>
+              <Text style={styles.customRelationDisplayLabel}>Parentesco selecionado:</Text>
+              <View style={styles.customRelationDisplayItem}>
+                <Text style={styles.customRelationDisplayText}>{relation}</Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    setRelation('');
+                    setCustomRelation('');
+                  }}
+                >
+                  <Ionicons name="close-circle" size={24} color="#FF6B6B" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
         </View>
 
         <TouchableOpacity style={styles.saveButton} onPress={saveContact}>
@@ -217,6 +293,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#FF6B6B',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 4,
+    borderColor: '#fff',
+  },
+  photoImage: {
+    width: 150,
+    height: 150,
+    borderRadius: 75,
     borderWidth: 4,
     borderColor: '#fff',
   },
@@ -283,7 +366,88 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#fff',
   },
+  customRelationForm: {
+    backgroundColor: '#f9f9f9',
+    borderRadius: 12,
+    padding: 20,
+    marginTop: 16,
+    borderWidth: 2,
+    borderColor: '#FF6B6B',
+  },
+  customRelationLabel: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 12,
+  },
+  customRelationInputContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'center',
+  },
+  customRelationInput: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 20,
+    fontSize: 22,
+    color: '#333',
+    borderWidth: 2,
+    borderColor: '#e0e0e0',
+  },
+  addCustomRelationButton: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cancelCustomRelationButton: {
+    marginTop: 12,
+    padding: 12,
+    alignItems: 'center',
+  },
+  cancelCustomRelationText: {
+    fontSize: 20,
+    color: '#666',
+    fontWeight: 'bold',
+  },
+  customRelationDisplay: {
+    marginTop: 16,
+    backgroundColor: '#f9f9f9',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 2,
+    borderColor: '#e0e0e0',
+  },
+  customRelationDisplayLabel: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 12,
+  },
+  customRelationDisplayItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    gap: 12,
+  },
+  customRelationDisplayText: {
+    fontSize: 22,
+    color: '#333',
+    flex: 1,
+    fontWeight: 'bold',
+  },
 });
+
+
+
+
+
+
+
+
+
 
 
 

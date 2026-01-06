@@ -5,10 +5,13 @@ import { Audio } from 'expo-av';
 import * as Speech from 'expo-speech';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Notifications from 'expo-notifications';
+import { useCustomModal } from '../hooks/useCustomModal';
 
 export default function AlarmScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const { showModal, ModalComponent } = useCustomModal();
   const [medication, setMedication] = useState(null);
   const [sound, setSound] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -17,6 +20,8 @@ export default function AlarmScreen() {
   const voiceIntervalRef = useRef(null);
   const isPlayingRef = useRef(false);
   const isPausedRef = useRef(false);
+  const snoozeTimeoutRef = useRef(null);
+  const confirmationTimeoutRef = useRef(null);
 
   useEffect(() => {
     loadMedication();
@@ -28,6 +33,12 @@ export default function AlarmScreen() {
       }
       if (voiceIntervalRef.current) {
         clearInterval(voiceIntervalRef.current);
+      }
+      if (snoozeTimeoutRef.current) {
+        clearTimeout(snoozeTimeoutRef.current);
+      }
+      if (confirmationTimeoutRef.current) {
+        clearTimeout(confirmationTimeoutRef.current);
       }
     };
   }, []);
@@ -63,77 +74,171 @@ export default function AlarmScreen() {
 
   const startAlarm = async () => {
     try {
-      // Configurar áudio
+      // Configurar áudio para garantir que toque mesmo em modo silencioso
       await Audio.setAudioModeAsync({
         playsInSilentModeIOS: true,
         staysActiveInBackground: true,
         shouldDuckAndroid: false,
       });
 
-      // Criar som de alarme
-      // Tentar usar um som de alarme online
-      try {
-        const { sound: alarmSound } = await Audio.Sound.createAsync(
-          { uri: 'https://assets.mixkit.co/active_storage/sfx/2704/2704-preview.mp3' },
-          { shouldPlay: true, isLooping: true, volume: 1.0 }
-        );
-      setSound(alarmSound);
+      // O som da notificação do sistema já deve estar tocando
+      // Tentar criar som adicional apenas se necessário (opcional)
+      // O importante é que a notificação com sound: 'default' já toca
       setIsPlaying(true);
       isPlayingRef.current = true;
+      
+      // Tentar adicionar som adicional (opcional, não bloqueia se falhar)
+      try {
+        // Tentar usar som online como backup adicional
+        const { sound: alarmSound } = await Audio.Sound.createAsync(
+          { uri: 'https://assets.mixkit.co/active_storage/sfx/2704/2704-preview.mp3' },
+          { 
+            shouldPlay: true, 
+            isLooping: true, 
+            volume: 1.0,
+            isMuted: false
+          }
+        );
+        setSound(alarmSound);
       } catch (e) {
-        // Se falhar, usar apenas voz (que será repetida)
-        console.log('Usando apenas voz para o alarme');
-        setIsPlaying(true);
-        isPlayingRef.current = true;
+        // Se falhar, não é problema - o som da notificação já está tocando
+        console.log('Som adicional não disponível, usando apenas notificação do sistema');
       }
 
-      // Falar o nome do medicamento e dosagem
+      // Tentar falar o nome do medicamento (opcional, não bloqueia o alarme)
       if (medication) {
         const speakMessage = () => {
           if (!isPlayingRef.current || isPausedRef.current) return;
           
-          let message = `Hora de tomar ${medication.name}`;
-          if (medication.dosage) {
-            message += `, dosagem ${medication.dosage}`;
+          try {
+            let message = `Hora de tomar ${medication.name}`;
+            if (medication.dosage) {
+              message += `, dosagem ${medication.dosage}`;
+            }
+            if (medication.fasting) {
+              message += '. Atenção: este medicamento deve ser tomado em jejum';
+            }
+            
+            Speech.speak(message, {
+              language: 'pt-BR',
+              pitch: 1.2,
+              rate: 0.9,
+            });
+          } catch (speechError) {
+            // Se falhar a voz, continua com o som
+            console.log('Erro ao falar mensagem:', speechError);
           }
-          if (medication.fasting) {
-            message += '. Atenção: este medicamento deve ser tomado em jejum';
-          }
-          
-          Speech.speak(message, {
-            language: 'pt-BR',
-            pitch: 1.2, // Voz mais aguda (feminina)
-            rate: 0.9, // Velocidade um pouco mais lenta para idosos
-          });
         };
         
-        // Falar imediatamente
-        speakMessage();
+        // Falar imediatamente (se possível)
+        try {
+          speakMessage();
+        } catch (e) {
+          console.log('Não foi possível falar, mas o alarme continua tocando');
+        }
         
         // Limpar intervalo anterior se existir
         if (voiceIntervalRef.current) {
           clearInterval(voiceIntervalRef.current);
         }
         
-        // Repetir a cada 15 segundos se o alarme estiver tocando
+        // Repetir voz a cada 30 segundos (menos frequente para não sobrecarregar)
         voiceIntervalRef.current = setInterval(() => {
           if (isPlayingRef.current && !isPausedRef.current && medication) {
-            speakMessage();
+            try {
+              speakMessage();
+            } catch (e) {
+              // Ignora erro de voz, continua com som
+            }
           }
-        }, 15000); // Repetir a cada 15 segundos
+        }, 30000); // Repetir a cada 30 segundos
       }
+
+      // Agendar confirmação após 15 minutos
+      scheduleConfirmationAfter15Minutes();
     } catch (error) {
       console.error('Erro ao iniciar alarme:', error);
-      // Continuar sem som, apenas com voz
+      // Mesmo com erro, garantir que o alarme continue
       setIsPlaying(true);
+      isPlayingRef.current = true;
+      
+      // Tentar falar (opcional)
       if (medication) {
-        const message = `Hora de tomar ${medication.name}${medication.dosage ? ', dosagem ' + medication.dosage : ''}`;
-        Speech.speak(message, {
-          language: 'pt-BR',
-          pitch: 1.2,
-          rate: 0.9,
-        });
+        try {
+          const message = `Hora de tomar ${medication.name}${medication.dosage ? ', dosagem ' + medication.dosage : ''}`;
+          Speech.speak(message, {
+            language: 'pt-BR',
+            pitch: 1.2,
+            rate: 0.9,
+          });
+        } catch (e) {
+          // Ignora erro de voz
+        }
       }
+      
+      // Agendar confirmação mesmo com erro
+      scheduleConfirmationAfter15Minutes();
+    }
+  };
+
+  const scheduleConfirmationAfter15Minutes = () => {
+    // Limpar timeout anterior se existir
+    if (confirmationTimeoutRef.current) {
+      clearTimeout(confirmationTimeoutRef.current);
+    }
+
+    // Agendar confirmação após 15 minutos
+    confirmationTimeoutRef.current = setTimeout(() => {
+      if (medication) {
+        askIfMedicationTaken();
+      }
+    }, 15 * 60 * 1000); // 15 minutos
+  };
+
+  const askIfMedicationTaken = () => {
+    showModal(
+      'Confirmação',
+      `Você já tomou o medicamento ${medication.name}?`,
+      'confirm',
+      [
+        {
+          text: 'Sim, tomei',
+          onPress: async () => {
+            await markMedicationAsTaken();
+            await stopAlarm();
+            router.back();
+          },
+          style: 'default',
+        },
+        {
+          text: 'Ainda não',
+          onPress: () => {
+            // Continuar alarme e agendar nova confirmação em mais 15 minutos
+            if (!isPlaying) {
+              startAlarm();
+            }
+            scheduleConfirmationAfter15Minutes();
+          },
+          style: 'cancel',
+        },
+      ]
+    );
+  };
+
+  const markMedicationAsTaken = async () => {
+    try {
+      const stored = await AsyncStorage.getItem('medications');
+      if (stored) {
+        const medications = JSON.parse(stored);
+        const updatedMedications = medications.map(m => 
+          m.id === medication.id 
+            ? { ...m, lastTaken: new Date().toISOString() }
+            : m
+        );
+        await AsyncStorage.setItem('medications', JSON.stringify(updatedMedications));
+      }
+    } catch (error) {
+      console.error('Erro ao marcar medicamento como tomado:', error);
     }
   };
 
@@ -150,9 +255,20 @@ export default function AlarmScreen() {
       isPlayingRef.current = false;
       isPausedRef.current = false;
       
+      // Limpar todos os timeouts
       if (pauseTimeoutRef.current) {
         clearTimeout(pauseTimeoutRef.current);
         pauseTimeoutRef.current = null;
+      }
+      
+      if (snoozeTimeoutRef.current) {
+        clearTimeout(snoozeTimeoutRef.current);
+        snoozeTimeoutRef.current = null;
+      }
+      
+      if (confirmationTimeoutRef.current) {
+        clearTimeout(confirmationTimeoutRef.current);
+        confirmationTimeoutRef.current = null;
       }
       
       if (voiceIntervalRef.current) {
@@ -161,6 +277,37 @@ export default function AlarmScreen() {
       }
     } catch (error) {
       console.error('Erro ao parar alarme:', error);
+    }
+  };
+
+  const handleSnooze = async () => {
+    try {
+      // Parar alarme atual
+      if (sound) {
+        await sound.pauseAsync();
+      }
+      Speech.stop();
+      setIsPlaying(false);
+      setIsPaused(true);
+      isPlayingRef.current = false;
+      isPausedRef.current = true;
+      
+      if (voiceIntervalRef.current) {
+        clearInterval(voiceIntervalRef.current);
+        voiceIntervalRef.current = null;
+      }
+
+      // Limpar confirmação anterior
+      if (confirmationTimeoutRef.current) {
+        clearTimeout(confirmationTimeoutRef.current);
+      }
+      
+      // Agendar retorno do alarme em 15 minutos (soneca)
+      snoozeTimeoutRef.current = setTimeout(() => {
+        resumeAlarm();
+      }, 15 * 60 * 1000); // 15 minutos
+    } catch (error) {
+      console.error('Erro ao ativar soneca:', error);
     }
   };
 
@@ -234,6 +381,13 @@ export default function AlarmScreen() {
   };
 
   const handleStop = async () => {
+    // Limpar todos os timeouts
+    if (confirmationTimeoutRef.current) {
+      clearTimeout(confirmationTimeoutRef.current);
+    }
+    if (snoozeTimeoutRef.current) {
+      clearTimeout(snoozeTimeoutRef.current);
+    }
     await stopAlarm();
     router.back();
   };
@@ -246,6 +400,12 @@ export default function AlarmScreen() {
     }
   };
 
+  const handleTakeMedication = async () => {
+    await markMedicationAsTaken();
+    await stopAlarm();
+    router.back();
+  };
+
   if (!medication) {
     return (
       <View style={styles.container}>
@@ -255,63 +415,76 @@ export default function AlarmScreen() {
   }
 
   return (
-    <Modal
-      visible={true}
-      animationType="fade"
-      transparent={false}
-      onRequestClose={handleStop}
-    >
-      <View style={styles.container}>
-        <View style={styles.alarmContent}>
-          <View style={styles.iconContainer}>
-            <Ionicons name="medical" size={120} color="#FF6B6B" />
-          </View>
-          
-          <Text style={styles.title}>Hora do Medicamento!</Text>
-          
-          {medication.image && (
-            <Image source={{ uri: medication.image }} style={styles.medicationImage} />
-          )}
-          
-          <Text style={styles.medicationName}>{medication.name}</Text>
-          
-          {medication.dosage && (
-            <Text style={styles.dosage}>Dosagem: {medication.dosage}</Text>
-          )}
-          
-          {isPaused && (
-            <View style={styles.pauseIndicator}>
-              <Text style={styles.pauseText}>Alarme pausado</Text>
-              <Text style={styles.pauseSubtext}>Retomará em 5 minutos</Text>
+    <>
+      <Modal
+        visible={true}
+        animationType="fade"
+        transparent={false}
+        onRequestClose={handleStop}
+      >
+        <View style={styles.container}>
+          <View style={styles.alarmContent}>
+            <View style={styles.iconContainer}>
+              <Ionicons name="medical" size={120} color="#FF6B6B" />
             </View>
-          )}
-          
-          <View style={styles.buttonsContainer}>
-            <TouchableOpacity
-              style={[styles.button, styles.pauseButton]}
-              onPress={handlePause}
-            >
-              <Ionicons 
-                name={isPaused ? "play" : "pause"} 
-                size={40} 
-                color="#fff" 
-              />
-              <Text style={styles.buttonText}>
-                {isPaused ? "Retomar" : "Pausar"}
-              </Text>
-            </TouchableOpacity>
             
-            <TouchableOpacity
-              style={[styles.button, styles.stopButton]}
-              onPress={handleStop}
-            >
-              <Ionicons name="stop" size={40} color="#fff" />
-              <Text style={styles.buttonText}>Parar</Text>
-            </TouchableOpacity>
+            <Text style={styles.title}>Hora do Medicamento!</Text>
+            
+            {medication.image && (
+              <Image source={{ uri: medication.image }} style={styles.medicationImage} />
+            )}
+            
+            <Text style={styles.medicationName}>{medication.name}</Text>
+            
+            {medication.dosage && (
+              <Text style={styles.dosage}>Dosagem: {medication.dosage}</Text>
+            )}
+            
+            {isPaused && (
+              <View style={styles.pauseIndicator}>
+                <Text style={styles.pauseText}>Alarme pausado</Text>
+                <Text style={styles.pauseSubtext}>
+                  {snoozeTimeoutRef.current ? 'Retomará em 15 minutos' : 'Retomará em 5 minutos'}
+                </Text>
+              </View>
+            )}
+            
+            <View style={styles.buttonsContainer}>
+              <TouchableOpacity
+                style={[styles.button, styles.takeButton]}
+                onPress={handleTakeMedication}
+              >
+                <Ionicons name="checkmark-circle" size={40} color="#fff" />
+                <Text style={styles.buttonText}>Tomei</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[styles.button, styles.snoozeButton]}
+                onPress={handleSnooze}
+              >
+                <Ionicons name="time" size={40} color="#fff" />
+                <Text style={styles.buttonText}>Soneca 15min</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[styles.button, styles.pauseButton]}
+                onPress={handlePause}
+              >
+                <Ionicons 
+                  name={isPaused ? "play" : "pause"} 
+                  size={40} 
+                  color="#fff" 
+                />
+                <Text style={styles.buttonText}>
+                  {isPaused ? "Retomar" : "Pausar"}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
-      </View>
-    </Modal>
+      </Modal>
+      <ModalComponent />
+    </>
   );
 }
 
@@ -381,25 +554,31 @@ const styles = StyleSheet.create({
   },
   buttonsContainer: {
     flexDirection: 'row',
-    gap: 24,
+    flexWrap: 'wrap',
+    gap: 16,
     width: '100%',
     justifyContent: 'center',
+    paddingHorizontal: 20,
   },
   button: {
     flex: 1,
+    minWidth: 140,
     backgroundColor: '#fff',
     borderRadius: 20,
-    padding: 30,
+    padding: 24,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 120,
-    maxWidth: 200,
+    minHeight: 100,
+    maxWidth: 180,
   },
-  pauseButton: {
+  takeButton: {
     backgroundColor: '#4ECDC4',
   },
-  stopButton: {
-    backgroundColor: '#333',
+  snoozeButton: {
+    backgroundColor: '#FFA07A',
+  },
+  pauseButton: {
+    backgroundColor: '#95E1D3',
   },
   buttonText: {
     fontSize: 28,

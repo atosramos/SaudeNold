@@ -195,3 +195,10 @@ class TestEmergencyContacts:
         response = client.post("/api/emergency-contacts", json=contact_data)
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
+
+
+
+
+
+
+

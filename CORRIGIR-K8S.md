@@ -143,3 +143,18 @@ Isso roda localmente sem usar Kubernetes e evita problemas de recursos.
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

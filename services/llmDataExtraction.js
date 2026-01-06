@@ -42,9 +42,11 @@ export const listAvailableGeminiModels = async (apiKey) => {
     const supportedModels = models.filter(model => {
       const supportsGenerateContent = model.supportedGenerationMethods?.includes('generateContent');
       const name = model.name || '';
-      // Modelos que suportam documentos: gemini-1.5, gemini-2.5, etc
+      // Modelos que suportam documentos: gemini-1.5, gemini-2.0, gemini-2.5, gemini-3.0, etc
       const supportsDocuments = name.includes('gemini-1.5') || 
+                                name.includes('gemini-2.0') || 
                                 name.includes('gemini-2.5') || 
+                                name.includes('gemini-3.0') || 
                                 name.includes('gemini-pro');
       return supportsGenerateContent && supportsDocuments;
     });
@@ -443,14 +445,18 @@ Retorne APENAS o JSON:`;
  * @param {string} apiKey - Chave de API do Gemini
  * @returns {Promise<Object|null>} Dados estruturados do exame ou null
  */
-export const extractDataWithGeminiDirect = async (fileInput, fileType, apiKey) => {
+export const extractDataWithGeminiDirect = async (fileInput, fileType, apiKey, addDebugLog = null) => {
   if (!apiKey) {
-    console.log('Gemini Direct: Chave de API não fornecida. Pule.');
+    const msg = 'Gemini Direct: Chave de API não fornecida. Pule.';
+    console.log(msg);
+    if (addDebugLog) addDebugLog(msg, 'warning');
     return null;
   }
 
   try {
-    console.log('Tentando extrair dados diretamente com Google Gemini (multimodal)...');
+    const msg = 'Tentando extrair dados diretamente com Google Gemini (multimodal)...';
+    console.log(msg);
+    if (addDebugLog) addDebugLog(msg, 'info');
 
     let base64Data;
     let mimeType;
@@ -472,16 +478,22 @@ export const extractDataWithGeminiDirect = async (fileInput, fileType, apiKey) =
       mimeType = fileInput.split(';')[0].split(':')[1];
     } else if (Platform.OS !== 'web') {
       // Mobile: ler URI para base64
-      console.log('Gemini Direct: Lendo URI para base64 (mobile)...');
+      const msg = 'Gemini Direct: Lendo URI para base64 (mobile)...';
+      console.log(msg);
+      if (addDebugLog) addDebugLog(msg, 'info');
       console.log('📱 URI do arquivo:', fileInput?.substring?.(0, 100) || fileInput);
       
       try {
         let FileSystem;
         try {
           FileSystem = require('expo-file-system');
-          console.log('✅ FileSystem importado com sucesso');
+          const successMsg = '✅ FileSystem importado com sucesso';
+          console.log(successMsg);
+          if (addDebugLog) addDebugLog(successMsg, 'success');
         } catch (importError) {
-          console.error('❌ Erro ao importar FileSystem:', importError);
+          const errorMsg = `❌ Erro ao importar FileSystem: ${importError.message}`;
+          console.error(errorMsg, importError);
+          if (addDebugLog) addDebugLog(errorMsg, 'error');
           throw new Error(`Não foi possível importar expo-file-system: ${importError.message}`);
         }
         
@@ -489,22 +501,31 @@ export const extractDataWithGeminiDirect = async (fileInput, fileType, apiKey) =
           throw new Error(`URI inválida: ${typeof fileInput}`);
         }
         
-        console.log('📖 Lendo arquivo do sistema de arquivos...');
+        const readingMsg = '📖 Lendo arquivo do sistema de arquivos...';
+        console.log(readingMsg);
+        if (addDebugLog) addDebugLog(readingMsg, 'info');
+        
         base64Data = await FileSystem.readAsStringAsync(fileInput, {
           encoding: FileSystem.EncodingType.Base64,
         });
         
-        console.log('✅ Arquivo lido, tamanho base64:', base64Data?.length || 0);
+        const readSuccessMsg = `✅ Arquivo lido, tamanho base64: ${base64Data?.length || 0}`;
+        console.log(readSuccessMsg);
+        if (addDebugLog) addDebugLog(readSuccessMsg, 'success');
         
         if (!base64Data || base64Data.length === 0) {
           throw new Error('Arquivo lido está vazio');
         }
         
         mimeType = fileType === 'pdf' ? 'application/pdf' : 'image/jpeg'; // Assumir para mobile
-        console.log('✅ MIME type definido:', mimeType);
+        const mimeMsg = `✅ MIME type definido: ${mimeType}`;
+        console.log(mimeMsg);
+        if (addDebugLog) addDebugLog(mimeMsg, 'success');
       } catch (readError) {
-        console.error('❌ Erro ao ler arquivo no mobile:', readError);
+        const errorMsg = `❌ Erro ao ler arquivo no mobile: ${readError.message}`;
+        console.error(errorMsg, readError);
         console.error('❌ Stack trace:', readError.stack);
+        if (addDebugLog) addDebugLog(errorMsg, 'error');
         throw new Error(`Erro ao ler arquivo no mobile: ${readError.message}`);
       }
     } else {
@@ -517,31 +538,40 @@ export const extractDataWithGeminiDirect = async (fileInput, fileType, apiKey) =
     
     console.log('✅ Base64 preparado, tamanho:', base64Data.length, 'bytes');
 
-    const prompt = `Você é um especialista em análise de exames médicos. Analise o documento abaixo (imagem ou PDF) e extraia APENAS informações médicas relevantes.
+    const prompt = `Atue como um extrator de dados de saúde especializado em estruturação de laudos laboratoriais. Analise o documento fornecido para a paciente e retorne os dados estritamente no formato JSON, seguindo a estrutura abaixo para cada exame encontrado.
 
-REGRAS IMPORTANTES:
-- IGNORE completamente: telefones, endereços, CPF, RG, nomes de pessoas, emails
-- EXTRAIA apenas: data do exame, tipo de exame, parâmetros médicos com valores numéricos, unidades e faixas de referência
-- Se um parâmetro não tiver valor numérico, NÃO inclua
-- Retorne APENAS um JSON válido, sem markdown, sem explicações
+Para os valores ideais, utilize o 'Valor de Referência' indicado no laudo que seja compatível com o perfil da paciente.
 
-Formato JSON obrigatório:
+Estrutura JSON esperada:
 {
+  "paciente": "Nome da Paciente" ou null,
+  "data_coleta": "YYYY-MM-DD" ou null,
   "exam_date": "YYYY-MM-DD" ou null,
   "exam_type": "tipo do exame" ou null,
   "parameters": [
     {
-      "name": "nome do parâmetro médico",
-      "value": "valor original completo",
+      "name": "Nome do Exame/Analito",
+      "value": "Valor numérico ou textual",
       "numeric_value": "apenas o número" ou null,
-      "unit": "unidade (g/dL, mg/dL, etc)" ou null,
-      "reference_range_min": "valor mínimo" ou null,
-      "reference_range_max": "valor máximo" ou null
+      "unit": "Unidade de medida" ou null,
+      "reference_range_min": "Limite inferior (se houver)" ou null,
+      "reference_range_max": "Limite superior (se houver)" ou null,
+      "valor_referencia_min": "Limite inferior (se houver)" ou null,
+      "valor_referencia_max": "Limite superior (se houver)" ou null,
+      "status": "Normal/Alterado (baseado na referência)" ou null
     }
   ]
 }
 
-Retorne APENAS o JSON:`;
+Diretrizes Adicionais:
+1. Converta vírgulas decimais em pontos para facilitar o processamento numérico (ex: 34,5 vira 34.5)
+2. No caso do Hemograma, extraia cada item (Hemácias, Hemoglobina, Leucócitos, etc.) como um objeto individual na lista de parâmetros
+3. Para o Perfil Lipídico, utilize as metas de risco cardiovascular como referência para o LDL e Não-HDL
+4. Ignore notas de rodapé e textos informativos, focando apenas nos dados quantitativos
+5. IGNORE completamente: telefones, endereços, CPF, RG, emails
+6. Se um parâmetro não tiver valor numérico, NÃO inclua
+
+Retorne APENAS o JSON válido, sem markdown, sem explicações:`;
 
     const requestBody = {
       contents: [{
@@ -557,26 +587,75 @@ Retorne APENAS o JSON:`;
       }],
       generationConfig: {
         temperature: 0.1,
-        maxOutputTokens: 2000,
+        maxOutputTokens: 4000, // Aumentado para suportar JSONs maiores (hemogramas podem ter muitos parâmetros)
       }
     };
 
-    // Tentar modelos conhecidos que suportam multimodal
-    const attempts = [
-      { version: 'v1', model: 'gemini-1.5-flash' }, // Mais rápido, geralmente bom
-      { version: 'v1', model: 'gemini-1.5-pro' },   // Mais capaz, mas mais lento
-      { version: 'v1beta', model: 'gemini-pro-vision' }, // Modelo multimodal antigo
-    ];
+    // Tentar listar modelos disponíveis dinamicamente primeiro
+    let availableModels = [];
+    try {
+      availableModels = await listAvailableGeminiModels(apiKey);
+      if (addDebugLog) addDebugLog(`Encontrados ${availableModels.length} modelos Gemini disponíveis`, 'info');
+      console.log(`Encontrados ${availableModels.length} modelos Gemini disponíveis`);
+    } catch (error) {
+      console.log('Não foi possível listar modelos dinamicamente, usando lista padrão');
+      if (addDebugLog) addDebugLog('Usando lista padrão de modelos', 'warning');
+    }
+
+    // Se encontrou modelos dinamicamente, usar eles (priorizando versões mais recentes)
+    // Caso contrário, usar lista padrão
+    let attempts;
+    if (availableModels.length > 0) {
+      // Ordenar modelos: versões mais recentes primeiro (3.0 > 2.5 > 2.0 > 1.5)
+      // Priorizar Flash sobre Pro (mais rápido)
+      const sortedModels = availableModels.sort((a, b) => {
+        const getVersion = (name) => {
+          if (name.includes('gemini-3.0')) {
+            // Priorizar Flash sobre Pro
+            return name.includes('flash') ? 3.1 : 3.0;
+          }
+          if (name.includes('gemini-2.5')) {
+            return name.includes('flash') ? 2.6 : 2.5;
+          }
+          if (name.includes('gemini-2.0')) {
+            return name.includes('flash') ? 2.1 : 2.0;
+          }
+          if (name.includes('gemini-1.5')) {
+            return name.includes('flash') ? 1.6 : 1.5;
+          }
+          return 0;
+        };
+        return getVersion(b.name) - getVersion(a.name);
+      });
+      
+      attempts = sortedModels.map(m => ({ version: m.version, model: m.name }));
+      console.log('Usando modelos dinâmicos (ordenados por versão):', attempts.map(a => `${a.version}/${a.model}`));
+    } else {
+      // Lista padrão: tentar versões mais recentes primeiro
+      // Gemini 3.0 foi lançado em novembro de 2025
+      attempts = [
+        { version: 'v1', model: 'gemini-3.0-flash' },      // Gemini 3.0 Flash - Mais recente e rápido
+        { version: 'v1', model: 'gemini-3.0-pro' },        // Gemini 3.0 Pro - Mais preciso
+        { version: 'v1', model: 'gemini-2.0-flash-exp' },  // Gemini 2.0 Flash (experimental)
+        { version: 'v1', model: 'gemini-1.5-flash' },      // Gemini 1.5 Flash - Fallback rápido
+        { version: 'v1', model: 'gemini-1.5-pro' },        // Gemini 1.5 Pro - Fallback preciso
+      ];
+      console.log('Usando lista padrão de modelos (incluindo Gemini 3.0)');
+    }
 
     let response = null;
     let lastError = null;
     let successfulAttempt = null;
 
-    for (const attempt of attempts) {
+    for (let i = 0; i < attempts.length; i++) {
+      const attempt = attempts[i];
       const url = `https://generativelanguage.googleapis.com/${attempt.version}/models/${attempt.model}:generateContent?key=${apiKey}`;
-      console.log(`Tentando Gemini Direct ${attempt.version}/${attempt.model}...`);
+      const attemptMsg = `[${i + 1}/${attempts.length}] Tentando Gemini Direct ${attempt.version}/${attempt.model}...`;
+      console.log(attemptMsg);
+      if (addDebugLog) addDebugLog(attemptMsg, 'info');
 
       try {
+        if (addDebugLog) addDebugLog(`Enviando requisição para ${attempt.model}...`, 'info');
         response = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -584,18 +663,38 @@ Retorne APENAS o JSON:`;
         });
 
         if (response.ok) {
-          console.log(`✅ Gemini Direct ${attempt.version}/${attempt.model} funcionou!`);
+          const successMsg = `✅ Gemini Direct ${attempt.version}/${attempt.model} funcionou!`;
+          console.log(successMsg);
+          if (addDebugLog) addDebugLog(successMsg, 'success');
           successfulAttempt = attempt;
           break;
         } else {
           const errorData = await response.json().catch(() => ({}));
           lastError = `Erro ${response.status}: ${JSON.stringify(errorData)}`;
-          console.log(`❌ Gemini Direct ${attempt.version}/${attempt.model} falhou: ${lastError}`);
+          const failMsg = `❌ [${i + 1}/${attempts.length}] Gemini Direct ${attempt.version}/${attempt.model} falhou: ${lastError}`;
+          console.error(failMsg);
+          if (addDebugLog) addDebugLog(failMsg, 'error');
+          
+          // Se não for o último modelo, informar que vai tentar o próximo
+          if (i < attempts.length - 1) {
+            const nextMsg = `⚠️ Tentando próximo modelo...`;
+            console.log(nextMsg);
+            if (addDebugLog) addDebugLog(nextMsg, 'warning');
+          }
           response = null;
         }
       } catch (error) {
         lastError = error.message;
-        console.log(`❌ Gemini Direct ${attempt.version}/${attempt.model} erro: ${lastError}`);
+        const errorMsg = `❌ [${i + 1}/${attempts.length}] Gemini Direct ${attempt.version}/${attempt.model} erro: ${lastError}`;
+        console.error(errorMsg);
+        if (addDebugLog) addDebugLog(errorMsg, 'error');
+        
+        // Se não for o último modelo, informar que vai tentar o próximo
+        if (i < attempts.length - 1) {
+          const nextMsg = `⚠️ Tentando próximo modelo...`;
+          console.log(nextMsg);
+          if (addDebugLog) addDebugLog(nextMsg, 'warning');
+        }
         response = null;
       }
     }
@@ -609,21 +708,137 @@ Retorne APENAS o JSON:`;
 
     if (!text) {
       console.log('Gemini Direct: Resposta vazia');
+      if (addDebugLog) addDebugLog('Gemini Direct: Resposta vazia', 'warning');
       return null;
     }
 
-    let jsonText = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
+    // Log da resposta completa para debug
+    console.log('Gemini Direct: Resposta completa recebida, tamanho:', text.length);
+    if (addDebugLog) {
+      addDebugLog(`Resposta recebida: ${text.length} caracteres`, 'info');
+      // Mostrar primeiros 500 chars para debug
+      addDebugLog(`Primeiros 500 chars: ${text.substring(0, 500)}`, 'info');
+    }
 
-    if (jsonMatch) {
-      const extracted = JSON.parse(jsonMatch[0]);
-      if (extracted.parameters && Array.isArray(extracted.parameters) && extracted.parameters.length > 0) {
-        console.log(`✅ Gemini Direct extraiu ${extracted.parameters.length} parâmetros`);
-        return extracted;
+    // Tentar múltiplas estratégias para extrair JSON
+    let extracted = null;
+    
+    // Estratégia 1: Tentar parse direto (caso o texto seja JSON puro)
+    try {
+      extracted = JSON.parse(text.trim());
+      console.log('✅ Parse direto funcionou!');
+      if (addDebugLog) addDebugLog('✅ Parse direto do JSON funcionou!', 'success');
+    } catch (directParseError) {
+      // Estratégia 2: Remover markdown code blocks e tentar parse
+      // Primeiro, limpar markdown
+      let jsonText = text
+        .replace(/```json\s*/gi, '')  // Remove ```json
+        .replace(/```\s*/g, '')       // Remove ```
+        .trim();
+      
+      // Tentar encontrar o JSON completo usando regex mais robusto
+      // Procura por { seguido de qualquer coisa até o último } balanceado
+      const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        jsonText = jsonMatch[0];
+      } else {
+        // Se não encontrou com regex, tentar encontrar manualmente
+        const firstBrace = jsonText.indexOf('{');
+        const lastBrace = jsonText.lastIndexOf('}');
+        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+          jsonText = jsonText.substring(firstBrace, lastBrace + 1);
+        } else {
+          // Se ainda não encontrou, tentar sem limpeza prévia
+          jsonText = text;
+          const fallbackMatch = jsonText.match(/\{[\s\S]*\}/);
+          if (fallbackMatch) {
+            jsonText = fallbackMatch[0];
+          }
+        }
+      }
+      
+      if (jsonText && jsonText.startsWith('{')) {
+        try {
+          extracted = JSON.parse(jsonText);
+          console.log('✅ Parse após limpeza funcionou!');
+          if (addDebugLog) addDebugLog('✅ Parse após limpeza do JSON funcionou!', 'success');
+        } catch (cleanParseError) {
+          console.error('❌ Erro no parse após limpeza:', cleanParseError.message);
+          console.error('❌ Posição do erro:', cleanParseError.message.includes('position') ? cleanParseError.message : 'desconhecida');
+          if (addDebugLog) {
+            addDebugLog(`❌ Erro no parse: ${cleanParseError.message}`, 'error');
+            // Mostrar mais contexto do JSON tentado
+            const previewStart = Math.max(0, jsonText.length - 500);
+            addDebugLog(`JSON tentado (últimos 500 chars): ${jsonText.substring(previewStart)}`, 'info');
+            // Verificar se o JSON está completo (tem } no final)
+            if (!jsonText.trim().endsWith('}')) {
+              addDebugLog('⚠️ JSON pode estar incompleto (não termina com })', 'warning');
+            }
+          }
+        }
+      } else {
+        console.error('❌ Não foi possível encontrar JSON na resposta');
+        if (addDebugLog) {
+          addDebugLog('❌ Não foi possível encontrar JSON na resposta', 'error');
+          addDebugLog(`Texto processado (primeiros 200 chars): ${jsonText.substring(0, 200)}`, 'info');
+        }
       }
     }
 
-    console.log('Gemini Direct: Não foi possível extrair JSON válido da resposta');
+    // Se conseguiu extrair, processar e normalizar
+    if (extracted) {
+      // Normalizar dados: usar data_coleta se exam_date não estiver disponível
+      if (!extracted.exam_date && extracted.data_coleta) {
+        extracted.exam_date = extracted.data_coleta;
+      }
+      
+      // Normalizar campos de referência: usar valor_referencia_* se reference_range_* não estiver disponível
+      if (extracted.parameters && Array.isArray(extracted.parameters)) {
+        extracted.parameters = extracted.parameters.map(param => {
+          if (!param.reference_range_min && param.valor_referencia_min) {
+            param.reference_range_min = param.valor_referencia_min;
+          }
+          if (!param.reference_range_max && param.valor_referencia_max) {
+            param.reference_range_max = param.valor_referencia_max;
+          }
+          // Converter vírgulas em pontos para numeric_value (se necessário)
+          if (param.numeric_value && typeof param.numeric_value === 'string') {
+            param.numeric_value = param.numeric_value.replace(',', '.');
+          }
+          return param;
+        });
+      }
+      
+      if (extracted.parameters && Array.isArray(extracted.parameters) && extracted.parameters.length > 0) {
+        const successMsg = `✅ Gemini Direct extraiu ${extracted.parameters.length} parâmetros`;
+        console.log(successMsg);
+        if (addDebugLog) addDebugLog(successMsg, 'success');
+        if (addDebugLog && extracted.paciente) {
+          addDebugLog(`Paciente: ${extracted.paciente}`, 'info');
+        }
+        if (addDebugLog && extracted.exam_date) {
+          addDebugLog(`Data do exame: ${extracted.exam_date}`, 'info');
+        }
+        return extracted;
+      } else {
+        const warningMsg = `⚠️ Gemini Direct retornou JSON, mas sem parâmetros válidos. Parâmetros encontrados: ${extracted.parameters?.length || 0}`;
+        console.log(warningMsg);
+        if (addDebugLog) addDebugLog(warningMsg, 'warning');
+        if (addDebugLog && extracted) {
+          addDebugLog(`Estrutura recebida: ${JSON.stringify(extracted).substring(0, 200)}`, 'info');
+        }
+      }
+    }
+
+    // Se chegou aqui, não conseguiu extrair JSON válido
+    const noJsonMsg = 'Gemini Direct: Não foi possível extrair JSON válido da resposta';
+    console.log(noJsonMsg);
+    if (addDebugLog) addDebugLog(noJsonMsg, 'warning');
+    if (addDebugLog && text) {
+      // Mostrar mais da resposta para debug
+      const previewLength = Math.min(500, text.length);
+      addDebugLog(`Resposta completa (${text.length} chars, primeiros ${previewLength}): ${text.substring(0, previewLength)}`, 'info');
+    }
     return null;
   } catch (error) {
     console.error('Erro ao usar Gemini Direct:', error);

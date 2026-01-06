@@ -98,3 +98,17 @@ kubectl describe node docker-desktop
 **Data:** 2025-12-24  
 **Status:** Pods agendados, aguardando inicialização dos containers
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -84,3 +84,17 @@ Write-Host "   1. Atualize o app.json do frontend com a API Key: $apiKey" -Foreg
 Write-Host "   2. Teste a API com: curl -H 'Authorization: Bearer $apiKey' http://localhost:8000/api/medications" -ForegroundColor White
 Write-Host "   3. Verifique os logs: kubectl logs -f deployment/backend -n saudenold" -ForegroundColor White
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+

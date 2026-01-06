@@ -118,3 +118,17 @@ Isso não requer Kubernetes e permite testar todas as correções de segurança 
 **Status:** Problema de infraestrutura (espaço em disco do sistema)  
 **Solução:** Liberar espaço no disco C: do Windows
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+

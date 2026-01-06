@@ -26,12 +26,24 @@ api.interceptors.request.use(
   }
 );
 
-// Interceptor para tratar erros de autenticação
+// Interceptor para tratar erros de conexão e autenticação
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
-      console.error('Erro de autenticação: API Key inválida ou ausente');
+    // Log detalhado de erros de conexão
+    if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND' || error.code === 'ETIMEDOUT') {
+      console.error('❌ Erro de conexão com backend:', {
+        code: error.code,
+        message: error.message,
+        url: error.config?.url,
+        baseURL: error.config?.baseURL,
+      });
+    } else if (error.response?.status === 401) {
+      console.error('❌ Erro de autenticação: API Key inválida ou ausente');
+    } else if (error.response?.status >= 500) {
+      console.error('❌ Erro do servidor:', error.response?.status, error.response?.data);
+    } else if (error.response?.status >= 400) {
+      console.error('❌ Erro na requisição:', error.response?.status, error.response?.data);
     }
     return Promise.reject(error);
   }
@@ -65,6 +77,16 @@ export const doctorVisitsAPI = {
   create: (data) => api.post('/api/doctor-visits', data),
   update: (id, data) => api.put(`/api/doctor-visits/${id}`, data),
   delete: (id) => api.delete(`/api/doctor-visits/${id}`),
+};
+
+// ========== EXAMES MÉDICOS ==========
+export const medicalExamsAPI = {
+  getAll: () => api.get('/api/medical-exams'),
+  getById: (id) => api.get(`/api/medical-exams/${id}`),
+  create: (data) => api.post('/api/medical-exams', data),
+  update: (id, data) => api.put(`/api/medical-exams/${id}`, data),
+  delete: (id) => api.delete(`/api/medical-exams/${id}`),
+  getTimeline: (examId, parameterName) => api.get(`/api/medical-exams/${examId}/timeline/${parameterName}`),
 };
 
 // ========== HEALTH CHECK ==========
