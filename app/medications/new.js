@@ -1,13 +1,15 @@
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, TextInput, Alert, Image } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, TextInput, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { scheduleMedicationAlarms } from '../../services/alarm';
+import { useCustomAlert } from '../../hooks/useCustomAlert';
 
 export default function NewMedication() {
   const router = useRouter();
+  const { showAlert, AlertComponent } = useCustomAlert();
   const [name, setName] = useState('');
   const [dosage, setDosage] = useState('');
   const [schedules, setSchedules] = useState([]);
@@ -72,7 +74,7 @@ export default function NewMedication() {
 
   const addIntervalSchedules = (intervalHours) => {
     if (!intervalStartTime || !validateTime(intervalStartTime)) {
-      Alert.alert('Erro', 'Por favor, selecione um horário inicial válido');
+      showAlert('Erro', 'Por favor, selecione um horário inicial válido', 'error');
       return;
     }
 
@@ -86,7 +88,7 @@ export default function NewMedication() {
     });
     
     setSchedules(updatedSchedules.sort());
-    Alert.alert('Sucesso', `Horários adicionados a cada ${intervalHours} horas a partir de ${intervalStartTime}`);
+    showAlert('Sucesso', `Horários adicionados a cada ${intervalHours} horas a partir de ${intervalStartTime}`, 'success');
   };
 
   const addCustomIntervalSchedules = () => {
@@ -94,12 +96,12 @@ export default function NewMedication() {
     const intervalHours = parseInt(customInterval);
     
     if (!customInterval || isNaN(intervalHours) || intervalHours < 1 || intervalHours > 24) {
-      Alert.alert('Erro', 'Por favor, digite um intervalo válido entre 1 e 24 horas');
+      showAlert('Erro', 'Por favor, digite um intervalo válido entre 1 e 24 horas', 'error');
       return;
     }
 
     if (!intervalStartTime || !validateTime(intervalStartTime)) {
-      Alert.alert('Erro', 'Por favor, selecione um horário inicial válido');
+      showAlert('Erro', 'Por favor, selecione um horário inicial válido', 'error');
       return;
     }
 
@@ -113,7 +115,7 @@ export default function NewMedication() {
     });
     
     setSchedules(updatedSchedules.sort());
-    Alert.alert('Sucesso', `Horários adicionados a cada ${intervalHours} horas a partir de ${intervalStartTime}`);
+    showAlert('Sucesso', `Horários adicionados a cada ${intervalHours} horas a partir de ${intervalStartTime}`, 'success');
     setCustomInterval(''); // Limpar campo após adicionar
   };
 
@@ -216,12 +218,12 @@ export default function NewMedication() {
     const time = customTime.trim();
     
     if (!time) {
-      Alert.alert('Erro', 'Por favor, digite um horário');
+      showAlert('Erro', 'Por favor, digite um horário', 'error');
       return;
     }
 
     if (!validateTime(time)) {
-      Alert.alert('Erro', 'Horário inválido. Use o formato HH:MM (ex: 09:00 ou 09:15)');
+      showAlert('Erro', 'Horário inválido. Use o formato HH:MM (ex: 09:00 ou 09:15)', 'error');
       return;
     }
 
@@ -230,7 +232,7 @@ export default function NewMedication() {
     const formattedTime = `${hours.padStart(2, '0')}:${minutes}`;
 
     if (schedules.includes(formattedTime)) {
-      Alert.alert('Aviso', 'Este horário já foi adicionado');
+      showAlert('Aviso', 'Este horário já foi adicionado', 'warning');
       return;
     }
 
@@ -264,9 +266,10 @@ export default function NewMedication() {
   };
 
   const showImageOptions = () => {
-    Alert.alert(
+    showAlert(
       'Adicionar Foto',
       'Escolha uma opção',
+      'info',
       [
         { text: 'Câmera', onPress: takePhoto },
         { text: 'Galeria', onPress: pickImage },
@@ -277,12 +280,12 @@ export default function NewMedication() {
 
   const saveMedication = async () => {
     if (!name.trim()) {
-      Alert.alert('Erro', 'Por favor, preencha o nome do medicamento');
+      showAlert('Erro', 'Por favor, preencha o nome do medicamento', 'error');
       return;
     }
 
     if (schedules.length === 0) {
-      Alert.alert('Erro', 'Por favor, adicione pelo menos um horário');
+      showAlert('Erro', 'Por favor, adicione pelo menos um horário', 'error');
       return;
     }
 
@@ -313,18 +316,20 @@ export default function NewMedication() {
         // Não bloquear o cadastro se o agendamento falhar
       }
       
-      Alert.alert('Sucesso', 'Medicamento cadastrado com sucesso!', [
+      showAlert('Sucesso', 'Medicamento cadastrado com sucesso!', 'success', [
         { text: 'OK', onPress: () => router.back() }
       ]);
     } catch (error) {
       console.error('Erro ao salvar medicamento:', error);
-      Alert.alert('Erro', 'Não foi possível salvar o medicamento');
+      showAlert('Erro', 'Não foi possível salvar o medicamento', 'error');
     }
   };
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
+    <>
+      <AlertComponent />
+      <ScrollView style={styles.container}>
+        <View style={styles.header}>
         <TouchableOpacity 
           style={styles.backButton}
           onPress={() => router.back()}
@@ -357,98 +362,129 @@ export default function NewMedication() {
           />
         </View>
 
+        {/* Horários Rápidos - Submenu Colapsável */}
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Horários Rápidos</Text>
-          <View style={styles.quickTimesContainer}>
-            {quickTimes.map((time) => (
-              <TouchableOpacity
-                key={time}
-                style={[
-                  styles.quickTimeButton,
-                  schedules.includes(time) && styles.quickTimeButtonActive
-                ]}
-                onPress={() => schedules.includes(time) ? removeSchedule(time) : addQuickTime(time)}
-              >
-                <Text style={[
-                  styles.quickTimeText,
-                  schedules.includes(time) && styles.quickTimeTextActive
-                ]}>
-                  {time}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          <TouchableOpacity
+            style={styles.collapsibleHeader}
+            onPress={() => setShowQuickTimes(!showQuickTimes)}
+          >
+            <View style={styles.collapsibleHeaderLeft}>
+              <Ionicons name="time-outline" size={28} color="#4ECDC4" />
+              <Text style={styles.collapsibleHeaderText}>Horários Rápidos</Text>
+            </View>
+            <Ionicons 
+              name={showQuickTimes ? "chevron-up" : "chevron-down"} 
+              size={28} 
+              color="#4ECDC4" 
+            />
+          </TouchableOpacity>
+          {showQuickTimes && (
+            <View style={styles.quickTimesContainer}>
+              {quickTimes.map((time) => (
+                <TouchableOpacity
+                  key={time}
+                  style={[
+                    styles.quickTimeButton,
+                    schedules.includes(time) && styles.quickTimeButtonActive
+                  ]}
+                  onPress={() => schedules.includes(time) ? removeSchedule(time) : addQuickTime(time)}
+                >
+                  <Text style={[
+                    styles.quickTimeText,
+                    schedules.includes(time) && styles.quickTimeTextActive
+                  ]}>
+                    {time}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
         </View>
 
+        {/* Agendamento por Intervalo - Submenu Colapsável */}
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Agendamento por Intervalo</Text>
-          <View style={styles.intervalContainer}>
-            <Text style={styles.intervalLabel}>Horário Inicial:</Text>
-            <View style={styles.intervalTimeContainer}>
-              <TextInput
-                style={styles.intervalTimeInput}
-                value={intervalStartTime}
-                onChangeText={handleIntervalTimeChange}
-                placeholder="08:00"
-                placeholderTextColor="#999"
-                keyboardType="numeric"
-                maxLength={5}
-              />
+          <TouchableOpacity
+            style={styles.collapsibleHeader}
+            onPress={() => setShowIntervalSchedule(!showIntervalSchedule)}
+          >
+            <View style={styles.collapsibleHeaderLeft}>
+              <Ionicons name="repeat-outline" size={28} color="#4ECDC4" />
+              <Text style={styles.collapsibleHeaderText}>Agendamento por Intervalo</Text>
             </View>
-            <View style={styles.intervalButtonsContainer}>
-              <TouchableOpacity
-                style={styles.intervalButton}
-                onPress={() => addIntervalSchedules(4)}
-              >
-                <Ionicons name="time-outline" size={24} color="#4ECDC4" />
-                <Text style={styles.intervalButtonText}>A cada 4h</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.intervalButton}
-                onPress={() => addIntervalSchedules(8)}
-              >
-                <Ionicons name="time-outline" size={24} color="#4ECDC4" />
-                <Text style={styles.intervalButtonText}>A cada 8h</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.intervalButton}
-                onPress={() => addIntervalSchedules(12)}
-              >
-                <Ionicons name="time-outline" size={24} color="#4ECDC4" />
-                <Text style={styles.intervalButtonText}>A cada 12h</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.intervalButton}
-                onPress={() => addIntervalSchedules(24)}
-              >
-                <Ionicons name="time-outline" size={24} color="#4ECDC4" />
-                <Text style={styles.intervalButtonText}>A cada 24h</Text>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.customIntervalContainer}>
-              <Text style={styles.intervalLabel}>Ou digite um intervalo customizado:</Text>
-              <View style={styles.customIntervalInputContainer}>
+            <Ionicons 
+              name={showIntervalSchedule ? "chevron-up" : "chevron-down"} 
+              size={28} 
+              color="#4ECDC4" 
+            />
+          </TouchableOpacity>
+          {showIntervalSchedule && (
+            <View style={styles.intervalContainer}>
+              <Text style={styles.intervalLabel}>Horário Inicial:</Text>
+              <View style={styles.intervalTimeContainer}>
                 <TextInput
-                  style={styles.customIntervalInput}
-                  value={customInterval}
-                  onChangeText={(text) => setCustomInterval(text.replace(/\D/g, ''))}
-                  placeholder="Ex: 3"
+                  style={styles.intervalTimeInput}
+                  value={intervalStartTime}
+                  onChangeText={handleIntervalTimeChange}
+                  placeholder="08:00"
                   placeholderTextColor="#999"
                   keyboardType="numeric"
-                  maxLength={2}
+                  maxLength={5}
                 />
-                <Text style={styles.customIntervalLabel}>horas</Text>
+              </View>
+              <View style={styles.intervalButtonsContainer}>
                 <TouchableOpacity
-                  style={styles.customIntervalButton}
-                  onPress={addCustomIntervalSchedules}
+                  style={styles.intervalButton}
+                  onPress={() => addIntervalSchedules(4)}
                 >
-                  <Ionicons name="add-circle" size={28} color="#4ECDC4" />
-                  <Text style={styles.customIntervalButtonText}>Adicionar</Text>
+                  <Ionicons name="time-outline" size={24} color="#4ECDC4" />
+                  <Text style={styles.intervalButtonText}>4h</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.intervalButton}
+                  onPress={() => addIntervalSchedules(8)}
+                >
+                  <Ionicons name="time-outline" size={24} color="#4ECDC4" />
+                  <Text style={styles.intervalButtonText}>8h</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.intervalButton}
+                  onPress={() => addIntervalSchedules(12)}
+                >
+                  <Ionicons name="time-outline" size={24} color="#4ECDC4" />
+                  <Text style={styles.intervalButtonText}>12h</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.intervalButton}
+                  onPress={() => addIntervalSchedules(24)}
+                >
+                  <Ionicons name="time-outline" size={24} color="#4ECDC4" />
+                  <Text style={styles.intervalButtonText}>24h</Text>
                 </TouchableOpacity>
               </View>
+              <View style={styles.customIntervalContainer}>
+                <Text style={styles.intervalLabel}>Ou digite um intervalo customizado:</Text>
+                <View style={styles.customIntervalInputContainer}>
+                  <TextInput
+                    style={styles.customIntervalInput}
+                    value={customInterval}
+                    onChangeText={(text) => setCustomInterval(text.replace(/\D/g, ''))}
+                    placeholder="Ex: 3"
+                    placeholderTextColor="#999"
+                    keyboardType="numeric"
+                    maxLength={2}
+                  />
+                  <Text style={styles.customIntervalLabel}>horas</Text>
+                  <TouchableOpacity
+                    style={styles.customIntervalButton}
+                    onPress={addCustomIntervalSchedules}
+                  >
+                    <Ionicons name="add-circle" size={28} color="#4ECDC4" />
+                    <Text style={styles.customIntervalButtonText}>Adicionar</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+              <Text style={styles.helperText}>Selecione o horário inicial e escolha o intervalo desejado (1 a 24 horas)</Text>
             </View>
-            <Text style={styles.helperText}>Selecione o horário inicial e escolha o intervalo desejado (1 a 24 horas)</Text>
-          </View>
           )}
         </View>
 
@@ -469,25 +505,27 @@ export default function NewMedication() {
             />
           </TouchableOpacity>
           {showCustomTime && (
-          <View style={styles.customTimeContainer}>
-            <TextInput
-              style={styles.customTimeInput}
-              value={customTime}
-              onChangeText={handleTimeChange}
-              placeholder="Ex: 09:00"
-              placeholderTextColor="#999"
-              keyboardType="numeric"
-              maxLength={5}
-            />
-            <TouchableOpacity 
-              style={styles.addCustomTimeButton}
-              onPress={addCustomTime}
-            >
-              <Ionicons name="add" size={28} color="#fff" />
-              <Text style={styles.addCustomTimeButtonText}>Adicionar</Text>
-            </TouchableOpacity>
-          </View>
-          <Text style={styles.helperText}>Digite apenas os números, os dois pontos serão inseridos automaticamente</Text>
+            <>
+              <View style={styles.customTimeContainer}>
+                <TextInput
+                  style={styles.customTimeInput}
+                  value={customTime}
+                  onChangeText={handleTimeChange}
+                  placeholder="Ex: 09:00"
+                  placeholderTextColor="#999"
+                  keyboardType="numeric"
+                  maxLength={5}
+                />
+                <TouchableOpacity 
+                  style={styles.addCustomTimeButton}
+                  onPress={addCustomTime}
+                >
+                  <Ionicons name="add" size={28} color="#fff" />
+                  <Text style={styles.addCustomTimeButtonText}>Adicionar</Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.helperText}>Digite apenas os números, os dois pontos serão inseridos automaticamente</Text>
+            </>
           )}
         </View>
 
@@ -542,6 +580,7 @@ export default function NewMedication() {
         </TouchableOpacity>
       </View>
     </ScrollView>
+    </>
   );
 }
 

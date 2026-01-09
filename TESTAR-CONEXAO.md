@@ -56,3 +56,18 @@ Isso abrirá uma nova janela do PowerShell que ficará rodando o port-forward.
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

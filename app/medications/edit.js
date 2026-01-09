@@ -388,27 +388,43 @@ export default function EditMedication() {
           />
         </View>
 
+        {/* Horários Rápidos - Submenu Colapsável */}
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Horários Rápidos</Text>
-          <View style={styles.quickTimesContainer}>
-            {quickTimes.map((time) => (
-              <TouchableOpacity
-                key={time}
-                style={[
-                  styles.quickTimeButton,
-                  schedules.includes(time) && styles.quickTimeButtonActive
-                ]}
-                onPress={() => schedules.includes(time) ? removeSchedule(time) : addQuickTime(time)}
-              >
-                <Text style={[
-                  styles.quickTimeText,
-                  schedules.includes(time) && styles.quickTimeTextActive
-                ]}>
-                  {time}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          <TouchableOpacity
+            style={styles.collapsibleHeader}
+            onPress={() => setShowQuickTimes(!showQuickTimes)}
+          >
+            <View style={styles.collapsibleHeaderLeft}>
+              <Ionicons name="time-outline" size={28} color="#4ECDC4" />
+              <Text style={styles.collapsibleHeaderText}>Horários Rápidos</Text>
+            </View>
+            <Ionicons 
+              name={showQuickTimes ? "chevron-up" : "chevron-down"} 
+              size={28} 
+              color="#4ECDC4" 
+            />
+          </TouchableOpacity>
+          {showQuickTimes && (
+            <View style={styles.quickTimesContainer}>
+              {quickTimes.map((time) => (
+                <TouchableOpacity
+                  key={time}
+                  style={[
+                    styles.quickTimeButton,
+                    schedules.includes(time) && styles.quickTimeButtonActive
+                  ]}
+                  onPress={() => schedules.includes(time) ? removeSchedule(time) : addQuickTime(time)}
+                >
+                  <Text style={[
+                    styles.quickTimeText,
+                    schedules.includes(time) && styles.quickTimeTextActive
+                  ]}>
+                    {time}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
         </View>
 
         {/* Agendamento por Intervalo - Submenu Colapsável */}
@@ -447,28 +463,28 @@ export default function EditMedication() {
                 onPress={() => addIntervalSchedules(4)}
               >
                 <Ionicons name="time-outline" size={24} color="#4ECDC4" />
-                <Text style={styles.intervalButtonText}>A cada 4h</Text>
+                <Text style={styles.intervalButtonText}>4h</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.intervalButton}
                 onPress={() => addIntervalSchedules(8)}
               >
                 <Ionicons name="time-outline" size={24} color="#4ECDC4" />
-                <Text style={styles.intervalButtonText}>A cada 8h</Text>
+                <Text style={styles.intervalButtonText}>8h</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.intervalButton}
                 onPress={() => addIntervalSchedules(12)}
               >
                 <Ionicons name="time-outline" size={24} color="#4ECDC4" />
-                <Text style={styles.intervalButtonText}>A cada 12h</Text>
+                <Text style={styles.intervalButtonText}>12h</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.intervalButton}
                 onPress={() => addIntervalSchedules(24)}
               >
                 <Ionicons name="time-outline" size={24} color="#4ECDC4" />
-                <Text style={styles.intervalButtonText}>A cada 24h</Text>
+                <Text style={styles.intervalButtonText}>24h</Text>
               </TouchableOpacity>
             </View>
             <View style={styles.customIntervalContainer}>
@@ -515,25 +531,27 @@ export default function EditMedication() {
             />
           </TouchableOpacity>
           {showCustomTime && (
-          <View style={styles.customTimeContainer}>
-            <TextInput
-              style={styles.customTimeInput}
-              value={customTime}
-              onChangeText={handleTimeChange}
-              placeholder="Ex: 09:00"
-              placeholderTextColor="#999"
-              keyboardType="numeric"
-              maxLength={5}
-            />
-            <TouchableOpacity 
-              style={styles.addCustomTimeButton}
-              onPress={addCustomTime}
-            >
-              <Ionicons name="add" size={28} color="#fff" />
-              <Text style={styles.addCustomTimeButtonText}>Adicionar</Text>
-            </TouchableOpacity>
-          </View>
-          <Text style={styles.helperText}>Digite apenas os números, os dois pontos serão inseridos automaticamente</Text>
+            <>
+              <View style={styles.customTimeContainer}>
+                <TextInput
+                  style={styles.customTimeInput}
+                  value={customTime}
+                  onChangeText={handleTimeChange}
+                  placeholder="Ex: 09:00"
+                  placeholderTextColor="#999"
+                  keyboardType="numeric"
+                  maxLength={5}
+                />
+                <TouchableOpacity 
+                  style={styles.addCustomTimeButton}
+                  onPress={addCustomTime}
+                >
+                  <Ionicons name="add" size={28} color="#fff" />
+                  <Text style={styles.addCustomTimeButtonText}>Adicionar</Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.helperText}>Digite apenas os números, os dois pontos serão inseridos automaticamente</Text>
+            </>
           )}
         </View>
 

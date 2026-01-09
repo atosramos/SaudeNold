@@ -46,6 +46,14 @@ export default function Home() {
         </TouchableOpacity>
 
         <TouchableOpacity 
+          style={[styles.menuButton, styles.examsButton]}
+          onPress={() => router.push('/medical-exams')}
+        >
+          <Ionicons name="document-text" size={48} color="#fff" />
+          <Text style={styles.menuButtonText}>Exames Médicos</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
           style={[styles.menuButton, styles.historyButton, styles.lastButton]}
           onPress={() => router.push('/history')}
         >
@@ -104,8 +112,11 @@ const styles = StyleSheet.create({
   anamnesisButton: {
     backgroundColor: '#FFA07A',
   },
-  historyButton: {
+  examsButton: {
     backgroundColor: '#9B59B6',
+  },
+  historyButton: {
+    backgroundColor: '#673AB7',
   },
   lastButton: {
     marginBottom: 0,

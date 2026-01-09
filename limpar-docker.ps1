@@ -32,3 +32,18 @@ Write-Host "  kubectl get pods -n saudenold -l app=backend" -ForegroundColor Gra
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

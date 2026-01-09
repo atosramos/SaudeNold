@@ -14,6 +14,8 @@ export default function EditEmergencyContact() {
   const [phone, setPhone] = useState('');
   const [relation, setRelation] = useState('');
   const [photo, setPhoto] = useState(null);
+  const [customRelation, setCustomRelation] = useState('');
+  const [showCustomRelationForm, setShowCustomRelationForm] = useState(false);
 
   useEffect(() => {
     loadContact();
@@ -36,6 +38,10 @@ export default function EditEmergencyContact() {
         setName(contactData.name || '');
         setPhone(contactData.phone || '');
         setRelation(contactData.relation || '');
+        // Se o parentesco não está na lista padrão, é um parentesco customizado
+        if (contactData.relation && !relations.includes(contactData.relation)) {
+          setCustomRelation(contactData.relation);
+        }
         setPhoto(contactData.photo || null);
       }
     } catch (error) {
@@ -80,6 +86,26 @@ export default function EditEmergencyContact() {
     );
   };
 
+  const handleRelationSelect = (rel) => {
+    if (rel === 'Outro') {
+      setShowCustomRelationForm(true);
+      setRelation(''); // Limpar seleção anterior
+    } else {
+      setRelation(rel);
+      setShowCustomRelationForm(false);
+      setCustomRelation('');
+    }
+  };
+
+  const saveCustomRelation = () => {
+    if (!customRelation.trim()) {
+      Alert.alert('Erro', 'Por favor, digite o parentesco');
+      return;
+    }
+    setRelation(customRelation.trim());
+    setShowCustomRelationForm(false);
+  };
+
   const saveContact = async () => {
     if (!name.trim()) {
       Alert.alert('Erro', 'Por favor, preencha o nome');
@@ -92,7 +118,7 @@ export default function EditEmergencyContact() {
     }
 
     if (!relation) {
-      Alert.alert('Erro', 'Por favor, selecione o parentesco');
+      Alert.alert('Erro', 'Por favor, selecione ou digite o parentesco');
       return;
     }
 
@@ -183,19 +209,96 @@ export default function EditEmergencyContact() {
                 key={rel}
                 style={[
                   styles.relationButton,
-                  relation === rel && styles.relationButtonActive
+                  rel !== 'Outro' && relation === rel && styles.relationButtonActive,
+                  rel === 'Outro' && showCustomRelationForm && styles.relationButtonActive
                 ]}
-                onPress={() => setRelation(rel)}
+                onPress={() => handleRelationSelect(rel)}
               >
                 <Text style={[
                   styles.relationText,
-                  relation === rel && styles.relationTextActive
+                  (rel !== 'Outro' && relation === rel) || 
+                  (rel === 'Outro' && showCustomRelationForm)
+                    ? styles.relationTextActive
+                    : null
                 ]}>
                   {rel}
                 </Text>
               </TouchableOpacity>
             ))}
           </View>
+          
+          {/* Formulário para parentesco customizado */}
+          {showCustomRelationForm && (
+            <View style={styles.customRelationForm}>
+              <Text style={styles.customRelationLabel}>Digite o parentesco:</Text>
+              <View style={styles.customRelationInputContainer}>
+                <TextInput
+                  style={styles.customRelationInput}
+                  value={customRelation}
+                  onChangeText={setCustomRelation}
+                  placeholder="Ex: Sobrinho, Vizinho"
+                  placeholderTextColor="#999"
+                />
+                <TouchableOpacity
+                  style={styles.addCustomRelationButton}
+                  onPress={saveCustomRelation}
+                >
+                  <Ionicons name="checkmark-circle" size={32} color="#FF6B6B" />
+                </TouchableOpacity>
+              </View>
+              <TouchableOpacity
+                style={styles.cancelCustomRelationButton}
+                onPress={async () => {
+                  setShowCustomRelationForm(false);
+                  setCustomRelation('');
+                  // Restaurar parentesco anterior se existir
+                  try {
+                    let contactData;
+                    if (contactParam) {
+                      contactData = JSON.parse(contactParam);
+                    } else {
+                      const stored = await AsyncStorage.getItem('emergencyContacts');
+                      if (stored) {
+                        const contacts = JSON.parse(stored);
+                        contactData = contacts.find(c => c.id === id);
+                      }
+                    }
+                    if (contactData && contactData.relation) {
+                      setRelation(contactData.relation);
+                      if (!relations.includes(contactData.relation)) {
+                        setCustomRelation(contactData.relation);
+                      }
+                    } else {
+                      setRelation('');
+                    }
+                  } catch (error) {
+                    console.error('Erro ao restaurar parentesco:', error);
+                    setRelation('');
+                  }
+                }}
+              >
+                <Text style={styles.cancelCustomRelationText}>Cancelar</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          
+          {/* Mostrar parentesco customizado selecionado */}
+          {relation && !relations.includes(relation) && (
+            <View style={styles.customRelationDisplay}>
+              <Text style={styles.customRelationDisplayLabel}>Parentesco selecionado:</Text>
+              <View style={styles.customRelationDisplayItem}>
+                <Text style={styles.customRelationDisplayText}>{relation}</Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    setRelation('');
+                    setCustomRelation('');
+                  }}
+                >
+                  <Ionicons name="close-circle" size={24} color="#FF6B6B" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
         </View>
 
         <TouchableOpacity style={styles.saveButton} onPress={saveContact}>
@@ -316,6 +419,78 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: 'bold',
     color: '#fff',
+  },
+  customRelationForm: {
+    backgroundColor: '#f9f9f9',
+    borderRadius: 12,
+    padding: 20,
+    marginTop: 16,
+    borderWidth: 2,
+    borderColor: '#FF6B6B',
+  },
+  customRelationLabel: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 12,
+  },
+  customRelationInputContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'center',
+  },
+  customRelationInput: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 20,
+    fontSize: 22,
+    color: '#333',
+    borderWidth: 2,
+    borderColor: '#e0e0e0',
+  },
+  addCustomRelationButton: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cancelCustomRelationButton: {
+    marginTop: 12,
+    padding: 12,
+    alignItems: 'center',
+  },
+  cancelCustomRelationText: {
+    fontSize: 20,
+    color: '#666',
+    fontWeight: 'bold',
+  },
+  customRelationDisplay: {
+    marginTop: 16,
+    backgroundColor: '#f9f9f9',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 2,
+    borderColor: '#e0e0e0',
+  },
+  customRelationDisplayLabel: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 12,
+  },
+  customRelationDisplayItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    gap: 12,
+  },
+  customRelationDisplayText: {
+    fontSize: 22,
+    color: '#333',
+    flex: 1,
+    fontWeight: 'bold',
   },
 });
 

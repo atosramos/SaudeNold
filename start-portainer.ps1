@@ -63,3 +63,18 @@ kubectl port-forward -n portainer svc/portainer 9000:9000 9443:9443
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

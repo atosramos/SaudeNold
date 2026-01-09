@@ -155,3 +155,18 @@ kubectl delete namespace saudenold
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

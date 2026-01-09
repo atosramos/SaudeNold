@@ -200,3 +200,17 @@ Isso é esperado! O rate limiting está funcionando. Aguarde alguns minutos ou a
 
 **Última atualização:** $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+

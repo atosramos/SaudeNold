@@ -1,7 +1,7 @@
 import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useState, useEffect } from 'react';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
+import { useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function MedicationDetails() {
@@ -9,9 +9,11 @@ export default function MedicationDetails() {
   const { id, medication: medicationParam } = useLocalSearchParams();
   const [medication, setMedication] = useState(null);
 
-  useEffect(() => {
-    loadMedication();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      loadMedication();
+    }, [id])
+  );
 
   const loadMedication = async () => {
     try {

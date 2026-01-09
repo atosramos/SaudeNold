@@ -165,3 +165,17 @@ kubectl create secret generic backend-secret \
 **Data:** $(date)  
 **Status:** ✅ Todas as vulnerabilidades críticas e altas corrigidas
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+

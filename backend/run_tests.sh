@@ -11,3 +11,10 @@ pytest -v
 echo ""
 echo "Testes concluídos!"
 
+
+
+
+
+
+
+

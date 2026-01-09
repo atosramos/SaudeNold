@@ -66,3 +66,18 @@ kubectl logs -f deployment/postgres -n saudenold
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

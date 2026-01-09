@@ -116,7 +116,7 @@ const performOCRNative = async (imageUri, onProgress = null) => {
  * @param {function} onProgress - Callback para progresso (opcional)
  * @returns {Promise<string|null>} Texto extraído ou null
  */
-export const performOCR = async (fileUri, fileType = 'image', onProgress = null) => {
+export const performOCR = async (fileUri, fileType = 'image', onProgress = null, addDebugLog = null) => {
   try {
     console.log(`[OCR Service] Iniciando OCR online para ${fileType}...`);
     console.log(`[OCR Service] Tipo de entrada: ${typeof fileUri}, é File: ${fileUri instanceof File}`);
@@ -173,15 +173,19 @@ export const performOCR = async (fileUri, fileType = 'image', onProgress = null)
       }
     } else if (fileType === 'pdf') {
       // Para PDF no mobile, ler diretamente como base64
+      if (addDebugLog) addDebugLog('Lendo PDF como base64...', 'info');
       console.log('[OCR Service] Mobile: Lendo PDF como base64...');
       console.log('[OCR Service] URI do PDF:', fileUri?.substring?.(0, 100) || fileUri);
       
       try {
         if (!fileUri || typeof fileUri !== 'string') {
-          throw new Error(`URI inválida: ${typeof fileUri}`);
+          const error = `URI inválida: ${typeof fileUri}`;
+          if (addDebugLog) addDebugLog(`ERRO: ${error}`, 'error');
+          throw new Error(error);
         }
         
         // Verificar se o arquivo existe
+        if (addDebugLog) addDebugLog('Verificando se arquivo existe...', 'info');
         const fileInfo = await FileSystem.getInfoAsync(fileUri);
         console.log('[OCR Service] Informações do arquivo:', {
           exists: fileInfo.exists,
@@ -191,21 +195,31 @@ export const performOCR = async (fileUri, fileType = 'image', onProgress = null)
         });
         
         if (!fileInfo.exists) {
-          throw new Error(`Arquivo não encontrado: ${fileUri}`);
+          const error = `Arquivo não encontrado: ${fileUri.substring(0, 50)}`;
+          if (addDebugLog) addDebugLog(`ERRO: ${error}`, 'error');
+          throw new Error(error);
         }
         
         if (fileInfo.isDirectory) {
-          throw new Error(`O caminho é um diretório, não um arquivo: ${fileUri}`);
+          const error = `O caminho é um diretório, não um arquivo`;
+          if (addDebugLog) addDebugLog(`ERRO: ${error}`, 'error');
+          throw new Error(error);
         }
+        
+        if (addDebugLog) addDebugLog(`Arquivo encontrado, tamanho: ${fileInfo.size} bytes`, 'info');
+        if (addDebugLog) addDebugLog('Lendo conteúdo do arquivo...', 'info');
         
         base64 = await FileSystem.readAsStringAsync(fileUri, {
           encoding: FileSystem.EncodingType.Base64,
         });
         
+        if (addDebugLog) addDebugLog(`PDF lido com sucesso, tamanho base64: ${base64.length}`, 'success');
         console.log(`[OCR Service] PDF lido com sucesso, tamanho base64: ${base64.length}`);
         
         if (!base64 || base64.length === 0) {
-          throw new Error('Arquivo lido está vazio');
+          const error = 'Arquivo lido está vazio';
+          if (addDebugLog) addDebugLog(`ERRO: ${error}`, 'error');
+          throw new Error(error);
         }
       } catch (readError) {
         console.error('[OCR Service] Erro ao ler PDF:', readError);
@@ -226,9 +240,11 @@ export const performOCR = async (fileUri, fileType = 'image', onProgress = null)
     if (onProgress) {
       onProgress({ status: 'Enviando para OCR online...', progress: 0.3 });
     }
+    
+    if (addDebugLog) addDebugLog('Enviando para OCR online...', 'info');
 
     // Usar APENAS OCR online gratuito
-    const onlineResult = await performOCROnlineFree(base64, fileType);
+    const onlineResult = await performOCROnlineFree(base64, fileType, null, addDebugLog);
     
     if (onlineResult && onlineResult.trim().length > 0) {
       console.log(`OCR online extraiu ${onlineResult.length} caracteres`);

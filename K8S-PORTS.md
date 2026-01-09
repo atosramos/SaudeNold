@@ -71,3 +71,18 @@ kubectl get ingress backend-ingress -n saudenold -o yaml
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

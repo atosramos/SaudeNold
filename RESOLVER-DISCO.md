@@ -97,3 +97,18 @@ kubectl port-forward -n saudenold svc/backend 8000:8000
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

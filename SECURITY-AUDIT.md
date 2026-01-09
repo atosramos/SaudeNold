@@ -232,3 +232,17 @@ spec:
 **Versão da Aplicação:** 1.0.0  
 **Status:** ✅ Vulnerabilidades Críticas e Altas Corrigidas
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+

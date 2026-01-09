@@ -28,6 +28,28 @@ export default function NewDoctorVisit() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [reminderBefore, setReminderBefore] = useState('1h'); // 1h antes, 1 dia antes, etc.
+  const [customSpecialty, setCustomSpecialty] = useState('');
+  const [showCustomSpecialtyForm, setShowCustomSpecialtyForm] = useState(false);
+
+  const handleSpecialtySelect = (spec) => {
+    if (spec === 'Outro') {
+      setShowCustomSpecialtyForm(true);
+      setSpecialty(''); // Limpar seleção anterior
+    } else {
+      setSpecialty(spec);
+      setShowCustomSpecialtyForm(false);
+      setCustomSpecialty('');
+    }
+  };
+
+  const saveCustomSpecialty = () => {
+    if (!customSpecialty.trim()) {
+      Alert.alert('Erro', 'Por favor, digite a especialidade');
+      return;
+    }
+    setSpecialty(customSpecialty.trim());
+    setShowCustomSpecialtyForm(false);
+  };
 
   const saveVisit = async () => {
     if (!doctorName.trim()) {
@@ -36,7 +58,7 @@ export default function NewDoctorVisit() {
     }
 
     if (!specialty) {
-      Alert.alert('Erro', 'Por favor, selecione a especialidade');
+      Alert.alert('Erro', 'Por favor, selecione ou digite a especialidade');
       return;
     }
 
@@ -120,19 +142,73 @@ export default function NewDoctorVisit() {
                 key={spec}
                 style={[
                   styles.specialtyButton,
-                  specialty === spec && styles.specialtyButtonActive
+                  spec !== 'Outro' && specialty === spec && styles.specialtyButtonActive,
+                  spec === 'Outro' && showCustomSpecialtyForm && styles.specialtyButtonActive
                 ]}
-                onPress={() => setSpecialty(spec)}
+                onPress={() => handleSpecialtySelect(spec)}
               >
                 <Text style={[
                   styles.specialtyText,
-                  specialty === spec && styles.specialtyTextActive
+                  (spec !== 'Outro' && specialty === spec) || 
+                  (spec === 'Outro' && showCustomSpecialtyForm)
+                    ? styles.specialtyTextActive
+                    : null
                 ]}>
                   {spec}
                 </Text>
               </TouchableOpacity>
             ))}
           </View>
+          
+          {/* Formulário para especialidade customizada */}
+          {showCustomSpecialtyForm && (
+            <View style={styles.customSpecialtyForm}>
+              <Text style={styles.customSpecialtyLabel}>Digite a especialidade:</Text>
+              <View style={styles.customSpecialtyInputContainer}>
+                <TextInput
+                  style={styles.customSpecialtyInput}
+                  value={customSpecialty}
+                  onChangeText={setCustomSpecialty}
+                  placeholder="Ex: Geriatra, Urologista"
+                  placeholderTextColor="#999"
+                />
+                <TouchableOpacity
+                  style={styles.addCustomSpecialtyButton}
+                  onPress={saveCustomSpecialty}
+                >
+                  <Ionicons name="checkmark-circle" size={32} color="#95E1D3" />
+                </TouchableOpacity>
+              </View>
+              <TouchableOpacity
+                style={styles.cancelCustomSpecialtyButton}
+                onPress={() => {
+                  setShowCustomSpecialtyForm(false);
+                  setCustomSpecialty('');
+                  setSpecialty('');
+                }}
+              >
+                <Text style={styles.cancelCustomSpecialtyText}>Cancelar</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          
+          {/* Mostrar especialidade customizada selecionada */}
+          {specialty && !specialties.includes(specialty) && (
+            <View style={styles.customSpecialtyDisplay}>
+              <Text style={styles.customSpecialtyDisplayLabel}>Especialidade selecionada:</Text>
+              <View style={styles.customSpecialtyDisplayItem}>
+                <Text style={styles.customSpecialtyDisplayText}>{specialty}</Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    setSpecialty('');
+                    setCustomSpecialty('');
+                  }}
+                >
+                  <Ionicons name="close-circle" size={24} color="#FF6B6B" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
         </View>
 
         <View style={styles.inputGroup}>
@@ -360,6 +436,78 @@ const styles = StyleSheet.create({
     color: '#666',
     fontStyle: 'italic',
     marginTop: 8,
+  },
+  customSpecialtyForm: {
+    backgroundColor: '#f9f9f9',
+    borderRadius: 12,
+    padding: 20,
+    marginTop: 16,
+    borderWidth: 2,
+    borderColor: '#95E1D3',
+  },
+  customSpecialtyLabel: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 12,
+  },
+  customSpecialtyInputContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'center',
+  },
+  customSpecialtyInput: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 20,
+    fontSize: 22,
+    color: '#333',
+    borderWidth: 2,
+    borderColor: '#e0e0e0',
+  },
+  addCustomSpecialtyButton: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cancelCustomSpecialtyButton: {
+    marginTop: 12,
+    padding: 12,
+    alignItems: 'center',
+  },
+  cancelCustomSpecialtyText: {
+    fontSize: 20,
+    color: '#666',
+    fontWeight: 'bold',
+  },
+  customSpecialtyDisplay: {
+    marginTop: 16,
+    backgroundColor: '#f9f9f9',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 2,
+    borderColor: '#e0e0e0',
+  },
+  customSpecialtyDisplayLabel: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 12,
+  },
+  customSpecialtyDisplayItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    gap: 12,
+  },
+  customSpecialtyDisplayText: {
+    fontSize: 22,
+    color: '#333',
+    flex: 1,
+    fontWeight: 'bold',
   },
 });
 

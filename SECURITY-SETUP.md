@@ -209,3 +209,17 @@ Antes de fazer deploy em produção, verifique:
 - [Kubernetes Secrets](https://kubernetes.io/docs/concepts/configuration/secret/)
 - [OWASP API Security](https://owasp.org/www-project-api-security/)
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+

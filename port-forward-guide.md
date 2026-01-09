@@ -97,3 +97,18 @@ kubectl exec -n saudenold -it deployment/backend -- curl http://localhost:8000/h
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

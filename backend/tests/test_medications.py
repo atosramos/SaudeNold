@@ -198,3 +198,10 @@ class TestMedications:
         data = response.json()
         assert data["name"] == "Medicamento com\ncaracteres\tespeciais"
 
+
+
+
+
+
+
+
