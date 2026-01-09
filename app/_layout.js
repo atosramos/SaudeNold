@@ -2,6 +2,7 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useEffect, useRef } from 'react';
 import { fullSync } from '../services/sync';
+import { rescheduleAllAlarms } from '../services/alarm';
 import * as Notifications from 'expo-notifications';
 import { Audio } from 'expo-av';
 import * as Speech from 'expo-speech';
@@ -16,9 +17,18 @@ export default function RootLayout() {
     const syncData = async () => {
       try {
         await fullSync();
+        // Após sincronizar, reagendar todos os alarmes
+        // Isso garante que os alarmes estejam configurados mesmo após reinstalar o app
+        // ou sincronizar dados de outro dispositivo
+        await rescheduleAllAlarms();
       } catch (error) {
         console.error('Erro na sincronização inicial:', error);
-        // Continua mesmo se a sincronização falhar
+        // Mesmo se a sincronização falhar, tentar reagendar alarmes locais
+        try {
+          await rescheduleAllAlarms();
+        } catch (alarmError) {
+          console.error('Erro ao reagendar alarmes:', alarmError);
+        }
       }
     };
 

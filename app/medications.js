@@ -1,9 +1,9 @@
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, FlatList, Image } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, FlatList, Image, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { cancelMedicationAlarms } from '../services/alarm';
+import { cancelMedicationAlarms, testNotification, listAllScheduledNotifications } from '../services/alarm';
 import { useCustomModal } from '../hooks/useCustomModal';
 
 export default function Medications() {
@@ -25,6 +25,35 @@ export default function Medications() {
       }
     } catch (error) {
       console.error('Erro ao carregar medicamentos:', error);
+    }
+  };
+
+  const handleTestNotification = async () => {
+    try {
+      const success = await testNotification();
+      if (success) {
+        Alert.alert('Teste', 'Notificação de teste agendada! Ela deve aparecer em 10 segundos.');
+      } else {
+        Alert.alert('Erro', 'Não foi possível agendar a notificação de teste. Verifique as permissões.');
+      }
+    } catch (error) {
+      console.error('Erro ao testar notificação:', error);
+      Alert.alert('Erro', 'Erro ao testar notificação: ' + error.message);
+    }
+  };
+
+  const handleListNotifications = async () => {
+    try {
+      const scheduled = await listAllScheduledNotifications();
+      const count = scheduled.length;
+      Alert.alert(
+        'Notificações Agendadas',
+        `Total: ${count} notificação(ões) agendada(s).\n\nVerifique o console para mais detalhes.`,
+        [{ text: 'OK' }]
+      );
+    } catch (error) {
+      console.error('Erro ao listar notificações:', error);
+      Alert.alert('Erro', 'Erro ao listar notificações: ' + error.message);
     }
   };
 
@@ -155,6 +184,20 @@ export default function Medications() {
           <Ionicons name="arrow-back" size={32} color="#4ECDC4" />
         </TouchableOpacity>
         <Text style={styles.title}>Meus Medicamentos</Text>
+        <View style={styles.debugButtons}>
+          <TouchableOpacity 
+            style={styles.debugButton}
+            onPress={handleTestNotification}
+          >
+            <Ionicons name="notifications-outline" size={20} color="#4ECDC4" />
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.debugButton}
+            onPress={handleListNotifications}
+          >
+            <Ionicons name="list-outline" size={20} color="#4ECDC4" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {medications.length === 0 ? (
@@ -193,9 +236,19 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     padding: 24,
     backgroundColor: '#fff',
     marginBottom: 16,
+  },
+  debugButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  debugButton: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: '#f0f0f0',
   },
   backButton: {
     marginRight: 16,
