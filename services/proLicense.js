@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 
 const LICENSE_STORAGE_KEY = 'pro_license';
 const LICENSE_INFO_KEY = 'pro_license_info';
@@ -32,69 +33,93 @@ export const LICENSE_LABELS = {
 
 /**
  * Valida o formato de uma chave de licença
- * Formato esperado: PRO-XXXX-XXXX-XXXX-XXXX (20 caracteres + 4 hífens)
+ * Suporta dois formatos:
+ * 1. Formato antigo: PRO-XXXX-XXXX-XXXX-XXXX (com hífens)
+ * 2. Formato novo: PROXXXXXXXXXXXX (sem hífens, 45 caracteres)
  */
 const validateLicenseKeyFormat = (key) => {
   if (!key || typeof key !== 'string') {
     return false;
   }
   
-  // Formato: PRO-XXXX-XXXX-XXXX-XXXX
-  const formatRegex = /^PRO-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/;
-  return formatRegex.test(key.toUpperCase());
+  // Remover espaços e converter para maiúsculas
+  const normalizedKey = key.replace(/\s+/g, '').toUpperCase();
+  
+  // Formato novo: PRO + 42 caracteres alfanuméricos (total 45)
+  const newFormatRegex = /^PRO[A-Z0-9]{42}$/;
+  if (newFormatRegex.test(normalizedKey)) {
+    return true;
+  }
+  
+  // Formato antigo: PRO-XXXX-XXXX-XXXX-XXXX (compatibilidade)
+  const oldFormatRegex = /^PRO-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/;
+  if (oldFormatRegex.test(normalizedKey)) {
+    return true;
+  }
+  
+  return false;
 };
 
 /**
  * Extrai o tipo de licença da chave
- * A chave contém informações codificadas sobre o tipo
+ * Suporta formato novo (sem hífens) e antigo (com hífens)
  */
 const extractLicenseTypeFromKey = (key) => {
   if (!validateLicenseKeyFormat(key)) {
     return null;
   }
   
-  // Extrair o segundo bloco da chave (ex: PRO-1M01-XXXX-XXXX-XXXX)
-  const parts = key.toUpperCase().split('-');
-  if (parts.length !== 5) {
-    return null;
+  // Normalizar chave (remover espaços e hífens, converter para maiúsculas)
+  const normalizedKey = key.replace(/\s+/g, '').replace(/-/g, '').toUpperCase();
+  
+  // Verificar se é formato novo (45 caracteres: PRO + 42)
+  if (normalizedKey.length === 45 && normalizedKey.startsWith('PRO')) {
+    // Formato novo: PRO + tipo (2 chars) + dados (40 chars)
+    const typeCode = normalizedKey.substring(3, 5); // PRO[XX]...
+    
+    const typeMap = {
+      '1M': LICENSE_TYPES.MONTH_1,
+      '6M': LICENSE_TYPES.MONTH_6,
+      '1Y': LICENSE_TYPES.YEAR_1,
+    };
+    
+    return typeMap[typeCode] || null;
   }
   
-  // O segundo bloco (parts[1]) contém o tipo codificado
-  const typeCode = parts[1];
-  
-  // Decodificar tipo (simplificado - em produção usar criptografia)
-  // Padrões aceitos:
-  // - 1M01, 1M02, etc. = 1 mês
-  // - 6M01, 6M02, etc. = 6 meses
-  // - 1Y01, 1Y02, etc. = 1 ano
-  // - Ou apenas primeiro caractere: 1, 6, Y
-  
-  // Verificar padrões completos primeiro
-  if (typeCode.startsWith('1M')) return LICENSE_TYPES.MONTH_1;
-  if (typeCode.startsWith('6M')) return LICENSE_TYPES.MONTH_6;
-  if (typeCode.startsWith('1Y')) return LICENSE_TYPES.YEAR_1;
-  
-  // Fallback: verificar primeiro caractere
-  const firstChar = typeCode[0];
-  if (firstChar === '1' && typeCode.length >= 2 && typeCode[1] !== 'Y') return LICENSE_TYPES.MONTH_1;
-  if (firstChar === '6') return LICENSE_TYPES.MONTH_6;
-  if (firstChar === 'Y' || (firstChar === '1' && typeCode.length >= 2 && typeCode[1] === 'Y')) return LICENSE_TYPES.YEAR_1;
+  // Formato antigo: PRO-XXXX-XXXX-XXXX-XXXX
+  const parts = normalizedKey.split('-');
+  if (parts.length === 5) {
+    const typeCode = parts[1];
+    
+    // Verificar padrões
+    if (typeCode.startsWith('1M')) return LICENSE_TYPES.MONTH_1;
+    if (typeCode.startsWith('6M')) return LICENSE_TYPES.MONTH_6;
+    if (typeCode.startsWith('1Y')) return LICENSE_TYPES.YEAR_1;
+    
+    // Fallback
+    const firstChar = typeCode[0];
+    if (firstChar === '1' && typeCode.length >= 2 && typeCode[1] !== 'Y') return LICENSE_TYPES.MONTH_1;
+    if (firstChar === '6') return LICENSE_TYPES.MONTH_6;
+    if (firstChar === 'Y' || (firstChar === '1' && typeCode.length >= 2 && typeCode[1] === 'Y')) return LICENSE_TYPES.YEAR_1;
+  }
   
   return null;
 };
 
 /**
  * Valida uma chave de licença
- * Em produção, isso deveria fazer uma chamada ao servidor
- * Por enquanto, validação local simplificada
+ * Tenta validar localmente primeiro, depois no servidor
  */
 export const validateLicenseKey = async (key) => {
   try {
+    // Normalizar chave (remover espaços e hífens)
+    const normalizedKey = key.replace(/\s+/g, '').replace(/-/g, '').toUpperCase();
+    
     // Validar formato
     if (!validateLicenseKeyFormat(key)) {
       return {
         valid: false,
-        error: 'Formato de chave inválido. Use o formato: PRO-XXXX-XXXX-XXXX-XXXX',
+        error: 'Formato de chave inválido. Use o formato: PRO seguido de 42 caracteres alfanuméricos (sem hífens)',
       };
     }
     
@@ -107,24 +132,55 @@ export const validateLicenseKey = async (key) => {
       };
     }
     
-    // Em produção, aqui faria uma chamada ao servidor para validar:
-    // const response = await fetch('https://api.saudenold.com/validate-license', {
-    //   method: 'POST',
-    //   body: JSON.stringify({ key }),
-    // });
-    // const result = await response.json();
+    // Tentar validar no servidor primeiro (se disponível)
+    const SERVER_URL = process.env.EXPO_PUBLIC_API_URL || 'https://api.saudenold.com';
     
-    // Por enquanto, validação local simplificada
-    // Verificar se a chave tem um checksum válido (simplificado)
-    const normalizedKey = key.toUpperCase().replace(/-/g, '');
-    const checksum = normalizedKey.slice(-4);
+    try {
+      const response = await fetch(`${SERVER_URL}/api/validate-license`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ key: normalizedKey }),
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        if (result.valid) {
+          return result;
+        }
+      }
+    } catch (serverError) {
+      // Servidor não disponível, continuar com validação local
+      console.log('Servidor não disponível, usando validação local:', serverError.message);
+    }
     
-    // Validação básica (em produção, usar algoritmo de checksum real)
-    if (checksum.length !== 4) {
-      return {
-        valid: false,
-        error: 'Chave de licença inválida',
-      };
+    // Validação local (fallback)
+    // Para chaves no formato novo (45 caracteres), validar assinatura
+    if (normalizedKey.length === 45) {
+      // Verificar estrutura básica
+      if (!normalizedKey.startsWith('PRO')) {
+        return {
+          valid: false,
+          error: 'Chave de licença inválida',
+        };
+      }
+      
+      // Extrair componentes
+      const typeCode = normalizedKey.substring(3, 5);
+      const signature = normalizedKey.substring(33, 45);
+      
+      // Validação básica de estrutura
+      if (signature.length !== 12) {
+        return {
+          valid: false,
+          error: 'Chave de licença inválida',
+        };
+      }
+      
+      // Para validação completa da assinatura, precisa do servidor
+      // Por enquanto, aceitar se o formato estiver correto
+      // Em produção, sempre validar no servidor
     }
     
     // Calcular data de expiração

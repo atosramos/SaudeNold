@@ -11,6 +11,7 @@ import {
   LICENSE_TYPES 
 } from '../services/proLicense';
 import { useCustomAlert } from '../hooks/useCustomAlert';
+import { purchaseLicenseWithGooglePay, LICENSE_PRODUCTS, isGooglePayAvailable } from '../services/googlePay';
 
 export default function ProLicense() {
   const router = useRouter();
@@ -23,8 +24,14 @@ export default function ProLicense() {
   useFocusEffect(
     useCallback(() => {
       checkLicenseStatus();
+      checkGooglePayAvailability();
     }, [])
   );
+
+  const checkGooglePayAvailability = async () => {
+    const available = await isGooglePayAvailable();
+    setGooglePayAvailable(available);
+  };
 
   const checkLicenseStatus = async () => {
     setChecking(true);
@@ -69,6 +76,66 @@ export default function ProLicense() {
       showAlert('Erro', 'Erro ao ativar licença: ' + error.message, 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handlePurchaseLicense = async (licenseType) => {
+    setPurchasing(true);
+    try {
+      const result = await purchaseLicenseWithGooglePay(licenseType);
+      
+      if (result.success && result.licenseKey) {
+        // Ativar licença automaticamente após compra
+        const activationResult = await activateLicense(result.licenseKey);
+        if (activationResult.success) {
+          showAlert(
+            'Compra realizada!',
+            `Licença PRO ${LICENSE_LABELS[licenseType]} ativada com sucesso!`,
+            'success'
+          );
+          await checkLicenseStatus();
+        } else {
+          showAlert('Erro', 'Compra realizada, mas erro ao ativar licença. Use a chave manualmente: ' + result.licenseKey, 'error');
+          setLicenseKey(result.licenseKey);
+        }
+      } else {
+        showAlert('Aviso', result.error || 'Compra não concluída', 'warning');
+      }
+    } catch (error) {
+      console.error('Erro ao comprar licença:', error);
+      showAlert('Erro', 'Erro ao processar compra: ' + error.message, 'error');
+    } finally {
+      setPurchasing(false);
+    }
+  };
+
+  const handlePurchaseLicense = async (licenseType) => {
+    setPurchasing(true);
+    try {
+      const result = await purchaseLicenseWithGooglePay(licenseType);
+      
+      if (result.success && result.licenseKey) {
+        // Ativar licença automaticamente após compra
+        const activationResult = await activateLicense(result.licenseKey);
+        if (activationResult.success) {
+          showAlert(
+            'Compra realizada!',
+            `Licença PRO ${LICENSE_LABELS[licenseType]} ativada com sucesso!`,
+            'success'
+          );
+          await checkLicenseStatus();
+        } else {
+          showAlert('Erro', 'Compra realizada, mas erro ao ativar licença. Use a chave manualmente: ' + result.licenseKey, 'error');
+          setLicenseKey(result.licenseKey);
+        }
+      } else {
+        showAlert('Aviso', result.error || 'Compra não concluída', 'warning');
+      }
+    } catch (error) {
+      console.error('Erro ao comprar licença:', error);
+      showAlert('Erro', 'Erro ao processar compra: ' + error.message, 'error');
+    } finally {
+      setPurchasing(false);
     }
   };
 
@@ -202,17 +269,23 @@ export default function ProLicense() {
           <View style={styles.activationCard}>
             <Text style={styles.activationTitle}>Ativar Licença PRO</Text>
             <Text style={styles.activationDescription}>
-              Insira sua chave de licença no formato: PRO-XXXX-XXXX-XXXX-XXXX
+              Insira sua chave de licença (45 caracteres, sem hífens): PRO seguido de 42 caracteres alfanuméricos
             </Text>
             <TextInput
               style={styles.licenseInput}
-              placeholder="PRO-XXXX-XXXX-XXXX-XXXX"
+              placeholder="PROXXXXXXXXXXXX..."
               placeholderTextColor="#999"
               value={licenseKey}
-              onChangeText={(text) => setLicenseKey(text.toUpperCase())}
+              onChangeText={(text) => {
+                // Remover espaços e hífens automaticamente
+                const cleaned = text.replace(/\s+/g, '').replace(/-/g, '').toUpperCase();
+                setLicenseKey(cleaned);
+              }}
               autoCapitalize="characters"
               autoCorrect={false}
               editable={!loading}
+              maxLength={45}
+              keyboardType="default"
             />
             <TouchableOpacity
               style={[styles.activateButton, loading && styles.activateButtonDisabled]}
@@ -240,21 +313,54 @@ export default function ProLicense() {
               <View style={styles.licenseTypeInfo}>
                 <Text style={styles.licenseTypeName}>1 Mês</Text>
                 <Text style={styles.licenseTypeDesc}>Acesso completo por 30 dias</Text>
+                <Text style={styles.licenseTypePrice}>{LICENSE_PRODUCTS[LICENSE_TYPES.MONTH_1].price}</Text>
               </View>
+              {googlePayAvailable && (
+                <TouchableOpacity
+                  style={[styles.buyButton, (purchasing || !!licenseInfo) && styles.buyButtonDisabled]}
+                  onPress={() => handlePurchaseLicense(LICENSE_TYPES.MONTH_1)}
+                  disabled={purchasing || !!licenseInfo}
+                >
+                  <Ionicons name="logo-google" size={20} color="#fff" />
+                  <Text style={styles.buyButtonText}>Comprar</Text>
+                </TouchableOpacity>
+              )}
             </View>
             <View style={styles.licenseTypeItem}>
               <Ionicons name="calendar" size={24} color="#4ECDC4" />
               <View style={styles.licenseTypeInfo}>
                 <Text style={styles.licenseTypeName}>6 Meses</Text>
                 <Text style={styles.licenseTypeDesc}>Acesso completo por 180 dias</Text>
+                <Text style={styles.licenseTypePrice}>{LICENSE_PRODUCTS[LICENSE_TYPES.MONTH_6].price}</Text>
               </View>
+              {googlePayAvailable && (
+                <TouchableOpacity
+                  style={[styles.buyButton, (purchasing || !!licenseInfo) && styles.buyButtonDisabled]}
+                  onPress={() => handlePurchaseLicense(LICENSE_TYPES.MONTH_6)}
+                  disabled={purchasing || !!licenseInfo}
+                >
+                  <Ionicons name="logo-google" size={20} color="#fff" />
+                  <Text style={styles.buyButtonText}>Comprar</Text>
+                </TouchableOpacity>
+              )}
             </View>
             <View style={styles.licenseTypeItem}>
               <Ionicons name="calendar" size={24} color="#4ECDC4" />
               <View style={styles.licenseTypeInfo}>
                 <Text style={styles.licenseTypeName}>1 Ano</Text>
                 <Text style={styles.licenseTypeDesc}>Acesso completo por 365 dias</Text>
+                <Text style={styles.licenseTypePrice}>{LICENSE_PRODUCTS[LICENSE_TYPES.YEAR_1].price}</Text>
               </View>
+              {googlePayAvailable && (
+                <TouchableOpacity
+                  style={[styles.buyButton, (purchasing || !!licenseInfo) && styles.buyButtonDisabled]}
+                  onPress={() => handlePurchaseLicense(LICENSE_TYPES.YEAR_1)}
+                  disabled={purchasing || !!licenseInfo}
+                >
+                  <Ionicons name="logo-google" size={20} color="#fff" />
+                  <Text style={styles.buyButtonText}>Comprar</Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
         </View>
@@ -463,6 +569,52 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
     marginTop: 4,
+  },
+  licenseTypePrice: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#4ECDC4',
+    marginTop: 4,
+  },
+  buyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#4285F4',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    gap: 8,
+  },
+  buyButtonDisabled: {
+    backgroundColor: '#ccc',
+  },
+  buyButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  licenseTypePrice: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#4ECDC4',
+    marginTop: 4,
+  },
+  buyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#4285F4',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    gap: 8,
+  },
+  buyButtonDisabled: {
+    backgroundColor: '#ccc',
+  },
+  buyButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   noteCard: {
     flexDirection: 'row',
