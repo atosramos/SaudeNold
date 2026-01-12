@@ -10,6 +10,7 @@ import * as FileSystem from 'expo-file-system';
 import { extractDataFromOCRText } from '../../services/examDataExtraction';
 import { extractDataWithLLMFallback, extractDataWithGeminiDirect } from '../../services/llmDataExtraction';
 import { useCustomAlert } from '../../hooks/useCustomAlert';
+import { isProFeatureAvailable } from '../../services/proLicense';
 import PdfViewer from '../../components/PdfViewer';
 
 export default function NewMedicalExam() {
@@ -387,7 +388,22 @@ export default function NewMedicalExam() {
         return;
       }
 
-      // FLUXO: Apenas Gemini Direct (SEM OCR)
+      // Verificar se tem licença PRO ativa
+      const hasPro = await isProFeatureAvailable();
+      
+      if (!hasPro) {
+        // Sem licença PRO, permitir apenas entrada manual
+        showAlert(
+          'Funcionalidade PRO',
+          'A leitura automática de exames com inteligência artificial requer uma licença PRO.\n\nVocê pode inserir os dados manualmente ou ativar uma licença PRO em Configurações.',
+          'info'
+        );
+        setProcessing(false);
+        setUploading(false);
+        return; // Retornar sem processar, mas permitir entrada manual
+      }
+      
+      // FLUXO: Apenas Gemini Direct (SEM OCR) - Requer PRO
       // IMPORTANTE: No mobile, variáveis de ambiente só funcionam após rebuild do app
       // Se estiver usando Expo Go, as variáveis não estarão disponíveis
       const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY || null;
@@ -397,6 +413,7 @@ export default function NewMedicalExam() {
         hasKey: !!GEMINI_API_KEY, 
         keyLength: GEMINI_API_KEY?.length || 0,
         platform: Platform.OS,
+        hasPro,
         envKeys: Object.keys(process.env).filter(k => k.includes('GEMINI') || k.includes('EXPO_PUBLIC'))
       });
       
@@ -668,8 +685,11 @@ export default function NewMedicalExam() {
         <View style={styles.infoBox}>
           <Ionicons name="information-circle-outline" size={24} color="#4ECDC4" />
           <Text style={styles.infoText}>
-            O sistema processará a imagem ou PDF localmente e extrairá os dados do exame automaticamente.
-            Se necessário, você poderá inserir o texto manualmente.
+            {file ? (
+              'O sistema processará a imagem ou PDF e extrairá os dados do exame automaticamente usando inteligência artificial (requer licença PRO). Você também pode inserir os dados manualmente.'
+            ) : (
+              'Adicione uma foto ou PDF do exame médico. A leitura automática com IA requer licença PRO, mas você sempre pode inserir os dados manualmente.'
+            )}
           </Text>
         </View>
 

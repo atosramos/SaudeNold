@@ -70,11 +70,19 @@ export default function Home() {
         </TouchableOpacity>
 
         <TouchableOpacity 
-          style={[styles.menuButton, styles.trackingButton, styles.lastButton]}
+          style={[styles.menuButton, styles.trackingButton]}
           onPress={() => router.push('/daily-tracking')}
         >
           <Ionicons name="stats-chart" size={48} color="#fff" />
           <Text style={styles.menuButtonText}>Acompanhamento Diário</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={[styles.menuButton, styles.proButton, styles.lastButton]}
+          onPress={() => router.push('/pro-license')}
+        >
+          <Ionicons name="star" size={48} color="#fff" />
+          <Text style={styles.menuButtonText}>Licença PRO</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -139,6 +147,9 @@ const styles = StyleSheet.create({
   },
   trackingButton: {
     backgroundColor: '#E67E22',
+  },
+  proButton: {
+    backgroundColor: '#FFD700',
   },
   lastButton: {
     marginBottom: 0,
