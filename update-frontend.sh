@@ -34,3 +34,4 @@ echo "💡 Dica: No Expo Go, agite o dispositivo e escolha 'Reload' para forçar
 
 
 
+

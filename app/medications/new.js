@@ -311,9 +311,16 @@ export default function NewMedication() {
       // Agendar alarmes para o medicamento
       try {
         await scheduleMedicationAlarms(newMedication);
+        console.log('✅ Alarmes agendados com sucesso');
       } catch (error) {
-        console.error('Erro ao agendar alarmes:', error);
-        // Não bloquear o cadastro se o agendamento falhar
+        console.error('❌ Erro ao agendar alarmes:', error);
+        // Mostrar aviso mas não bloquear o cadastro
+        showAlert(
+          'Aviso', 
+          `Medicamento salvo, mas os alarmes não foram agendados:\n${error.message}\n\nVerifique as permissões de notificação nas configurações do app.`,
+          'warning',
+          [{ text: 'OK' }]
+        );
       }
       
       showAlert('Sucesso', 'Medicamento cadastrado com sucesso!', 'success', [

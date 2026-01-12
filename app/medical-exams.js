@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, FlatList, ActivityIndicator } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, FlatList, ActivityIndicator, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useState, useCallback } from 'react';
@@ -94,6 +94,28 @@ export default function MedicalExams() {
     }
   };
 
+  // Função para limpar o tipo de exame e mostrar apenas o primeiro tipo ou "Exame Médico"
+  const getCleanExamType = (examType) => {
+    if (!examType) return 'Exame Médico';
+    
+    // Se o exam_type contém muitos tipos concatenados (tem +), pegar apenas o primeiro
+    if (examType.includes(' + ')) {
+      const firstType = examType.split(' + ')[0].trim();
+      // Se o primeiro tipo ainda for muito longo (mais de 30 caracteres), usar "Exame Médico"
+      if (firstType.length > 30) {
+        return 'Exame Médico';
+      }
+      return firstType;
+    }
+    
+    // Se o exam_type for muito longo (mais de 30 caracteres), usar "Exame Médico"
+    if (examType.length > 30) {
+      return 'Exame Médico';
+    }
+    
+    return examType;
+  };
+
   const renderExam = ({ item }) => {
     return (
       <TouchableOpacity 
@@ -105,7 +127,7 @@ export default function MedicalExams() {
       >
         <View style={styles.examHeader}>
           <View style={styles.examHeaderText}>
-            <Text style={styles.examType}>{item.exam_type || 'Exame Médico'}</Text>
+            <Text style={styles.examType}>{getCleanExamType(item.exam_type)}</Text>
             {item.exam_date && (
               <Text style={styles.examDate}>
                 {new Date(item.exam_date).toLocaleDateString('pt-BR')}
@@ -227,11 +249,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 24,
+    paddingTop: Platform.OS === 'ios' ? 60 : Platform.OS === 'android' ? 40 : 24,
     backgroundColor: '#fff',
     marginBottom: 16,
   },
   backButton: {
     marginRight: 16,
+    padding: 8,
+    marginLeft: -8,
+    marginTop: Platform.OS === 'ios' ? -8 : Platform.OS === 'android' ? -8 : 0,
   },
   title: {
     fontSize: 32,

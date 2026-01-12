@@ -1,9 +1,10 @@
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Image, ActivityIndicator, FlatList, RefreshControl } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Image, ActivityIndicator, FlatList, RefreshControl, Modal, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCustomAlert } from '../../hooks/useCustomAlert';
+import PdfViewer from '../../components/PdfViewer';
 
 export default function MedicalExamDetail() {
   const router = useRouter();
@@ -12,6 +13,7 @@ export default function MedicalExamDetail() {
   const [exam, setExam] = useState(examParam ? JSON.parse(examParam) : null);
   const [loading, setLoading] = useState(!exam);
   const [refreshing, setRefreshing] = useState(false);
+  const [showPdfModal, setShowPdfModal] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -215,10 +217,21 @@ export default function MedicalExamDetail() {
               {exam.file_type === 'pdf' ? 'PDF do Exame' : 'Imagem do Exame'}
             </Text>
             {exam.file_type === 'pdf' ? (
-              <View style={styles.pdfView}>
-                <Ionicons name="document-text" size={120} color="#9B59B6" />
-                <Text style={styles.pdfViewText}>PDF</Text>
-                <Text style={styles.pdfViewSubtext}>Arquivo processado com sucesso</Text>
+              <View>
+                <View style={styles.pdfView}>
+                  <Ionicons name="document-text" size={120} color="#9B59B6" />
+                  <Text style={styles.pdfViewText}>PDF</Text>
+                  <Text style={styles.pdfViewSubtext}>Arquivo processado com sucesso</Text>
+                </View>
+                {exam.file_uri && (
+                  <TouchableOpacity 
+                    style={styles.viewPdfButton}
+                    onPress={() => setShowPdfModal(true)}
+                  >
+                    <Ionicons name="document-text-outline" size={20} color="#9B59B6" />
+                    <Text style={styles.viewPdfButtonText}>Visualizar PDF Original</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             ) : (
               <Image 
@@ -229,6 +242,69 @@ export default function MedicalExamDetail() {
             )}
           </View>
         )}
+
+        {/* Modal para visualizar PDF */}
+        <Modal
+          visible={showPdfModal}
+          animationType="slide"
+          transparent={false}
+          onRequestClose={() => setShowPdfModal(false)}
+        >
+          <View style={styles.pdfModalContainer}>
+            <View style={styles.pdfModalHeader}>
+              <Text style={styles.pdfModalTitle}>PDF do Exame</Text>
+              <TouchableOpacity 
+                style={styles.pdfModalCloseButton}
+                onPress={() => setShowPdfModal(false)}
+              >
+                <Ionicons name="close" size={28} color="#333" />
+              </TouchableOpacity>
+            </View>
+            {exam.file_uri && (
+              <View style={styles.pdfViewerContainer}>
+                {Platform.OS === 'web' ? (
+                  <View style={{ flex: 1 }}>
+                    {/* eslint-disable-next-line react/no-unknown-property */}
+                    <object 
+                      data={exam.file_uri} 
+                      type="application/pdf"
+                      style={styles.pdfWebViewer}
+                    >
+                      <View style={{ padding: 20, alignItems: 'center', justifyContent: 'center', flex: 1 }}>
+                        <Text style={{ color: '#fff', marginBottom: 10, textAlign: 'center' }}>
+                          Seu navegador não suporta visualização de PDF.
+                        </Text>
+                        <TouchableOpacity 
+                          onPress={() => window.open(exam.file_uri, '_blank')}
+                          style={{ padding: 10, backgroundColor: '#4ECDC4', borderRadius: 8 }}
+                        >
+                          <Text style={{ color: '#fff', fontWeight: 'bold' }}>
+                            Abrir PDF em nova aba
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </object>
+                  </View>
+                ) : (
+                  <PdfViewer
+                    source={{ uri: exam.file_uri, cache: true }}
+                    onLoadComplete={(numberOfPages) => {
+                      console.log(`PDF carregado: ${numberOfPages} páginas`);
+                    }}
+                    onPageChanged={(page, numberOfPages) => {
+                      console.log(`Página ${page} de ${numberOfPages}`);
+                    }}
+                    onError={(error) => {
+                      console.error('Erro ao carregar PDF:', error);
+                      showAlert('Erro', 'Não foi possível carregar o PDF.', 'error');
+                    }}
+                    style={styles.pdfViewer}
+                  />
+                )}
+              </View>
+            )}
+          </View>
+        </Modal>
 
         {/* Parâmetros extraídos */}
         {status === 'completed' && parameters.length > 0 && (
@@ -510,5 +586,56 @@ const styles = StyleSheet.create({
     fontSize: 20,
     color: '#fff',
     fontWeight: 'bold',
+  },
+  viewPdfButton: {
+    backgroundColor: '#fff',
+    borderWidth: 2,
+    borderColor: '#9B59B6',
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  viewPdfButtonText: {
+    color: '#9B59B6',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  pdfModalContainer: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+  pdfModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    backgroundColor: '#f5f5f5',
+  },
+  pdfModalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  pdfModalCloseButton: {
+    padding: 8,
+  },
+  pdfViewerContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  pdfViewer: {
+    flex: 1,
+    width: '100%',
+  },
+  pdfWebViewer: {
+    width: '100%',
+    height: '100%',
+    border: 'none',
   },
 });

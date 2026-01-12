@@ -538,16 +538,32 @@ export const extractDataWithGeminiDirect = async (fileInput, fileType, apiKey, a
     
     console.log('✅ Base64 preparado, tamanho:', base64Data.length, 'bytes');
 
-    const prompt = `Atue como um extrator de dados de saúde especializado em estruturação de laudos laboratoriais. Analise o documento fornecido para a paciente e retorne os dados estritamente no formato JSON, seguindo a estrutura abaixo para cada exame encontrado.
+    // Prompt específico para PDFs (processar página por página)
+    const isPdf = fileType === 'pdf' || mimeType === 'application/pdf';
+    const pdfInstructions = isPdf ? `
+CRÍTICO PARA PDFs: Este é um documento PDF que pode ter múltiplas páginas. 
+- Processe CADA PÁGINA separadamente
+- Extraia TODOS os dados de TODAS as páginas
+- Combine todos os parâmetros de todas as páginas em uma única lista
+- Se houver múltiplos exames em páginas diferentes, combine-os todos
+- NÃO ignore nenhuma página do PDF
+- Se o PDF tiver muitas páginas, processe todas elas e inclua todos os dados
+` : '';
+
+    const prompt = `Atue como um extrator de dados de saúde especializado em estruturação de laudos laboratoriais. Analise o documento fornecido para a paciente e retorne os dados estritamente no formato JSON, seguindo a estrutura abaixo.
+
+${pdfInstructions}
+
+IMPORTANTE: Se o documento contiver MÚLTIPLOS exames (ex: Hemograma + Vitamina B12, ou vários exames diferentes), combine TODOS em um único objeto JSON com todos os parâmetros na mesma lista.
 
 Para os valores ideais, utilize o 'Valor de Referência' indicado no laudo que seja compatível com o perfil da paciente.
 
-Estrutura JSON esperada:
+Estrutura JSON esperada (ÚNICO objeto JSON, mesmo com múltiplos exames):
 {
   "paciente": "Nome da Paciente" ou null,
   "data_coleta": "YYYY-MM-DD" ou null,
   "exam_date": "YYYY-MM-DD" ou null,
-  "exam_type": "tipo do exame" ou null,
+  "exam_type": "tipo do exame" ou "tipo1 + tipo2" se houver múltiplos exames,
   "parameters": [
     {
       "name": "Nome do Exame/Analito",
@@ -570,8 +586,29 @@ Diretrizes Adicionais:
 4. Ignore notas de rodapé e textos informativos, focando apenas nos dados quantitativos
 5. IGNORE completamente: telefones, endereços, CPF, RG, emails
 6. Se um parâmetro não tiver valor numérico, NÃO inclua
+7. Se houver múltiplos exames no documento, combine todos os parâmetros em uma única lista "parameters"
+8. Se houver múltiplos tipos de exame, combine-os no campo "exam_type" separados por " + " (ex: "HEMOGRAMA + VITAMINA B12")
 
-Retorne APENAS o JSON válido, sem markdown, sem explicações:`;
+FORMATO DE RESPOSTA CRÍTICO:
+- Retorne APENAS UM objeto JSON válido, mesmo que o documento tenha múltiplos exames
+- NÃO retorne múltiplos objetos JSON separados
+- Combine todos os parâmetros de todos os exames em uma única lista "parameters"
+- O JSON deve estar 100% completo, não truncado
+- Fechar todos os arrays com ]
+- Fechar todos os objetos com }
+- Incluir TODOS os parâmetros de TODOS os exames
+- NÃO use markdown code blocks, retorne APENAS o JSON puro
+- Se o documento tiver muitos parâmetros, inclua TODOS eles no JSON
+
+IMPORTANTE: Retorne um único JSON válido e completo, sem markdown, sem explicações, sem texto adicional. Se houver múltiplos exames, combine-os em um único objeto JSON.
+
+CRÍTICO: O JSON DEVE ESTAR 100% COMPLETO:
+- Todos os arrays devem ser fechados com ]
+- Todos os objetos devem ser fechados com }
+- Todos os parâmetros devem ser incluídos, mesmo que sejam muitos
+- NÃO trunque o JSON no meio de um objeto ou array
+- Se o documento tiver muitos parâmetros, inclua TODOS eles, mesmo que o JSON fique grande
+- O JSON deve terminar com } (fechamento do objeto principal)`;
 
     const requestBody = {
       contents: [{
@@ -587,7 +624,7 @@ Retorne APENAS o JSON válido, sem markdown, sem explicações:`;
       }],
       generationConfig: {
         temperature: 0.1,
-        maxOutputTokens: 4000, // Aumentado para suportar JSONs maiores (hemogramas podem ter muitos parâmetros)
+        maxOutputTokens: 16384, // Máximo para garantir JSON completo mesmo com muitos parâmetros
       }
     };
 
@@ -736,28 +773,316 @@ Retorne APENAS o JSON válido, sem markdown, sem explicações:`;
         .replace(/```\s*/g, '')       // Remove ```
         .trim();
       
-      // Tentar encontrar o JSON completo usando regex mais robusto
-      // Procura por { seguido de qualquer coisa até o último } balanceado
-      const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        jsonText = jsonMatch[0];
-      } else {
-        // Se não encontrou com regex, tentar encontrar manualmente
-        const firstBrace = jsonText.indexOf('{');
-        const lastBrace = jsonText.lastIndexOf('}');
-        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-          jsonText = jsonText.substring(firstBrace, lastBrace + 1);
-        } else {
-          // Se ainda não encontrou, tentar sem limpeza prévia
-          jsonText = text;
-          const fallbackMatch = jsonText.match(/\{[\s\S]*\}/);
-          if (fallbackMatch) {
-            jsonText = fallbackMatch[0];
+      // Tentar encontrar TODOS os objetos JSON na resposta
+      // Se houver múltiplos exames no PDF, extrair todos e combinar
+      function extractAllJsonObjects(text) {
+        const objects = [];
+        let braceCount = 0;
+        let currentStart = -1;
+        let inString = false;
+        let escapeNext = false;
+        
+        for (let i = 0; i < text.length; i++) {
+          const char = text[i];
+          
+          if (escapeNext) {
+            escapeNext = false;
+            continue;
           }
+          
+          if (char === '\\') {
+            escapeNext = true;
+            continue;
+          }
+          
+          if (char === '"' && !escapeNext) {
+            inString = !inString;
+            continue;
+          }
+          
+          if (inString) continue;
+          
+          if (char === '{') {
+            if (braceCount === 0) {
+              currentStart = i; // Início de um novo objeto
+            }
+            braceCount++;
+          } else if (char === '}') {
+            braceCount--;
+            if (braceCount === 0 && currentStart !== -1) {
+              // Encontrou um objeto JSON completo
+              const jsonObj = text.substring(currentStart, i + 1);
+              objects.push(jsonObj);
+              currentStart = -1;
+            }
+          }
+        }
+        
+        return objects;
+      }
+      
+      // Extrair todos os objetos JSON
+      const allJsonObjects = extractAllJsonObjects(jsonText);
+      
+      if (allJsonObjects.length === 0) {
+        // Fallback: tentar encontrar pelo menos um JSON
+        const jsonMatch = jsonText.match(/\{[\s\S]*?\}/);
+        if (jsonMatch) {
+          jsonText = jsonMatch[0];
+        } else {
+          const firstBraceFallback = jsonText.indexOf('{');
+          const lastBraceFallback = jsonText.lastIndexOf('}');
+          if (firstBraceFallback !== -1 && lastBraceFallback !== -1 && lastBraceFallback > firstBraceFallback) {
+            jsonText = jsonText.substring(firstBraceFallback, lastBraceFallback + 1);
+          } else {
+            jsonText = text;
+            const fallbackMatch = jsonText.match(/\{[\s\S]*?\}/);
+            if (fallbackMatch) {
+              jsonText = fallbackMatch[0];
+            }
+          }
+        }
+      } else if (allJsonObjects.length === 1) {
+        // Apenas um objeto JSON
+        jsonText = allJsonObjects[0];
+        console.log('✅ Extraído 1 objeto JSON da resposta');
+        if (addDebugLog) addDebugLog('✅ 1 objeto JSON encontrado', 'info');
+      } else {
+        // Múltiplos objetos JSON - combinar em um único objeto
+        console.log(`✅ Encontrados ${allJsonObjects.length} objetos JSON, combinando...`);
+        if (addDebugLog) addDebugLog(`✅ ${allJsonObjects.length} objetos JSON encontrados, combinando parâmetros...`, 'info');
+        
+        try {
+          // Tentar fazer parse de cada objeto
+          const parsedObjects = [];
+          for (const objStr of allJsonObjects) {
+            try {
+              const parsed = JSON.parse(objStr);
+              parsedObjects.push(parsed);
+            } catch (parseError) {
+              console.warn('⚠️ Erro ao fazer parse de um objeto JSON:', parseError.message);
+              if (addDebugLog) addDebugLog(`⚠️ Erro ao fazer parse de um objeto: ${parseError.message}`, 'warning');
+            }
+          }
+          
+          if (parsedObjects.length > 0) {
+            // Combinar todos os objetos em um único
+            const combined = {
+              paciente: parsedObjects[0].paciente || null,
+              data_coleta: parsedObjects[0].data_coleta || null,
+              exam_date: parsedObjects[0].exam_date || parsedObjects[0].data_coleta || null,
+              exam_type: parsedObjects.map(obj => obj.exam_type).filter(Boolean).join(' + ') || parsedObjects[0].exam_type || null,
+              parameters: []
+            };
+            
+            // Combinar todos os parâmetros
+            for (const obj of parsedObjects) {
+              if (obj.parameters && Array.isArray(obj.parameters)) {
+                combined.parameters.push(...obj.parameters);
+              }
+            }
+            
+            // Converter o objeto combinado de volta para JSON string para processamento posterior
+            jsonText = JSON.stringify(combined);
+            console.log(`✅ Combinados ${parsedObjects.length} exames em um único objeto com ${combined.parameters.length} parâmetros`);
+            if (addDebugLog) addDebugLog(`✅ Combinados ${parsedObjects.length} exames: ${combined.parameters.length} parâmetros totais`, 'success');
+          } else {
+            // Se não conseguiu fazer parse de nenhum, usar o primeiro
+            jsonText = allJsonObjects[0];
+            console.warn('⚠️ Não foi possível fazer parse dos objetos, usando o primeiro');
+            if (addDebugLog) addDebugLog('⚠️ Usando primeiro objeto JSON (erro ao combinar)', 'warning');
+          }
+        } catch (combineError) {
+          // Se der erro ao combinar, usar o primeiro objeto
+          jsonText = allJsonObjects[0];
+          console.warn('⚠️ Erro ao combinar objetos JSON, usando o primeiro:', combineError.message);
+          if (addDebugLog) addDebugLog(`⚠️ Erro ao combinar: ${combineError.message}, usando primeiro objeto`, 'warning');
         }
       }
       
       if (jsonText && jsonText.startsWith('{')) {
+        // Verificar se o JSON está completo antes de tentar parse
+        let trimmedJson = jsonText.trim();
+        const isComplete = trimmedJson.endsWith('}');
+        
+        if (!isComplete) {
+          console.log('⚠️ JSON parece estar incompleto, tentando completar...');
+          if (addDebugLog) addDebugLog('⚠️ JSON incompleto detectado, tentando completar...', 'warning');
+          
+          // Função auxiliar para completar JSON truncado de forma mais inteligente
+          const completeJson = (json) => {
+            let result = json.trim();
+            
+            // Remover vírgulas finais que podem estar causando problemas
+            result = result.replace(/,\s*$/, '');
+            
+            // Contar chaves e colchetes de forma mais precisa
+            let depth = 0;
+            let inString = false;
+            let escapeNext = false;
+            let openBraces = 0;
+            let closeBraces = 0;
+            let openBrackets = 0;
+            let closeBrackets = 0;
+            
+            let lastChar = '';
+            for (let i = 0; i < result.length; i++) {
+              const char = result[i];
+              lastChar = char;
+              
+              if (escapeNext) {
+                escapeNext = false;
+                continue;
+              }
+              
+              if (char === '\\') {
+                escapeNext = true;
+                continue;
+              }
+              
+              if (char === '"' && !escapeNext) {
+                inString = !inString;
+                continue;
+              }
+              
+              if (inString) continue;
+              
+              if (char === '{') openBraces++;
+              if (char === '}') closeBraces++;
+              if (char === '[') openBrackets++;
+              if (char === ']') closeBrackets++;
+            }
+            
+            // Verificar se está no meio de uma string (JSON truncado dentro de string)
+            // Se o último caractere não fechado é uma string, fechar ela primeiro
+            if (inString) {
+              // Está no meio de uma string, fechar a string
+              // Se a string não termina com ", adicionar
+              if (lastChar !== '"') {
+                result += '"';
+                if (addDebugLog) addDebugLog('✅ String incompleta fechada', 'info');
+              }
+            }
+            
+            // Fechar propriedades incompletas
+            // Se termina com vírgula ou está no meio de uma propriedade, tentar fechar
+            const trimmed = result.trim();
+            const lastNonWhitespace = trimmed.slice(-1);
+            
+            // Verificar se está no meio de uma propriedade (termina com " ou : ou ,)
+            // Se termina com ", pode estar no meio de um valor de string ou no final de uma propriedade
+            if (lastNonWhitespace === '"') {
+              // Verificar se há um : antes (propriedade completa) ou não (valor incompleto)
+              const lastColonIndex = trimmed.lastIndexOf(':');
+              const lastQuoteIndex = trimmed.lastIndexOf('"');
+              if (lastColonIndex > -1 && lastQuoteIndex > lastColonIndex) {
+                // Parece ser um valor de string completo, mas pode estar faltando vírgula ou fechamento
+                // Verificar se há mais propriedades esperadas ou se é o final do objeto
+                const lastBraceBeforeQuote = trimmed.substring(0, lastQuoteIndex).lastIndexOf('{');
+                if (lastBraceBeforeQuote > -1) {
+                  // Estamos dentro de um objeto, verificar se precisa fechar
+                  const openBracesBefore = (trimmed.substring(0, lastQuoteIndex).match(/\{/g) || []).length;
+                  const closeBracesBefore = (trimmed.substring(0, lastQuoteIndex).match(/\}/g) || []).length;
+                  if (openBracesBefore > closeBracesBefore) {
+                    // Ainda há objetos abertos, mas a propriedade parece completa
+                    // Não fazer nada ainda, deixar o fechamento de objetos abaixo tratar
+                  }
+                }
+              }
+            }
+            
+            // Se termina com dois pontos, está no meio de um valor
+            if (lastNonWhitespace === ':') {
+              // Valor incompleto, adicionar null
+              result = result.replace(/:\s*$/, ': null');
+              if (addDebugLog) addDebugLog('✅ Valor incompleto completado com null', 'info');
+            }
+            
+            // Se termina com vírgula, pode estar no meio de um objeto dentro de um array
+            // Nesse caso, precisamos fechar o objeto atual antes de fechar o array
+            if (lastNonWhitespace === ',') {
+              // Verificar se estamos dentro de um objeto (há mais { do que })
+              // Se sim, fechar o objeto atual primeiro
+              const currentOpenBraces = (result.match(/\{/g) || []).length;
+              const currentCloseBraces = (result.match(/\}/g) || []).length;
+              const currentOpenBrackets = (result.match(/\[/g) || []).length;
+              const currentCloseBrackets = (result.match(/\]/g) || []).length;
+              
+              // Se há mais objetos abertos do que fechados E estamos dentro de um array
+              if (currentOpenBraces > currentCloseBraces && currentOpenBrackets > currentCloseBrackets) {
+                // Remover a vírgula final e fechar o objeto atual
+                result = result.replace(/,\s*$/, '');
+                result += '}';
+                if (addDebugLog) addDebugLog('✅ Objeto incompleto dentro do array fechado', 'info');
+              } else {
+                // Caso contrário, apenas remover a vírgula
+                result = result.replace(/,\s*$/, '');
+              }
+            }
+            
+            // Se não termina com nenhum caractere de fechamento e está dentro de um objeto/array
+            // Pode estar truncado no meio de uma propriedade
+            if (!['}', ']', ',', '"'].includes(lastNonWhitespace)) {
+              const currentOpenBraces = (result.match(/\{/g) || []).length;
+              const currentCloseBraces = (result.match(/\}/g) || []).length;
+              const currentOpenBrackets = (result.match(/\[/g) || []).length;
+              const currentCloseBrackets = (result.match(/\]/g) || []).length;
+              
+              // Se estamos dentro de um objeto dentro de um array
+              if (currentOpenBraces > currentCloseBraces && currentOpenBrackets > currentCloseBrackets) {
+                // Verificar se a última linha parece ser uma propriedade incompleta
+                const lines = result.split('\n');
+                const lastLine = lines[lines.length - 1].trim();
+                
+                // Se a última linha tem "name": mas não tem valor completo, completar
+                if (lastLine.includes('"name"') && !lastLine.includes(',') && !lastLine.endsWith('"')) {
+                  // Parece estar no meio de uma propriedade name, fechar o objeto
+                  result += '}';
+                  if (addDebugLog) addDebugLog('✅ Objeto incompleto (propriedade name) fechado', 'info');
+                } else if (lastLine.includes(':') && !lastLine.endsWith('"') && !lastLine.endsWith('}') && !lastLine.endsWith(']')) {
+                  // Propriedade incompleta, fechar com null
+                  result = result.replace(/:\s*$/, ': null');
+                  if (addDebugLog) addDebugLog('✅ Propriedade incompleta completada', 'info');
+                }
+              }
+            }
+            
+            // Recontar após as modificações
+            const finalTrimmed = result.trim();
+            const finalOpenBraces = (result.match(/\{/g) || []).length;
+            const finalCloseBraces = (result.match(/\}/g) || []).length;
+            const finalOpenBrackets = (result.match(/\[/g) || []).length;
+            const finalCloseBrackets = (result.match(/\]/g) || []).length;
+            
+            // Fechar arrays abertos primeiro (dentro de objetos)
+            if (finalOpenBrackets > finalCloseBrackets) {
+              const missingBrackets = finalOpenBrackets - finalCloseBrackets;
+              // Se o último caractere não é ], adicionar fechamento
+              if (!finalTrimmed.endsWith(']')) {
+                result += ']'.repeat(missingBrackets);
+                console.log(`✅ Fechados ${missingBrackets} array(s) aberto(s)`);
+                if (addDebugLog) addDebugLog(`✅ Fechados ${missingBrackets} array(s)`, 'info');
+              }
+            }
+            
+            // Fechar objetos abertos
+            if (finalOpenBraces > finalCloseBraces) {
+              const missingBraces = finalOpenBraces - finalCloseBraces;
+              // Se o último caractere não é }, adicionar fechamento
+              if (!finalTrimmed.endsWith('}')) {
+                result += '}'.repeat(missingBraces);
+                console.log(`✅ Fechados ${missingBraces} objeto(s) aberto(s)`);
+                if (addDebugLog) addDebugLog(`✅ Fechados ${missingBraces} objeto(s)`, 'info');
+              }
+            }
+            
+            return result;
+          };
+          
+          trimmedJson = completeJson(trimmedJson);
+          jsonText = trimmedJson;
+        }
+        
         try {
           extracted = JSON.parse(jsonText);
           console.log('✅ Parse após limpeza funcionou!');
@@ -765,8 +1090,48 @@ Retorne APENAS o JSON válido, sem markdown, sem explicações:`;
         } catch (cleanParseError) {
           console.error('❌ Erro no parse após limpeza:', cleanParseError.message);
           console.error('❌ Posição do erro:', cleanParseError.message.includes('position') ? cleanParseError.message : 'desconhecida');
+          
+          // Tentar uma última estratégia: extrair apenas o que está completo
           if (addDebugLog) {
             addDebugLog(`❌ Erro no parse: ${cleanParseError.message}`, 'error');
+            
+            // Tentar extrair JSON parcial válido
+            try {
+              // Procurar por um objeto JSON válido dentro do texto
+              let partialJson = jsonText;
+              
+              // Se o erro menciona uma posição, tentar cortar até lá
+              const positionMatch = cleanParseError.message.match(/position (\d+)/);
+              if (positionMatch) {
+                const errorPos = parseInt(positionMatch[1]);
+                partialJson = jsonText.substring(0, errorPos);
+                // Tentar fechar o JSON parcial
+                const openCount = (partialJson.match(/\{/g) || []).length;
+                const closeCount = (partialJson.match(/\}/g) || []).length;
+                const openBracketCount = (partialJson.match(/\[/g) || []).length;
+                const closeBracketCount = (partialJson.match(/\]/g) || []).length;
+                
+                // Fechar arrays primeiro
+                if (openBracketCount > closeBracketCount) {
+                  partialJson += ']'.repeat(openBracketCount - closeBracketCount);
+                }
+                // Fechar objetos
+                if (openCount > closeCount) {
+                  partialJson += '}'.repeat(openCount - closeCount);
+                }
+                
+                try {
+                  extracted = JSON.parse(partialJson);
+                  console.log('✅ Parse parcial funcionou após correção!');
+                  if (addDebugLog) addDebugLog('✅ Parse parcial funcionou após correção!', 'success');
+                } catch (partialError) {
+                  console.error('❌ Parse parcial também falhou:', partialError.message);
+                }
+              }
+            } catch (extractError) {
+              console.error('❌ Erro ao tentar extrair JSON parcial:', extractError);
+            }
+            
             // Mostrar mais contexto do JSON tentado
             const previewStart = Math.max(0, jsonText.length - 500);
             addDebugLog(`JSON tentado (últimos 500 chars): ${jsonText.substring(previewStart)}`, 'info');
