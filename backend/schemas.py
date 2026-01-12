@@ -150,3 +150,47 @@ class ExamTimelineData(BaseModel):
     reference_range_min: Optional[str] = None
     reference_range_max: Optional[str] = None
 
+
+# ========== LICENÇAS PRO ==========
+class LicenseValidateRequest(BaseModel):
+    key: str
+    device_id: Optional[str] = None
+
+
+class LicenseValidateResponse(BaseModel):
+    valid: bool
+    license_type: Optional[str] = None
+    expiration_date: Optional[str] = None
+    activated_at: Optional[str] = None
+    error: Optional[str] = None
+
+
+class LicenseGenerateRequest(BaseModel):
+    license_type: str  # 1_month, 6_months, 1_year
+    user_id: Optional[str] = None
+    purchase_id: Optional[str] = None
+
+
+class LicenseGenerateResponse(BaseModel):
+    success: bool
+    license_key: Optional[str] = None
+    expiration_date: Optional[str] = None
+    error: Optional[str] = None
+
+
+class PurchaseStatusResponse(BaseModel):
+    status: str  # pending, completed, failed, refunded
+    license_key: Optional[str] = None
+    purchase_date: Optional[str] = None
+    error: Optional[str] = None
+
+
+class GooglePayWebhookRequest(BaseModel):
+    purchase_id: str
+    transaction_id: str
+    status: str  # completed, failed, refunded
+    license_type: str
+    user_id: Optional[str] = None
+    amount: str
+    currency: str = "BRL"
+

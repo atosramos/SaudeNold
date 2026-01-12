@@ -17,7 +17,8 @@ import models
 import schemas
 from ocr_service import perform_ocr
 from data_extraction import extract_data_from_ocr_text
-from datetime import datetime as dt
+from license_generator import generate_license_key, validate_license_key, LICENSE_DURATIONS
+from datetime import datetime as dt, timedelta
 
 # Configurar logging de segurança
 logging.basicConfig(
@@ -684,6 +685,239 @@ def get_parameter_timeline(
     }
     
     return timeline_data
+
+
+# ========== LICENÇAS PRO ==========
+
+@app.post("/api/validate-license", response_model=schemas.LicenseValidateResponse)
+@limiter.limit("10/minute")
+def validate_license(
+    request: Request,
+    license_data: schemas.LicenseValidateRequest,
+    api_key: str = Depends(verify_api_key)
+):
+    """Valida uma chave de licença PRO"""
+    security_logger.info(f"Validação de licença solicitada de {get_remote_address(request)}")
+    
+    db = next(get_db())
+    
+    try:
+        # Validar chave usando o gerador
+        validation_result = validate_license_key(license_data.key)
+        
+        if not validation_result.get('valid'):
+            return schemas.LicenseValidateResponse(
+                valid=False,
+                error=validation_result.get('error', 'Chave inválida')
+            )
+        
+        # Verificar se a chave já foi usada
+        existing_license = db.query(models.License).filter(
+            models.License.license_key == license_data.key.upper().replace(' ', '').replace('-', '')
+        ).first()
+        
+        if existing_license:
+            # Verificar se ainda está ativa
+            expiration = existing_license.expiration_date
+            if expiration < dt.now():
+                return schemas.LicenseValidateResponse(
+                    valid=False,
+                    error='Licença expirada'
+                )
+            
+            return schemas.LicenseValidateResponse(
+                valid=True,
+                license_type=existing_license.license_type,
+                expiration_date=existing_license.expiration_date.isoformat(),
+                activated_at=existing_license.activated_at.isoformat()
+            )
+        
+        # Chave válida mas ainda não registrada
+        return schemas.LicenseValidateResponse(
+            valid=True,
+            license_type=validation_result['license_type'],
+            expiration_date=validation_result['expiration_date'],
+            activated_at=validation_result['activated_at']
+        )
+        
+    except Exception as e:
+        security_logger.error(f"Erro ao validar licença: {str(e)}")
+        return schemas.LicenseValidateResponse(
+            valid=False,
+            error=f'Erro ao validar licença: {str(e)}'
+        )
+
+
+@app.post("/api/generate-license", response_model=schemas.LicenseGenerateResponse)
+@limiter.limit("5/minute")
+def generate_license(
+    request: Request,
+    license_data: schemas.LicenseGenerateRequest,
+    api_key: str = Depends(verify_api_key)
+):
+    """Gera uma nova chave de licença PRO (apenas para administradores)"""
+    security_logger.info(f"Geração de licença solicitada de {get_remote_address(request)}")
+    
+    db = next(get_db())
+    
+    try:
+        # Gerar chave
+        license_key = generate_license_key(
+            license_type=license_data.license_type,
+            user_id=license_data.user_id
+        )
+        
+        # Calcular data de expiração
+        duration = LICENSE_DURATIONS.get(license_data.license_type, timedelta(days=30))
+        expiration_date = dt.now() + duration
+        
+        # Salvar no banco
+        new_license = models.License(
+            license_key=license_key,
+            license_type=license_data.license_type,
+            user_id=license_data.user_id,
+            purchase_id=license_data.purchase_id,
+            activated_at=dt.now(),
+            expiration_date=expiration_date,
+            is_active=True
+        )
+        
+        db.add(new_license)
+        safe_db_commit(db)
+        
+        return schemas.LicenseGenerateResponse(
+            success=True,
+            license_key=license_key,
+            expiration_date=expiration_date.isoformat()
+        )
+        
+    except Exception as e:
+        security_logger.error(f"Erro ao gerar licença: {str(e)}")
+        return schemas.LicenseGenerateResponse(
+            success=False,
+            error=f'Erro ao gerar licença: {str(e)}'
+        )
+
+
+@app.get("/api/purchase-status/{purchase_id}", response_model=schemas.PurchaseStatusResponse)
+@limiter.limit("20/minute")
+def get_purchase_status(
+    request: Request,
+    purchase_id: str,
+    api_key: str = Depends(verify_api_key)
+):
+    """Verifica o status de uma compra"""
+    security_logger.info(f"Status de compra {purchase_id} solicitado de {get_remote_address(request)}")
+    
+    db = next(get_db())
+    
+    purchase = db.query(models.Purchase).filter(
+        models.Purchase.purchase_id == purchase_id
+    ).first()
+    
+    if not purchase:
+        return schemas.PurchaseStatusResponse(
+            status="not_found",
+            error="Compra não encontrada"
+        )
+    
+    return schemas.PurchaseStatusResponse(
+        status=purchase.status,
+        license_key=purchase.license_key,
+        purchase_date=purchase.created_at.isoformat() if purchase.created_at else None
+    )
+
+
+@app.post("/api/webhook/google-pay")
+@limiter.limit("100/minute")
+async def google_pay_webhook(
+    request: Request,
+    webhook_data: schemas.GooglePayWebhookRequest
+):
+    """Webhook para receber confirmações do Google Pay"""
+    security_logger.info(f"Webhook Google Pay recebido: {webhook_data.purchase_id}")
+    
+    db = next(get_db())
+    
+    try:
+        # Verificar se a compra já existe
+        existing_purchase = db.query(models.Purchase).filter(
+            models.Purchase.purchase_id == webhook_data.purchase_id
+        ).first()
+        
+        if existing_purchase:
+            # Atualizar status
+            existing_purchase.status = webhook_data.status
+            existing_purchase.google_pay_transaction_id = webhook_data.transaction_id
+            existing_purchase.updated_at = dt.now()
+            
+            # Se completada e ainda não tem licença, gerar
+            if webhook_data.status == 'completed' and not existing_purchase.license_key:
+                license_key = generate_license_key(
+                    license_type=webhook_data.license_type,
+                    user_id=webhook_data.user_id
+                )
+                
+                duration = LICENSE_DURATIONS.get(webhook_data.license_type, timedelta(days=30))
+                expiration_date = dt.now() + duration
+                
+                # Criar licença
+                new_license = models.License(
+                    license_key=license_key,
+                    license_type=webhook_data.license_type,
+                    user_id=webhook_data.user_id,
+                    purchase_id=webhook_data.purchase_id,
+                    activated_at=dt.now(),
+                    expiration_date=expiration_date,
+                    is_active=True
+                )
+                
+                db.add(new_license)
+                existing_purchase.license_key = license_key
+        else:
+            # Criar nova compra
+            new_purchase = models.Purchase(
+                purchase_id=webhook_data.purchase_id,
+                user_id=webhook_data.user_id,
+                license_type=webhook_data.license_type,
+                amount=webhook_data.amount,
+                currency=webhook_data.currency,
+                status=webhook_data.status,
+                google_pay_transaction_id=webhook_data.transaction_id
+            )
+            
+            db.add(new_purchase)
+            
+            # Se completada, gerar licença imediatamente
+            if webhook_data.status == 'completed':
+                license_key = generate_license_key(
+                    license_type=webhook_data.license_type,
+                    user_id=webhook_data.user_id
+                )
+                
+                duration = LICENSE_DURATIONS.get(webhook_data.license_type, timedelta(days=30))
+                expiration_date = dt.now() + duration
+                
+                new_license = models.License(
+                    license_key=license_key,
+                    license_type=webhook_data.license_type,
+                    user_id=webhook_data.user_id,
+                    purchase_id=webhook_data.purchase_id,
+                    activated_at=dt.now(),
+                    expiration_date=expiration_date,
+                    is_active=True
+                )
+                
+                db.add(new_license)
+                new_purchase.license_key = license_key
+        
+        safe_db_commit(db)
+        
+        return {"status": "ok", "message": "Webhook processado com sucesso"}
+        
+    except Exception as e:
+        security_logger.error(f"Erro ao processar webhook: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro ao processar webhook: {str(e)}")
 
 
 @app.get("/health")
