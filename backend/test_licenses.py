@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Script de teste para endpoints de licenças PRO
 Execute: python test_licenses.py
@@ -7,7 +8,14 @@ Execute: python test_licenses.py
 import requests
 import json
 import os
+import sys
 from datetime import datetime
+
+# Configurar encoding para Windows
+if sys.platform == 'win32':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 # Configuração
 API_URL = os.getenv("API_URL", "http://localhost:8000")
@@ -158,7 +166,7 @@ def main():
         test_webhook()
         
         print("\n" + "=" * 60)
-        print("✅ TESTES CONCLUÍDOS")
+        print("[OK] TESTES CONCLUIDOS")
         print("=" * 60)
         
         if generated_keys:
@@ -167,11 +175,11 @@ def main():
                 print(f"   {key}")
         
     except requests.exceptions.ConnectionError:
-        print("\n❌ ERRO: Não foi possível conectar ao backend!")
-        print(f"   Verifique se o backend está rodando em {API_URL}")
+        print("\n[ERRO] Nao foi possivel conectar ao backend!")
+        print(f"   Verifique se o backend esta rodando em {API_URL}")
         print("   Execute: cd backend && uvicorn main:app --reload")
     except Exception as e:
-        print(f"\n❌ ERRO: {str(e)}")
+        print(f"\n[ERRO] {str(e)}")
         import traceback
         traceback.print_exc()
 

@@ -12,6 +12,7 @@ import logging
 import hashlib
 import secrets
 from typing import Optional
+from dotenv import load_dotenv
 from database import SessionLocal, engine, Base
 import models
 import schemas
@@ -19,6 +20,9 @@ from ocr_service import perform_ocr
 from data_extraction import extract_data_from_ocr_text
 from license_generator import generate_license_key, validate_license_key, LICENSE_DURATIONS
 from datetime import datetime as dt, timedelta
+
+# Carregar variáveis de ambiente do .env
+load_dotenv()
 
 # Configurar logging de segurança
 logging.basicConfig(
