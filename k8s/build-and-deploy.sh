@@ -47,3 +47,4 @@ echo "Check status with: kubectl get all -n saudenold"
 
 
 
+

@@ -106,3 +106,4 @@ echo "   3. Verifique os logs: kubectl logs -f deployment/backend -n saudenold"
 
 
 
+

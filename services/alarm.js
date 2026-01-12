@@ -4,6 +4,7 @@ import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Audio } from 'expo-av';
 import * as Speech from 'expo-speech';
+import { addDebugLog } from './alarmDebug';
 
 // Configurar como as notificações devem ser tratadas quando o app está em foreground
 Notifications.setNotificationHandler({
@@ -53,44 +54,76 @@ Notifications.setNotificationHandler({
 
 /**
  * Solicita permissões de notificação
+ * Retorna objeto com status e mensagem de erro se houver
  */
 export const requestNotificationPermissions = async () => {
-  if (Device.isDevice) {
+  if (!Device.isDevice) {
+    const errorMsg = 'Deve usar um dispositivo físico para notificações!';
+    await addDebugLog(errorMsg, 'error');
+    return { granted: false, error: errorMsg };
+  }
+
+  try {
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
     let finalStatus = existingStatus;
     
+    await addDebugLog(`Status atual de permissões: ${existingStatus}`, 'info');
+    
     if (existingStatus !== 'granted') {
-      const { status } = await Notifications.requestPermissionsAsync();
+      await addDebugLog('Solicitando permissões de notificação...', 'info');
+      const { status } = await Notifications.requestPermissionsAsync({
+        ios: {
+          allowAlert: true,
+          allowBadge: true,
+          allowSound: true,
+          allowAnnouncements: true,
+        },
+      });
       finalStatus = status;
+      await addDebugLog(`Resposta do usuário: ${status}`, status === 'granted' ? 'success' : 'warning');
     }
     
     if (finalStatus !== 'granted') {
-      alert('Falha ao obter permissão para notificações!');
-      return false;
+      const errorMsg = `Permissões de notificação ${finalStatus === 'denied' ? 'negadas' : 'não concedidas'}. Os alarmes não funcionarão sem permissões!`;
+      await addDebugLog(errorMsg, 'error');
+      return { 
+        granted: false, 
+        error: errorMsg,
+        status: finalStatus,
+        canAskAgain: finalStatus !== 'denied'
+      };
     }
     
     // Configurar canal de notificação para Android
     // IMPORTANTE: O canal deve ser configurado ANTES de agendar notificações
     // e deve ter MAX importance para funcionar mesmo com o app fechado
     if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync('medication-alarm', {
-        name: 'Alarme de Medicamentos',
-        description: 'Notificações de alarmes de medicamentos, consultas e vacinas',
-        importance: Notifications.AndroidImportance.MAX, // CRÍTICO: MAX para funcionar em background
-        vibrationPattern: [0, 250, 250, 250],
-        lightColor: '#FF6B6B',
-        sound: 'default', // Som padrão do sistema (garante que toque)
-        enableVibrate: true,
-        showBadge: true,
-        enableLights: true,
-        // Nota: bypassDnd não está disponível na API do Expo, mas MAX importance já garante alta prioridade
-      });
+      try {
+        await Notifications.setNotificationChannelAsync('medication-alarm', {
+          name: 'Alarme de Medicamentos',
+          description: 'Notificações de alarmes de medicamentos, consultas e vacinas',
+          importance: Notifications.AndroidImportance.MAX, // CRÍTICO: MAX para funcionar em background
+          vibrationPattern: [0, 250, 250, 250],
+          lightColor: '#FF6B6B',
+          sound: 'default', // Som padrão do sistema (garante que toque)
+          enableVibrate: true,
+          showBadge: true,
+          enableLights: true,
+          // Nota: bypassDnd não está disponível na API do Expo, mas MAX importance já garante alta prioridade
+        });
+        await addDebugLog('Canal de notificação Android configurado com sucesso', 'success');
+      } catch (channelError) {
+        await addDebugLog(`Erro ao configurar canal: ${channelError.message}`, 'error');
+        // Continuar mesmo com erro no canal
+      }
     }
     
-    return true;
-  } else {
-    alert('Deve usar um dispositivo físico para notificações!');
-    return false;
+    await addDebugLog('Permissões de notificação concedidas com sucesso', 'success');
+    return { granted: true };
+  } catch (error) {
+    const errorMsg = `Erro ao solicitar permissões: ${error.message}`;
+    await addDebugLog(errorMsg, 'error');
+    return { granted: false, error: errorMsg };
   }
 };
 
@@ -99,25 +132,33 @@ export const requestNotificationPermissions = async () => {
  */
 export const scheduleMedicationAlarms = async (medication) => {
   try {
-    console.log(`🔔 Agendando alarmes para medicamento: ${medication.name}`);
+    const logMessage = `Agendando alarmes para medicamento: ${medication.name}`;
+    console.log(`🔔 ${logMessage}`);
+    await addDebugLog(logMessage, 'info');
     
     // Solicitar permissões se necessário
-    const hasPermission = await requestNotificationPermissions();
-    if (!hasPermission) {
-      console.error('❌ Permissões de notificação não concedidas!');
-      throw new Error('Permissões de notificação não concedidas');
+    const permissionResult = await requestNotificationPermissions();
+    if (!permissionResult.granted) {
+      const errorMsg = permissionResult.error || 'Permissões de notificação não concedidas!';
+      console.error(`❌ ${errorMsg}`);
+      await addDebugLog(errorMsg, 'error');
+      throw new Error(errorMsg);
     }
     
     const notificationIds = [];
     
     // Obter dias da semana selecionados (padrão: todos os dias se não especificado)
     const daysOfWeek = medication.daysOfWeek || [0, 1, 2, 3, 4, 5, 6];
-    console.log(`📅 Dias da semana: ${daysOfWeek.join(', ')}`);
+    const daysLog = `Dias da semana: ${daysOfWeek.join(', ')}`;
+    console.log(`📅 ${daysLog}`);
+    await addDebugLog(daysLog, 'info');
     
     // Para cada horário do medicamento
     for (const schedule of medication.schedules) {
       const [hours, minutes] = schedule.split(':').map(Number);
-      console.log(`⏰ Agendando para ${schedule} (${hours}:${minutes})`);
+      const scheduleLog = `Agendando para ${schedule} (${hours}:${minutes})`;
+      console.log(`⏰ ${scheduleLog}`);
+      await addDebugLog(scheduleLog, 'info');
       
       // Se há dias específicos selecionados, agendar para cada dia
       if (daysOfWeek.length < 7) {
@@ -131,7 +172,9 @@ export const scheduleMedicationAlarms = async (medication) => {
           const expoWeekday = dayOfWeek === 0 ? 7 : dayOfWeek;
           
           // Agendar notificação semanal
-          console.log(`📌 Agendando notificação semanal: ${notificationId} para ${expoWeekday} às ${hours}:${minutes}`);
+          const weeklyLog = `Agendando notificação semanal: ${notificationId} para dia ${expoWeekday} às ${hours}:${minutes}`;
+          console.log(`📌 ${weeklyLog}`);
+          await addDebugLog(weeklyLog, 'info');
           
           const scheduledId = await Notifications.scheduleNotificationAsync({
             identifier: notificationId,
@@ -150,21 +193,35 @@ export const scheduleMedicationAlarms = async (medication) => {
               priority: Notifications.AndroidNotificationPriority.MAX,
               ...(Platform.OS === 'android' && { channelId: 'medication-alarm' }),
             },
-            trigger: {
-              weekday: expoWeekday, // Expo usa 1-7 (Segunda a Domingo)
-              hour: hours,
-              minute: minutes,
-              repeats: true,
-            },
+            trigger: Platform.OS === 'android'
+              ? {
+                  // Para Android Studio, incluir channelId no trigger
+                  channelId: 'medication-alarm',
+                  weekday: expoWeekday, // Expo usa 1-7 (Segunda a Domingo)
+                  hour: hours,
+                  minute: minutes,
+                  repeats: true,
+                }
+              : {
+                  // Para iOS, formato padrão
+                  weekday: expoWeekday,
+                  hour: hours,
+                  minute: minutes,
+                  repeats: true,
+                },
           });
           
-          console.log(`✅ Notificação agendada com sucesso! ID: ${scheduledId}`);
+          const successLog = `Notificação semanal agendada com sucesso! ID: ${scheduledId}`;
+          console.log(`✅ ${successLog}`);
+          await addDebugLog(successLog, 'success');
           notificationIds.push(scheduledId);
         }
       } else {
         // Agendar para todos os dias (comportamento padrão)
         const notificationId = `${medication.id}-${schedule}`;
-        console.log(`📌 Agendando notificação diária: ${notificationId} para ${hours}:${minutes}`);
+        const dailyLog = `Agendando notificação diária: ${notificationId} para ${hours}:${minutes}`;
+        console.log(`📌 ${dailyLog}`);
+        await addDebugLog(dailyLog, 'info');
         
         // IMPORTANTE: Notificações recorrentes com hour/minute só disparam no próximo dia
         // se o horário já passou hoje. Isso é comportamento normal do sistema.
@@ -173,9 +230,13 @@ export const scheduleMedicationAlarms = async (medication) => {
         scheduledTime.setHours(hours, minutes, 0, 0);
         
         if (scheduledTime <= now) {
-          console.log(`⚠️ Horário ${hours}:${minutes} já passou hoje. A notificação vai tocar AMANHÃ às ${hours}:${minutes}`);
+          const warningMsg = `Horário ${hours}:${minutes} já passou hoje. A notificação vai tocar AMANHÃ às ${hours}:${minutes}`;
+          console.log(`⚠️ ${warningMsg}`);
+          await addDebugLog(warningMsg, 'warning');
         } else {
-          console.log(`✅ Horário ${hours}:${minutes} ainda não passou. A notificação vai tocar HOJE às ${hours}:${minutes}`);
+          const successMsg = `Horário ${hours}:${minutes} ainda não passou. A notificação vai tocar HOJE às ${hours}:${minutes}`;
+          console.log(`✅ ${successMsg}`);
+          await addDebugLog(successMsg, 'success');
         }
         
         const scheduledId = await Notifications.scheduleNotificationAsync({
@@ -195,14 +256,25 @@ export const scheduleMedicationAlarms = async (medication) => {
             priority: Notifications.AndroidNotificationPriority.MAX,
             ...(Platform.OS === 'android' && { channelId: 'medication-alarm' }),
           },
-          trigger: {
-            hour: hours,
-            minute: minutes,
-            repeats: true,
-          },
+          trigger: Platform.OS === 'android'
+            ? {
+                // Para Android Studio, incluir channelId no trigger
+                channelId: 'medication-alarm',
+                hour: hours,
+                minute: minutes,
+                repeats: true,
+              }
+            : {
+                // Para iOS, formato padrão
+                hour: hours,
+                minute: minutes,
+                repeats: true,
+              },
         });
         
-        console.log(`✅ Notificação diária agendada com sucesso! ID: ${scheduledId}`);
+        const dailySuccessLog = `Notificação diária agendada com sucesso! ID: ${scheduledId}`;
+        console.log(`✅ ${dailySuccessLog}`);
+        await addDebugLog(dailySuccessLog, 'success');
         notificationIds.push(scheduledId);
       }
     }
@@ -210,15 +282,21 @@ export const scheduleMedicationAlarms = async (medication) => {
     // Salvar IDs das notificações para poder cancelá-las depois
     await saveNotificationIds(medication.id, notificationIds);
     
-    console.log(`✅ Total de ${notificationIds.length} notificação(ões) agendada(s) para ${medication.name}`);
+    const totalLog = `Total de ${notificationIds.length} notificação(ões) agendada(s) para ${medication.name}`;
+    console.log(`✅ ${totalLog}`);
+    await addDebugLog(totalLog, 'success');
     
     // Verificar se as notificações foram realmente agendadas
     const allScheduled = await Notifications.getAllScheduledNotificationsAsync();
-    console.log(`📊 Total de notificações agendadas no sistema: ${allScheduled.length}`);
+    const systemLog = `Total de notificações agendadas no sistema: ${allScheduled.length}`;
+    console.log(`📊 ${systemLog}`);
+    await addDebugLog(systemLog, 'info');
     
     return notificationIds;
   } catch (error) {
-    console.error('❌ Erro ao agendar alarmes:', error);
+    const errorMsg = `Erro ao agendar alarmes: ${error.message}`;
+    console.error(`❌ ${errorMsg}`);
+    await addDebugLog(errorMsg, 'error');
     throw error;
   }
 };
@@ -379,10 +457,14 @@ export const scheduleAllVaccineAlarms = async () => {
  */
 export const rescheduleAllAlarms = async () => {
   try {
+    await addDebugLog('Iniciando reagendamento de todos os alarmes...', 'info');
+    
     // Garantir que as permissões estão solicitadas e o canal está configurado
-    const hasPermission = await requestNotificationPermissions();
-    if (!hasPermission) {
-      console.warn('Permissões de notificação não concedidas. Alarmes podem não funcionar.');
+    const permissionResult = await requestNotificationPermissions();
+    if (!permissionResult.granted) {
+      const warningMsg = `Permissões de notificação não concedidas. Alarmes não serão agendados. Erro: ${permissionResult.error || 'Desconhecido'}`;
+      console.warn(`⚠️ ${warningMsg}`);
+      await addDebugLog(warningMsg, 'warning');
       return;
     }
     
@@ -428,18 +510,27 @@ export const listAllScheduledNotifications = async () => {
 /**
  * Testa uma notificação para verificar se o sistema está funcionando
  * Agenda uma notificação para 10 segundos no futuro
+ * Retorna objeto com sucesso e mensagem de erro se houver
  */
 export const testNotification = async () => {
   try {
     console.log('🧪 Testando notificação...');
+    await addDebugLog('Iniciando teste de notificação...', 'info');
     
-    const hasPermission = await requestNotificationPermissions();
-    if (!hasPermission) {
-      console.error('❌ Permissões não concedidas!');
-      return false;
+    const permissionResult = await requestNotificationPermissions();
+    if (!permissionResult.granted) {
+      const errorMsg = permissionResult.error || 'Permissões não concedidas!';
+      console.error(`❌ ${errorMsg}`);
+      await addDebugLog(errorMsg, 'error');
+      return { success: false, error: errorMsg, canAskAgain: permissionResult.canAskAgain };
     }
     
     const testId = `test-${Date.now()}`;
+    
+    // Para notificações com segundos no Android Studio, usar formato específico
+    // O trigger precisa ter channelId OU type
+    const triggerDate = new Date(Date.now() + 10000); // 10 segundos no futuro
+    
     const scheduledId = await Notifications.scheduleNotificationAsync({
       identifier: testId,
       content: {
@@ -449,18 +540,28 @@ export const testNotification = async () => {
         priority: Notifications.AndroidNotificationPriority.MAX,
         ...(Platform.OS === 'android' && { channelId: 'medication-alarm' }),
       },
-      trigger: {
-        seconds: 10, // 10 segundos
-      },
+      trigger: Platform.OS === 'android' 
+        ? {
+            // Para Android, usar channelId no trigger
+            channelId: 'medication-alarm',
+            seconds: 10,
+          }
+        : {
+            // Para iOS, usar date
+            date: triggerDate,
+          },
     });
     
-    console.log(`✅ Notificação de teste agendada! ID: ${scheduledId}`);
-    console.log('⏰ A notificação deve aparecer em 10 segundos...');
+    const successMsg = `Notificação de teste agendada! ID: ${scheduledId}. Deve aparecer em 10 segundos.`;
+    console.log(`✅ ${successMsg}`);
+    await addDebugLog(successMsg, 'success');
     
-    return true;
+    return { success: true, scheduledId };
   } catch (error) {
-    console.error('❌ Erro ao testar notificação:', error);
-    return false;
+    const errorMsg = `Erro ao testar notificação: ${error.message}`;
+    console.error(`❌ ${errorMsg}`);
+    await addDebugLog(errorMsg, 'error');
+    return { success: false, error: errorMsg };
   }
 };
 
@@ -537,9 +638,20 @@ export const scheduleVisitAlarms = async (visit) => {
           priority: Notifications.AndroidNotificationPriority.HIGH,
           ...(Platform.OS === 'android' && { channelId: 'medication-alarm' }),
         },
-        trigger: {
-          seconds: secondsUntilTrigger,
-        },
+        trigger: Platform.OS === 'android'
+          ? {
+              // Para Android Studio, incluir channelId no trigger
+              channelId: 'medication-alarm',
+              type: 'timeInterval',
+              seconds: secondsUntilTrigger,
+              repeats: false,
+            }
+          : {
+              // Para iOS, formato padrão
+              type: 'timeInterval',
+              seconds: secondsUntilTrigger,
+              repeats: false,
+            },
       });
       
       notificationIds.push(scheduledId);
@@ -667,9 +779,20 @@ export const scheduleVaccineAlarms = async (vaccineRecord, vaccineInfo) => {
           priority: Notifications.AndroidNotificationPriority.HIGH,
           ...(Platform.OS === 'android' && { channelId: 'medication-alarm' }),
         },
-        trigger: {
-          seconds: secondsUntilTrigger,
-        },
+        trigger: Platform.OS === 'android'
+          ? {
+              // Para Android Studio, incluir channelId no trigger
+              channelId: 'medication-alarm',
+              type: 'timeInterval',
+              seconds: secondsUntilTrigger,
+              repeats: false,
+            }
+          : {
+              // Para iOS, formato padrão
+              type: 'timeInterval',
+              seconds: secondsUntilTrigger,
+              repeats: false,
+            },
       });
       notificationIds.push(scheduledId);
     }
@@ -696,9 +819,20 @@ export const scheduleVaccineAlarms = async (vaccineRecord, vaccineInfo) => {
           priority: Notifications.AndroidNotificationPriority.MAX,
           ...(Platform.OS === 'android' && { channelId: 'medication-alarm' }),
         },
-        trigger: {
-          seconds: secondsUntilTrigger,
-        },
+        trigger: Platform.OS === 'android'
+          ? {
+              // Para Android Studio, incluir channelId no trigger
+              channelId: 'medication-alarm',
+              type: 'timeInterval',
+              seconds: secondsUntilTrigger,
+              repeats: false,
+            }
+          : {
+              // Para iOS, formato padrão
+              type: 'timeInterval',
+              seconds: secondsUntilTrigger,
+              repeats: false,
+            },
       });
       notificationIds.push(scheduledId);
     }

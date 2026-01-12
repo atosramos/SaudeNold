@@ -1,7 +1,5 @@
 import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Image, ActivityIndicator, Alert, TextInput, Modal, Platform } from 'react-native';
-import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
-import Pdf from 'react-native-pdf';
 import { useRouter } from 'expo-router';
 import { useState, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -12,6 +10,7 @@ import * as FileSystem from 'expo-file-system';
 import { extractDataFromOCRText } from '../../services/examDataExtraction';
 import { extractDataWithLLMFallback, extractDataWithGeminiDirect } from '../../services/llmDataExtraction';
 import { useCustomAlert } from '../../hooks/useCustomAlert';
+import PdfViewer from '../../components/PdfViewer';
 
 export default function NewMedicalExam() {
   const router = useRouter();
@@ -23,8 +22,6 @@ export default function NewMedicalExam() {
   const [ocrProgress, setOcrProgress] = useState(null);
   const fileInputRef = useRef(null);
   const [originalFile, setOriginalFile] = useState(null); // Para browser: manter File object
-  const [debugLogs, setDebugLogs] = useState([]); // Logs para debug visual no mobile
-  const [showDebugPanel, setShowDebugPanel] = useState(false); // Mostrar/ocultar painel de debug
   const [showPdfModal, setShowPdfModal] = useState(false); // Mostrar/ocultar modal do PDF
   const [processedFile, setProcessedFile] = useState(null); // Arquivo processado para visualização
 
@@ -331,26 +328,8 @@ export default function NewMedicalExam() {
     return extractedData;
   };
 
-  // Função para adicionar log visual no mobile
-  const addDebugLog = (message, type = 'info') => {
-    const timestamp = new Date().toLocaleTimeString();
-    const logEntry = `[${timestamp}] ${message}`;
-    console.log(logEntry);
-    if (Platform.OS !== 'web') {
-      setDebugLogs(prev => [...prev.slice(-19), { message: logEntry, type }]); // Manter últimos 20 logs
-      setShowDebugPanel(true); // Mostrar painel automaticamente no mobile
-    }
-  };
 
   const saveExam = async () => {
-    // Limpar logs anteriores no mobile
-    if (Platform.OS !== 'web') {
-      setDebugLogs([]);
-      setShowDebugPanel(true);
-    }
-    
-    addDebugLog('saveExam chamado', 'info');
-    addDebugLog(`Plataforma: ${Platform.OS}, Tipo: ${fileType}`, 'info');
     console.log('🔵 saveExam chamado!', { 
       platform: Platform.OS,
       hasFile: !!file, 
@@ -414,7 +393,6 @@ export default function NewMedicalExam() {
       const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY || null;
       let extractedData = null;
       
-      addDebugLog(`Verificando chave Gemini... hasKey: ${!!GEMINI_API_KEY}`, 'info');
       console.log('🔍 Verificando chave Gemini...', { 
         hasKey: !!GEMINI_API_KEY, 
         keyLength: GEMINI_API_KEY?.length || 0,
@@ -426,19 +404,11 @@ export default function NewMedicalExam() {
       if (!GEMINI_API_KEY || GEMINI_API_KEY.length === 0) {
         const errorMsg = '❌ Chave Gemini não configurada. Configure EXPO_PUBLIC_GEMINI_API_KEY no .env';
         console.error(errorMsg);
-        addDebugLog(errorMsg, 'error');
-        if (Platform.OS !== 'web') {
-          addDebugLog('💡 Dica: No mobile, variáveis de ambiente precisam estar no build do app.', 'info');
-          addDebugLog('💡 Se estiver usando APK, a chave precisa estar configurada no EAS Build.', 'info');
-        }
         showAlert('Erro', 'Chave Gemini não configurada. Configure EXPO_PUBLIC_GEMINI_API_KEY no arquivo .env', 'error');
         setProcessing(false);
         setUploading(false);
         return; // Para aqui - não tenta OCR
       }
-      
-      // Tentar Gemini Direct
-      addDebugLog('Chave Gemini encontrada! Tentando processar PDF diretamente...', 'success');
       try {
         console.log('🚀 Tentando Gemini Direct (processamento direto do arquivo)...');
         console.log('📁 Arquivo para processar:', { 
@@ -469,8 +439,7 @@ export default function NewMedicalExam() {
           apiKeyLength: GEMINI_API_KEY?.length || 0
         });
         
-        addDebugLog('Chamando Gemini Direct...', 'info');
-        extractedData = await extractDataWithGeminiDirect(fileForGemini, fileType, GEMINI_API_KEY, addDebugLog);
+        extractedData = await extractDataWithGeminiDirect(fileForGemini, fileType, GEMINI_API_KEY);
         const responseMsg = `📥 Resposta do Gemini Direct: hasData=${!!extractedData}, params=${extractedData?.parameters?.length || 0}`;
         console.log(responseMsg, { 
           hasData: !!extractedData, 
@@ -478,25 +447,19 @@ export default function NewMedicalExam() {
           examDate: extractedData?.exam_date,
           examType: extractedData?.exam_type
         });
-        if (addDebugLog) addDebugLog(responseMsg, 'info');
         
         // Verificar se Gemini retornou dados válidos
         if (extractedData && extractedData.parameters && Array.isArray(extractedData.parameters) && extractedData.parameters.length > 0) {
           const successMsg = `✅ Gemini Direct extraiu ${extractedData.parameters.length} parâmetros diretamente do arquivo!`;
           console.log(successMsg);
-          addDebugLog(successMsg, 'success');
-          showAlert('Sucesso', `Análise concluída! ${extractedData.parameters.length} parâmetro(s) extraído(s) diretamente.`, 'success');
           
           // Salvar exame com dados extraídos - SEM OCR
-          addDebugLog('Salvando exame com dados do Gemini (SEM OCR)...', 'success');
           await processAndSaveExam(fileBase64, null, extractedData);
-          addDebugLog('✅ Exame salvo com sucesso!', 'success');
           
           // FINALIZAR AQUI - NÃO CONTINUAR PARA OCR
           setUploading(false);
           setProcessing(false);
           setOcrProgress(null);
-          addDebugLog('✅ Processo concluído com Gemini. OCR NÃO será executado.', 'success');
           console.log('✅ Gemini funcionou! Retornando SEM tentar OCR.');
           return; // Sucesso! NÃO CONTINUA PARA OCR - RETORNA IMEDIATAMENTE
         } else {
@@ -505,7 +468,6 @@ export default function NewMedicalExam() {
             ? '❌ Gemini retornou dados, mas sem parâmetros válidos'
             : '❌ Gemini não conseguiu extrair dados do documento';
           console.error(errorMsg);
-          addDebugLog(errorMsg, 'error');
           showAlert('Erro', 'Não foi possível extrair dados do documento. Verifique se o arquivo está legível e tente novamente.', 'error');
           setProcessing(false);
           setUploading(false);
@@ -513,7 +475,6 @@ export default function NewMedicalExam() {
           return; // Para aqui - NÃO tenta OCR
         }
       } catch (error) {
-        addDebugLog(`ERRO Gemini Direct: ${error.message || 'Erro desconhecido'}`, 'error');
         console.error('❌ Erro no Gemini Direct:', error);
         console.error('❌ Stack trace:', error.stack);
         showAlert('Erro', `Erro ao processar documento: ${error.message || 'Erro desconhecido'}. Verifique sua conexão e tente novamente.`, 'error');
@@ -528,7 +489,6 @@ export default function NewMedicalExam() {
       // Não tentar OCR - apenas mostrar erro
       const finalErrorMsg = 'Não foi possível processar o documento. Verifique se o arquivo está legível e tente novamente.';
       console.error(finalErrorMsg);
-      addDebugLog(finalErrorMsg, 'error');
       showAlert('Erro', finalErrorMsg, 'error');
       setProcessing(false);
       setUploading(false);
@@ -589,6 +549,7 @@ export default function NewMedicalExam() {
           id: Date.now(),
         image_base64: fileBase64,
         file_type: fileType,
+        file_uri: file, // Salvar URI do arquivo original para visualização posterior
           raw_ocr_text: ocrText,
           extracted_data: {
         exam_date: null,
@@ -616,6 +577,7 @@ export default function NewMedicalExam() {
         id: Date.now(),
         image_base64: fileBase64,
         file_type: fileType,
+        file_uri: file, // Salvar URI do arquivo original para visualização posterior
         raw_ocr_text: ocrText,
         extracted_data: extractedData,
         exam_date: extractedData.exam_date,
@@ -642,8 +604,10 @@ export default function NewMedicalExam() {
         'success'
       );
       
-      // Não fechar imediatamente - deixar usuário visualizar o PDF se quiser
-      // router.back(); // Comentado para permitir visualização
+      // Voltar automaticamente para a tela anterior após um pequeno delay
+      setTimeout(() => {
+        router.back();
+      }, 1500);
     } catch (error) {
       console.error('Erro ao salvar exame:', error);
       showAlert('Erro', 'Não foi possível salvar o exame. Tente novamente.', 'error');
@@ -733,65 +697,6 @@ export default function NewMedicalExam() {
           </View>
         )}
 
-        {/* Painel de Debug Visual (apenas no mobile) */}
-        {Platform.OS !== 'web' && showDebugPanel && debugLogs.length > 0 && (
-          <View style={styles.debugPanel}>
-            <View style={styles.debugPanelHeader}>
-              <Text style={styles.debugPanelTitle}>🔍 Debug Logs</Text>
-              <View style={styles.debugPanelHeaderButtons}>
-                <TouchableOpacity 
-                  style={styles.debugCopyButton}
-                  onPress={async () => {
-                    try {
-                      const allLogs = debugLogs.map(log => log.message).join('\n');
-                      await Clipboard.setStringAsync(allLogs);
-                      showAlert('Sucesso', 'Logs copiados para a área de transferência!', 'success');
-                    } catch (error) {
-                      console.error('Erro ao copiar logs:', error);
-                      showAlert('Erro', 'Não foi possível copiar os logs.', 'error');
-                    }
-                  }}
-                >
-                  <Ionicons name="copy-outline" size={20} color="#fff" />
-                  <Text style={styles.debugCopyButtonText}>Copiar</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => setShowDebugPanel(false)}>
-                  <Ionicons name="close" size={24} color="#666" />
-                </TouchableOpacity>
-              </View>
-            </View>
-            <ScrollView 
-              style={styles.debugLogsContainer} 
-              nestedScrollEnabled
-              contentContainerStyle={styles.debugLogsContent}
-            >
-              {debugLogs.map((log, index) => (
-                <Text 
-                  key={index} 
-                  selectable={true}
-                  style={[
-                    styles.debugLogText,
-                    log.type === 'error' && styles.debugLogError,
-                    log.type === 'success' && styles.debugLogSuccess
-                  ]}
-                >
-                  {log.message}
-                </Text>
-              ))}
-            </ScrollView>
-            <View style={styles.debugPanelFooter}>
-              <TouchableOpacity 
-                style={styles.debugClearButton}
-                onPress={() => setDebugLogs([])}
-              >
-                <Ionicons name="trash-outline" size={18} color="#fff" />
-                <Text style={styles.debugClearButtonText}>Limpar</Text>
-              </TouchableOpacity>
-              <Text style={styles.debugLogCount}>{debugLogs.length} logs</Text>
-            </View>
-          </View>
-        )}
-
         <TouchableOpacity 
           style={[styles.saveButton, (!file || uploading || processing) && styles.saveButtonDisabled]}
           onPress={saveExam}
@@ -869,22 +774,22 @@ export default function NewMedicalExam() {
                       </View>
                     </object>
                   </View>
-                ) : (
-                  <Pdf
-                    source={{ uri: processedFile, cache: true }}
-                    onLoadComplete={(numberOfPages) => {
-                      console.log(`PDF carregado: ${numberOfPages} páginas`);
-                    }}
-                    onPageChanged={(page, numberOfPages) => {
-                      console.log(`Página ${page} de ${numberOfPages}`);
-                    }}
-                    onError={(error) => {
-                      console.error('Erro ao carregar PDF:', error);
-                      showAlert('Erro', 'Não foi possível carregar o PDF.', 'error');
-                    }}
-                    style={styles.pdfViewer}
-                  />
-                )}
+                  ) : (
+                    <PdfViewer
+                      source={{ uri: processedFile, cache: true }}
+                      onLoadComplete={(numberOfPages) => {
+                        console.log(`PDF carregado: ${numberOfPages} páginas`);
+                      }}
+                      onPageChanged={(page, numberOfPages) => {
+                        console.log(`Página ${page} de ${numberOfPages}`);
+                      }}
+                      onError={(error) => {
+                        console.error('Erro ao carregar PDF:', error);
+                        showAlert('Erro', 'Não foi possível carregar o PDF.', 'error');
+                      }}
+                      style={styles.pdfViewer}
+                    />
+                  )}
               </View>
             )}
           </View>
@@ -1023,96 +928,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#fff',
     marginLeft: 12,
-  },
-  debugPanel: {
-    backgroundColor: '#f5f5f5',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    maxHeight: 400,
-  },
-  debugPanelHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  debugPanelHeaderButtons: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  debugPanelTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  debugCopyButton: {
-    backgroundColor: '#4ECDC4',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  debugCopyButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  debugLogsContainer: {
-    maxHeight: 250,
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-  },
-  debugLogsContent: {
-    paddingBottom: 8,
-  },
-  debugLogText: {
-    fontSize: 11,
-    color: '#666',
-    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
-    marginBottom: 6,
-    lineHeight: 16,
-  },
-  debugLogError: {
-    color: '#FF6B6B',
-    fontWeight: 'bold',
-  },
-  debugLogSuccess: {
-    color: '#4ECDC4',
-    fontWeight: 'bold',
-  },
-  debugPanelFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 12,
-  },
-  debugClearButton: {
-    backgroundColor: '#9B59B6',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  debugClearButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  debugLogCount: {
-    fontSize: 12,
-    color: '#999',
-    fontStyle: 'italic',
   },
   viewPdfButton: {
     backgroundColor: '#fff',

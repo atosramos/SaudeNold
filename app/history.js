@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Alert } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Alert, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useState, useCallback } from 'react';
@@ -17,21 +17,19 @@ export default function History() {
 
   const loadData = async () => {
     try {
-      // Carregar visitas
+      // Carregar visitas - apenas passadas (consultas agendadas removidas do histórico)
       const visitsStored = await AsyncStorage.getItem('doctorVisits');
       if (visitsStored) {
         const parsed = JSON.parse(visitsStored);
-        // Separar visitas passadas e futuras
+        // Filtrar apenas visitas passadas
         const now = new Date();
         const pastVisits = parsed.filter(v => new Date(v.visitDate) < now);
-        const upcomingVisits = parsed.filter(v => new Date(v.visitDate) >= now);
         
-        // Ordenar: futuras por data (mais próximas primeiro), passadas por data (mais recentes primeiro)
-        const sortedUpcoming = upcomingVisits.sort((a, b) => new Date(a.visitDate) - new Date(b.visitDate));
+        // Ordenar por data (mais recentes primeiro)
         const sortedPast = pastVisits.sort((a, b) => new Date(b.visitDate) - new Date(a.visitDate));
         
         setVisits({
-          upcoming: sortedUpcoming,
+          upcoming: [],
           past: sortedPast,
         });
       } else {
@@ -60,75 +58,6 @@ export default function History() {
     });
   };
 
-  const formatDateTime = (dateString) => {
-    const date = new Date(dateString);
-    return date.toLocaleString('pt-BR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
-
-  const getDaysUntil = (dateString) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffTime = date - now;
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays;
-  };
-
-  const renderUpcomingVisit = (visit) => {
-    const daysUntil = getDaysUntil(visit.visitDate);
-    const isToday = daysUntil === 0;
-    const isTomorrow = daysUntil === 1;
-
-    return (
-      <TouchableOpacity 
-        key={visit.id} 
-        style={[styles.visitCard, isToday && styles.visitCardToday]}
-        onPress={() => router.push({
-          pathname: '/doctor-visits/edit',
-          params: { id: visit.id, visit: JSON.stringify(visit) }
-        })}
-        activeOpacity={0.7}
-      >
-        <View style={styles.visitHeader}>
-          <View style={styles.visitHeaderLeft}>
-            <Ionicons 
-              name={isToday ? "alert-circle" : "calendar"} 
-              size={32} 
-              color={isToday ? "#FF6B6B" : "#95E1D3"} 
-            />
-            <View style={styles.visitInfo}>
-              <Text style={styles.doctorName}>{visit.doctorName}</Text>
-              <Text style={styles.specialty}>{visit.specialty}</Text>
-            </View>
-          </View>
-          <View style={styles.visitHeaderRight}>
-            <View style={[styles.dateBadge, isToday && styles.dateBadgeToday]}>
-              <Text style={[styles.dateText, isToday && styles.dateTextToday]}>
-                {isToday ? 'Hoje' : isTomorrow ? 'Amanhã' : `${daysUntil} dias`}
-              </Text>
-            </View>
-          </View>
-        </View>
-        <View style={styles.visitDetails}>
-          <View style={styles.detailRow}>
-            <Ionicons name="time-outline" size={20} color="#666" />
-            <Text style={styles.detailText}>{formatDateTime(visit.visitDate)}</Text>
-          </View>
-          {visit.notes && (
-            <View style={styles.detailRow}>
-              <Ionicons name="document-text-outline" size={20} color="#666" />
-              <Text style={styles.detailText} numberOfLines={2}>{visit.notes}</Text>
-            </View>
-          )}
-        </View>
-      </TouchableOpacity>
-    );
-  };
 
   const renderPastVisit = (visit) => (
     <TouchableOpacity 
@@ -173,36 +102,6 @@ export default function History() {
       </View>
 
       <View style={styles.content}>
-        {/* Consultas Agendadas */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Ionicons name="calendar-outline" size={28} color="#95E1D3" />
-            <Text style={styles.sectionTitle}>Consultas Agendadas</Text>
-            {visits.upcoming && visits.upcoming.length > 0 && (
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>{visits.upcoming.length}</Text>
-              </View>
-            )}
-          </View>
-          <TouchableOpacity 
-            style={styles.addButton}
-            onPress={() => router.push('/doctor-visits/new')}
-          >
-            <Ionicons name="add-circle" size={32} color="#fff" />
-            <Text style={styles.addButtonText}>Agendar Consulta</Text>
-          </TouchableOpacity>
-          {visits.upcoming && visits.upcoming.length > 0 ? (
-            <View style={styles.listContainer}>
-              {visits.upcoming.map(visit => renderUpcomingVisit(visit))}
-            </View>
-          ) : (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="calendar-outline" size={48} color="#ccc" />
-              <Text style={styles.emptyText}>Nenhuma consulta agendada</Text>
-            </View>
-          )}
-        </View>
-
         {/* Consultas Realizadas */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
@@ -299,11 +198,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 24,
+    paddingTop: Platform.OS === 'ios' ? 60 : Platform.OS === 'android' ? 40 : 24,
     backgroundColor: '#fff',
     marginBottom: 16,
   },
   backButton: {
     marginRight: 16,
+    padding: 8,
+    marginLeft: -8,
+    marginTop: Platform.OS === 'ios' ? -8 : Platform.OS === 'android' ? -8 : 0,
   },
   title: {
     fontSize: 32,

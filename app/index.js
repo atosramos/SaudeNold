@@ -54,11 +54,27 @@ export default function Home() {
         </TouchableOpacity>
 
         <TouchableOpacity 
-          style={[styles.menuButton, styles.historyButton, styles.lastButton]}
+          style={[styles.menuButton, styles.historyButton]}
           onPress={() => router.push('/history')}
         >
           <Ionicons name="time" size={48} color="#fff" />
           <Text style={styles.menuButtonText}>Histórico</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={[styles.menuButton, styles.vaccinesButton]}
+          onPress={() => router.push('/vaccines')}
+        >
+          <Ionicons name="shield-checkmark" size={48} color="#fff" />
+          <Text style={styles.menuButtonText}>Vacinas</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={[styles.menuButton, styles.trackingButton, styles.lastButton]}
+          onPress={() => router.push('/daily-tracking')}
+        >
+          <Ionicons name="stats-chart" size={48} color="#fff" />
+          <Text style={styles.menuButtonText}>Acompanhamento Diário</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -117,6 +133,12 @@ const styles = StyleSheet.create({
   },
   historyButton: {
     backgroundColor: '#673AB7',
+  },
+  vaccinesButton: {
+    backgroundColor: '#2ECC71',
+  },
+  trackingButton: {
+    backgroundColor: '#E67E22',
   },
   lastButton: {
     marginBottom: 0,
