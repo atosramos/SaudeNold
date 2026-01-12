@@ -7,6 +7,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { saveTrackingRecord, createTrackingRecord, TRACKING_TYPES } from '../../services/dailyTracking';
 import { extractTrackingDataFromImage, convertExtractedDataToRecords } from '../../services/dailyTrackingOCR';
 import { useCustomAlert } from '../../hooks/useCustomAlert';
+import { isProFeatureAvailable } from '../../services/proLicense';
 
 const TYPE_LABELS = {
   [TRACKING_TYPES.BLOOD_PRESSURE]: 'Pressão Arterial',
@@ -109,6 +110,18 @@ export default function NewDailyTracking() {
       return;
     }
 
+    // Verificar se tem licença PRO ativa
+    const hasPro = await isProFeatureAvailable();
+    
+    if (!hasPro) {
+      showAlert(
+        'Funcionalidade PRO',
+        'A leitura automática de aparelhos médicos com inteligência artificial requer uma licença PRO.\n\nVocê pode inserir os dados manualmente ou ativar uma licença PRO em Configurações.',
+        'info'
+      );
+      return;
+    }
+
     // IMPORTANTE: No mobile, variáveis de ambiente só funcionam após rebuild do app
     // Se estiver usando Expo Go, as variáveis não estarão disponíveis
     // Para builds de produção, a chave está configurada via EAS secrets
@@ -118,6 +131,7 @@ export default function NewDailyTracking() {
       hasKey: !!GEMINI_API_KEY, 
       keyLength: GEMINI_API_KEY?.length || 0,
       platform: Platform.OS,
+      hasPro,
       envKeys: Object.keys(process.env).filter(k => k.includes('GEMINI') || k.includes('EXPO_PUBLIC'))
     });
     
@@ -334,7 +348,7 @@ export default function NewDailyTracking() {
         <View style={styles.section}>
           <Text style={styles.label}>Ler da Imagem (opcional)</Text>
           <Text style={styles.hint}>
-            Tire uma foto do aparelho (pressão, termômetro, etc.) e o Gemini fará a leitura automática
+            Tire uma foto do aparelho (pressão, termômetro, etc.) e o sistema fará a leitura automática (requer licença PRO)
           </Text>
           
           {image && (
@@ -369,7 +383,18 @@ export default function NewDailyTracking() {
             {image && (
               <TouchableOpacity
                 style={[styles.imageButton, styles.processButton]}
-                onPress={processImageWithGemini}
+                onPress={async () => {
+                  const hasPro = await isProFeatureAvailable();
+                  if (hasPro) {
+                    processImageWithGemini();
+                  } else {
+                    showAlert(
+                      'Funcionalidade PRO',
+                      'A leitura automática requer licença PRO. Você pode inserir os dados manualmente acima.',
+                      'info'
+                    );
+                  }
+                }}
                 disabled={processing}
               >
                 {processing ? (
