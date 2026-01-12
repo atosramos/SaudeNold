@@ -11,7 +11,14 @@ import {
   LICENSE_TYPES 
 } from '../services/proLicense';
 import { useCustomAlert } from '../hooks/useCustomAlert';
-import { purchaseLicenseWithGooglePay, LICENSE_PRODUCTS, isGooglePayAvailable } from '../services/googlePay';
+import { 
+  purchaseLicenseWithGooglePay, 
+  LICENSE_PRODUCTS, 
+  isGooglePayAvailable,
+  initializePurchases,
+  checkPendingPurchases,
+  endConnection
+} from '../services/googlePay';
 
 export default function ProLicense() {
   const router = useRouter();
@@ -20,17 +27,52 @@ export default function ProLicense() {
   const [loading, setLoading] = useState(false);
   const [licenseInfo, setLicenseInfo] = useState(null);
   const [checking, setChecking] = useState(true);
+  const [purchasing, setPurchasing] = useState(false);
+  const [googlePayAvailable, setGooglePayAvailable] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
       checkLicenseStatus();
-      checkGooglePayAvailability();
+      initializeAndCheckPurchases();
+      
+      // Cleanup quando sair da tela
+      return () => {
+        endConnection();
+      };
     }, [])
   );
 
-  const checkGooglePayAvailability = async () => {
-    const available = await isGooglePayAvailable();
-    setGooglePayAvailable(available);
+  const initializeAndCheckPurchases = async () => {
+    try {
+      // Inicializar serviço de compras
+      const initResult = await initializePurchases();
+      setGooglePayAvailable(initResult.success);
+      
+      if (initResult.success) {
+        // Verificar compras pendentes
+        const pendingResult = await checkPendingPurchases();
+        
+        if (pendingResult.success && pendingResult.purchases && pendingResult.purchases.length > 0) {
+          // Processar compras pendentes
+          for (const purchase of pendingResult.purchases) {
+            if (purchase.licenseKey) {
+              const activationResult = await activateLicense(purchase.licenseKey);
+              if (activationResult.success) {
+                showAlert(
+                  'Licença Ativada',
+                  'Uma compra pendente foi processada e sua licença foi ativada!',
+                  'success'
+                );
+                await checkLicenseStatus();
+              }
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Erro ao inicializar compras:', error);
+      setGooglePayAvailable(false);
+    }
   };
 
   const checkLicenseStatus = async () => {
@@ -80,39 +122,19 @@ export default function ProLicense() {
   };
 
   const handlePurchaseLicense = async (licenseType) => {
+    if (!googlePayAvailable) {
+      showAlert('Aviso', 'Compras in-app não estão disponíveis no momento', 'warning');
+      return;
+    }
+    
     setPurchasing(true);
     try {
       const result = await purchaseLicenseWithGooglePay(licenseType);
       
-      if (result.success && result.licenseKey) {
-        // Ativar licença automaticamente após compra
-        const activationResult = await activateLicense(result.licenseKey);
-        if (activationResult.success) {
-          showAlert(
-            'Compra realizada!',
-            `Licença PRO ${LICENSE_LABELS[licenseType]} ativada com sucesso!`,
-            'success'
-          );
-          await checkLicenseStatus();
-        } else {
-          showAlert('Erro', 'Compra realizada, mas erro ao ativar licença. Use a chave manualmente: ' + result.licenseKey, 'error');
-          setLicenseKey(result.licenseKey);
-        }
-      } else {
-        showAlert('Aviso', result.error || 'Compra não concluída', 'warning');
+      if (result.cancelled) {
+        // Usuário cancelou - não mostrar erro
+        return;
       }
-    } catch (error) {
-      console.error('Erro ao comprar licença:', error);
-      showAlert('Erro', 'Erro ao processar compra: ' + error.message, 'error');
-    } finally {
-      setPurchasing(false);
-    }
-  };
-
-  const handlePurchaseLicense = async (licenseType) => {
-    setPurchasing(true);
-    try {
-      const result = await purchaseLicenseWithGooglePay(licenseType);
       
       if (result.success && result.licenseKey) {
         // Ativar licença automaticamente após compra

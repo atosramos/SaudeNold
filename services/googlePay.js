@@ -1,11 +1,12 @@
 /**
- * Serviço de integração com Google Pay
+ * Serviço de integração com Google Play Billing
  * Para compra de licenças PRO
  */
 
 import { Platform } from 'react-native';
+import * as RNIap from 'react-native-iap';
 import { LICENSE_TYPES } from './proLicense';
-import api from './api';
+import { licensesAPI } from './api';
 
 /**
  * Tipos de licença disponíveis para compra
@@ -34,8 +35,68 @@ export const LICENSE_PRODUCTS = {
   },
 };
 
+// IDs dos produtos (devem corresponder aos IDs no Google Play Console)
+const PRODUCT_IDS = [
+  'pro_1_month',
+  'pro_6_months',
+  'pro_1_year',
+];
+
+// Flag para controlar se o serviço foi inicializado
+let isInitialized = false;
+let availableProducts = [];
+
 /**
- * Verifica se Google Pay está disponível
+ * Inicializa o serviço de compras in-app
+ */
+export const initializePurchases = async () => {
+  if (Platform.OS !== 'android') {
+    return { success: false, error: 'Compras in-app disponíveis apenas no Android' };
+  }
+
+  if (isInitialized) {
+    return { success: true };
+  }
+
+  try {
+    // Conectar ao Google Play
+    await RNIap.initConnection();
+    
+    // Buscar produtos disponíveis
+    const products = await RNIap.getProducts({ skus: PRODUCT_IDS });
+    availableProducts = products;
+    
+    isInitialized = true;
+    
+    console.log('Compras in-app inicializadas. Produtos disponíveis:', products.length);
+    
+    return { success: true, products };
+  } catch (error) {
+    console.error('Erro ao inicializar compras in-app:', error);
+    return { 
+      success: false, 
+      error: `Erro ao inicializar: ${error.message}` 
+    };
+  }
+};
+
+/**
+ * Finaliza conexão com Google Play (chamar quando app fechar)
+ */
+export const endConnection = async () => {
+  try {
+    if (isInitialized) {
+      await RNIap.endConnection();
+      isInitialized = false;
+      availableProducts = [];
+    }
+  } catch (error) {
+    console.error('Erro ao finalizar conexão:', error);
+  }
+};
+
+/**
+ * Verifica se Google Play Billing está disponível
  */
 export const isGooglePayAvailable = async () => {
   if (Platform.OS !== 'android') {
@@ -43,18 +104,34 @@ export const isGooglePayAvailable = async () => {
   }
   
   try {
-    // Verificar se Google Play Services está disponível
-    // Em produção, usar biblioteca específica do Google Pay
-    // Por enquanto, assumir disponível no Android
+    if (!isInitialized) {
+      const initResult = await initializePurchases();
+      return initResult.success;
+    }
     return true;
   } catch (error) {
-    console.error('Erro ao verificar Google Pay:', error);
+    console.error('Erro ao verificar disponibilidade:', error);
     return false;
   }
 };
 
 /**
- * Inicia processo de compra via Google Pay
+ * Obtém informações dos produtos disponíveis
+ */
+export const getAvailableProducts = async () => {
+  try {
+    if (!isInitialized) {
+      await initializePurchases();
+    }
+    return availableProducts;
+  } catch (error) {
+    console.error('Erro ao obter produtos:', error);
+    return [];
+  }
+};
+
+/**
+ * Inicia processo de compra via Google Play Billing
  * @param {string} licenseType - Tipo de licença a comprar
  * @returns {Promise<Object>} Resultado da compra
  */
@@ -63,7 +140,7 @@ export const purchaseLicenseWithGooglePay = async (licenseType) => {
     if (Platform.OS !== 'android') {
       return {
         success: false,
-        error: 'Google Pay está disponível apenas no Android',
+        error: 'Compras in-app disponíveis apenas no Android',
       };
     }
     
@@ -75,53 +152,241 @@ export const purchaseLicenseWithGooglePay = async (licenseType) => {
       };
     }
     
-    // Em produção, aqui faria a integração real com Google Pay
-    // Por enquanto, simular processo de compra
+    // Garantir que o serviço está inicializado
+    if (!isInitialized) {
+      const initResult = await initializePurchases();
+      if (!initResult.success) {
+        return {
+          success: false,
+          error: 'Não foi possível inicializar compras in-app',
+        };
+      }
+    }
     
-    // 1. Inicializar Google Pay
-    // 2. Processar pagamento
-    // 3. Receber confirmação do servidor
-    // 4. Gerar chave de licença no servidor
-    // 5. Retornar chave para o cliente
+    // Iniciar processo de compra
+    console.log('Iniciando compra:', product.id);
     
-    // Simulação (remover em produção):
-    console.log('Iniciando compra via Google Pay:', product);
+    const purchase = await RNIap.requestPurchase({
+      sku: product.id,
+      skuType: RNIap.PurchaseType.INAPP,
+    });
     
-    // Em produção, usar:
-    // - @react-native-google-pay/google-pay (se disponível)
-    // - Ou integração direta com Google Pay API
-    // - Ou usar biblioteca de pagamentos como react-native-purchases
+    console.log('Compra iniciada:', purchase);
     
-    return {
-      success: false,
-      error: 'Integração com Google Pay ainda não implementada. Use chaves de licença por enquanto.',
-      // Em produção, retornaria:
-      // success: true,
-      // licenseKey: 'PRO...', // Chave gerada no servidor após pagamento
-    };
+    // Aguardar confirmação da compra
+    const purchaseResult = await RNIap.purchaseUpdatedListener;
+    
+    // Processar compra quando confirmada
+    return new Promise((resolve) => {
+      const subscription = purchaseResult.subscribe(async (purchaseResponse) => {
+        try {
+          if (purchaseResponse.transactionReceipt) {
+            // Compra confirmada - enviar para o servidor
+            const serverResult = await processPurchaseWithServer(
+              purchaseResponse,
+              licenseType
+            );
+            
+            if (serverResult.success) {
+              // Confirmar compra no Google Play
+              await RNIap.finishTransaction({
+                purchase: purchaseResponse,
+                isConsumable: true,
+              });
+              
+              resolve({
+                success: true,
+                licenseKey: serverResult.licenseKey,
+                purchaseId: purchaseResponse.transactionIdentifier || purchaseResponse.orderId,
+              });
+            } else {
+              resolve({
+                success: false,
+                error: serverResult.error || 'Erro ao processar compra no servidor',
+              });
+            }
+          } else {
+            resolve({
+              success: false,
+              error: 'Compra não confirmada',
+            });
+          }
+        } catch (error) {
+          console.error('Erro ao processar compra:', error);
+          resolve({
+            success: false,
+            error: `Erro ao processar compra: ${error.message}`,
+          });
+        } finally {
+          subscription.remove();
+        }
+      });
+    });
   } catch (error) {
-    console.error('Erro ao processar compra com Google Pay:', error);
+    console.error('Erro ao processar compra com Google Play:', error);
+    
+    // Tratar erros específicos
+    if (error.code === 'E_USER_CANCELLED') {
+      return {
+        success: false,
+        error: 'Compra cancelada pelo usuário',
+        cancelled: true,
+      };
+    }
+    
     return {
       success: false,
-      error: 'Erro ao processar pagamento: ' + error.message,
+      error: `Erro ao processar pagamento: ${error.message}`,
     };
   }
 };
 
 /**
- * Verifica status de uma compra pendente
+ * Processa compra no servidor e obtém chave de licença
+ */
+const processPurchaseWithServer = async (purchase, licenseType) => {
+  try {
+    const purchaseId = purchase.orderId || purchase.transactionIdentifier || purchase.transactionId;
+    
+    // Enviar dados da compra para o servidor via webhook
+    const webhookData = {
+      orderId: purchaseId,
+      packageName: purchase.packageNameAndroid || 'com.atosramos.SaudeNold',
+      productId: purchase.productId,
+      purchaseTime: purchase.purchaseTime || Date.now(),
+      purchaseState: 0, // 0 = purchased, 1 = cancelled, 2 = pending
+      purchaseToken: purchase.purchaseToken || purchase.transactionReceipt || purchaseId,
+    };
+    
+    console.log('Enviando webhook para servidor:', webhookData);
+    
+    const response = await licensesAPI.googlePayWebhook(webhookData);
+    
+    // Aguardar um pouco para o servidor processar
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    // Verificar status da compra
+    if (purchaseId) {
+      const statusResponse = await licensesAPI.getPurchaseStatus(purchaseId);
+      
+      if (statusResponse.data && statusResponse.data.licenseKey) {
+        return {
+          success: true,
+          licenseKey: statusResponse.data.licenseKey,
+        };
+      }
+      
+      // Se ainda não tem chave, tentar gerar
+      if (statusResponse.data && statusResponse.data.status === 'completed') {
+        // Mapear productId para licenseType
+        const productToLicenseType = {
+          'pro_1_month': '1_month',
+          'pro_6_months': '6_months',
+          'pro_1_year': '1_year',
+        };
+        
+        const mappedLicenseType = productToLicenseType[purchase.productId];
+        if (mappedLicenseType) {
+          // Tentar gerar licença
+          const generateResponse = await licensesAPI.generate(mappedLicenseType, null, purchaseId);
+          if (generateResponse.data && generateResponse.data.licenseKey) {
+            return {
+              success: true,
+              licenseKey: generateResponse.data.licenseKey,
+            };
+          }
+        }
+      }
+    }
+    
+    return {
+      success: false,
+      error: 'Servidor não retornou chave de licença. Tente novamente ou use uma chave manual.',
+    };
+  } catch (error) {
+    console.error('Erro ao processar compra no servidor:', error);
+    return {
+      success: false,
+      error: `Erro no servidor: ${error.response?.data?.detail || error.message}`,
+    };
+  }
+};
+
+/**
+ * Verifica compras pendentes e as processa
+ */
+export const checkPendingPurchases = async () => {
+  try {
+    if (Platform.OS !== 'android' || !isInitialized) {
+      return { success: false, error: 'Serviço não inicializado' };
+    }
+    
+    // Buscar compras pendentes
+    const purchases = await RNIap.getAvailablePurchases();
+    
+    if (purchases.length === 0) {
+      return { success: true, purchases: [] };
+    }
+    
+    console.log('Compras pendentes encontradas:', purchases.length);
+    
+    // Processar cada compra pendente
+    const processedPurchases = [];
+    
+    for (const purchase of purchases) {
+      try {
+        // Mapear productId para licenseType
+        const licenseType = getLicenseTypeFromProductId(purchase.productId);
+        
+        if (licenseType) {
+          // Processar no servidor
+          const serverResult = await processPurchaseWithServer(purchase, licenseType);
+          
+          if (serverResult.success) {
+            // Confirmar compra
+            await RNIap.finishTransaction({
+              purchase,
+              isConsumable: true,
+            });
+            
+            processedPurchases.push({
+              purchaseId: purchase.orderId || purchase.transactionIdentifier,
+              licenseKey: serverResult.licenseKey,
+              licenseType,
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Erro ao processar compra pendente:', error);
+      }
+    }
+    
+    return {
+      success: true,
+      purchases: processedPurchases,
+    };
+  } catch (error) {
+    console.error('Erro ao verificar compras pendentes:', error);
+    return {
+      success: false,
+      error: `Erro ao verificar compras: ${error.message}`,
+    };
+  }
+};
+
+/**
+ * Verifica status de uma compra específica no servidor
  */
 export const checkPurchaseStatus = async (purchaseId) => {
   try {
-    // Em produção, verificar no servidor
-    const response = await api.get(`/api/purchase-status/${purchaseId}`);
+    const response = await licensesAPI.getPurchaseStatus(purchaseId);
     
     if (response.data) {
       return {
         success: true,
         status: response.data.status,
-        licenseKey: response.data.license_key,
-        purchaseDate: response.data.purchase_date,
+        licenseKey: response.data.licenseKey,
+        purchaseDate: response.data.purchaseDate,
       };
     }
     
@@ -136,4 +401,16 @@ export const checkPurchaseStatus = async (purchaseId) => {
       error: 'Erro ao verificar status: ' + (error.response?.data?.detail || error.message),
     };
   }
+};
+
+/**
+ * Mapeia productId para licenseType
+ */
+const getLicenseTypeFromProductId = (productId) => {
+  const mapping = {
+    'pro_1_month': LICENSE_TYPES.MONTH_1,
+    'pro_6_months': LICENSE_TYPES.MONTH_6,
+    'pro_1_year': LICENSE_TYPES.YEAR_1,
+  };
+  return mapping[productId] || null;
 };

@@ -98,6 +98,7 @@ export const licensesAPI = {
     purchase_id: purchaseId,
   }),
   getPurchaseStatus: (purchaseId) => api.get(`/api/purchase-status/${purchaseId}`),
+  googlePayWebhook: (data) => api.post('/api/webhook/google-pay', data),
 };
 
 // ========== HEALTH CHECK ==========
