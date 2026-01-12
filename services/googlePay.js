@@ -247,15 +247,39 @@ export const purchaseLicenseWithGooglePay = async (licenseType) => {
 const processPurchaseWithServer = async (purchase, licenseType) => {
   try {
     const purchaseId = purchase.orderId || purchase.transactionIdentifier || purchase.transactionId;
+    const transactionId = purchase.transactionId || purchase.orderId || purchase.transactionIdentifier;
+    
+    // Mapear productId para licenseType
+    const productToLicenseType = {
+      'pro_1_month': '1_month',
+      'pro_6_months': '6_months',
+      'pro_1_year': '1_year',
+    };
+    
+    const mappedLicenseType = productToLicenseType[purchase.productId];
+    if (!mappedLicenseType) {
+      return {
+        success: false,
+        error: 'Tipo de produto não reconhecido',
+      };
+    }
+    
+    // Mapear preços
+    const licensePrices = {
+      '1_month': '9.90',
+      '6_months': '49.90',
+      '1_year': '89.90',
+    };
     
     // Enviar dados da compra para o servidor via webhook
     const webhookData = {
-      orderId: purchaseId,
-      packageName: purchase.packageNameAndroid || 'com.atosramos.SaudeNold',
-      productId: purchase.productId,
-      purchaseTime: purchase.purchaseTime || Date.now(),
-      purchaseState: 0, // 0 = purchased, 1 = cancelled, 2 = pending
-      purchaseToken: purchase.purchaseToken || purchase.transactionReceipt || purchaseId,
+      purchase_id: purchaseId,
+      transaction_id: transactionId,
+      status: 'completed',
+      license_type: mappedLicenseType,
+      user_id: null, // Pode ser obtido do app se houver sistema de usuários
+      amount: licensePrices[mappedLicenseType],
+      currency: 'BRL',
     };
     
     console.log('Enviando webhook para servidor:', webhookData);
