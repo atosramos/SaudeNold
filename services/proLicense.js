@@ -53,27 +53,32 @@ const extractLicenseTypeFromKey = (key) => {
     return null;
   }
   
-  // Extrair o segundo bloco da chave (ex: PRO-XXXX-YYYY-XXXX-XXXX)
+  // Extrair o segundo bloco da chave (ex: PRO-1M01-XXXX-XXXX-XXXX)
   const parts = key.toUpperCase().split('-');
   if (parts.length !== 5) {
     return null;
   }
   
-  // O segundo bloco contém o tipo codificado
-  const typeCode = parts[2];
+  // O segundo bloco (parts[1]) contém o tipo codificado
+  const typeCode = parts[1];
   
   // Decodificar tipo (simplificado - em produção usar criptografia)
-  // Primeiro caractere indica o tipo
-  const firstChar = typeCode[0];
+  // Padrões aceitos:
+  // - 1M01, 1M02, etc. = 1 mês
+  // - 6M01, 6M02, etc. = 6 meses
+  // - 1Y01, 1Y02, etc. = 1 ano
+  // - Ou apenas primeiro caractere: 1, 6, Y
   
-  if (firstChar === '1') return LICENSE_TYPES.MONTH_1;
-  if (firstChar === '6') return LICENSE_TYPES.MONTH_6;
-  if (firstChar === 'Y') return LICENSE_TYPES.YEAR_1;
-  
-  // Fallback: tentar detectar pelo padrão
+  // Verificar padrões completos primeiro
   if (typeCode.startsWith('1M')) return LICENSE_TYPES.MONTH_1;
   if (typeCode.startsWith('6M')) return LICENSE_TYPES.MONTH_6;
   if (typeCode.startsWith('1Y')) return LICENSE_TYPES.YEAR_1;
+  
+  // Fallback: verificar primeiro caractere
+  const firstChar = typeCode[0];
+  if (firstChar === '1' && typeCode.length >= 2 && typeCode[1] !== 'Y') return LICENSE_TYPES.MONTH_1;
+  if (firstChar === '6') return LICENSE_TYPES.MONTH_6;
+  if (firstChar === 'Y' || (firstChar === '1' && typeCode.length >= 2 && typeCode[1] === 'Y')) return LICENSE_TYPES.YEAR_1;
   
   return null;
 };
