@@ -723,7 +723,9 @@ def validate_license(
         if existing_license:
             # Verificar se ainda está ativa
             expiration = existing_license.expiration_date
-            if expiration < dt.now():
+            from datetime import timezone
+            now = dt.now(timezone.utc) if expiration.tzinfo else dt.now()
+            if expiration < now:
                 return schemas.LicenseValidateResponse(
                     valid=False,
                     error='Licença expirada'
@@ -927,4 +929,21 @@ async def google_pay_webhook(
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
+@app.get("/debug/api-key-info")
+def debug_api_key_info():
+    """Endpoint temporário de debug para verificar se a API_KEY está carregada corretamente"""
+    import hashlib
+    api_key_from_env = os.getenv("API_KEY", "NOT_LOADED")
+    
+    # Retornar informações completas para debug (apenas em desenvolvimento)
+    return {
+        "status": "ok",
+        "api_key_from_env": api_key_from_env if api_key_from_env != "NOT_LOADED" else "NOT_LOADED",
+        "api_key_in_memory": API_KEY,
+        "api_key_length_env": len(api_key_from_env) if api_key_from_env != "NOT_LOADED" else 0,
+        "api_key_length_memory": len(API_KEY),
+        "keys_match": api_key_from_env == API_KEY,
+        "note": "Este endpoint deve ser removido em produção"
+    }
 

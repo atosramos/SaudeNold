@@ -7,7 +7,7 @@ import hashlib
 import hmac
 import secrets
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict
 
 LICENSE_TYPES = {
@@ -153,14 +153,14 @@ def validate_license_key(
     
     # Calcular data de expiração
     try:
-        # Tentar reconstruir timestamp completo
-        now = datetime.now()
+        # Usar UTC para evitar problemas de timezone
+        now = datetime.now(timezone.utc)
         year = now.year
         timestamp_full = int(f"{year}{timestamp_short}")
         
         # Se o timestamp parece ser do futuro ou muito antigo, usar data atual
         max_age = timedelta(days=3650)  # 10 anos
-        activation_date = datetime.fromtimestamp(timestamp_full / 1000) if timestamp_full > 0 else now
+        activation_date = datetime.fromtimestamp(timestamp_full / 1000, tz=timezone.utc) if timestamp_full > 0 else now
         
         if activation_date > now or (now - activation_date) > max_age:
             activation_date = now
@@ -170,7 +170,7 @@ def validate_license_key(
         
     except (ValueError, OverflowError):
         # Fallback: usar data atual
-        activation_date = datetime.now()
+        activation_date = datetime.now(timezone.utc)
         duration = LICENSE_DURATIONS[license_type]
         expiration_date = activation_date + duration
     
