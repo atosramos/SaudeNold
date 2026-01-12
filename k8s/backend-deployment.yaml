@@ -55,6 +55,11 @@ spec:
             secretKeyRef:
               name: backend-secret
               key: API_KEY
+        - name: LICENSE_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: backend-secret
+              key: LICENSE_SECRET_KEY
         resources:
           requests:
             memory: "128Mi"

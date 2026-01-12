@@ -5,6 +5,7 @@
 
 import { Platform } from 'react-native';
 import { LICENSE_TYPES } from './proLicense';
+import api from './api';
 
 /**
  * Tipos de licença disponíveis para compra
@@ -113,17 +114,15 @@ export const purchaseLicenseWithGooglePay = async (licenseType) => {
 export const checkPurchaseStatus = async (purchaseId) => {
   try {
     // Em produção, verificar no servidor
-    const SERVER_URL = process.env.EXPO_PUBLIC_API_URL || 'https://api.saudenold.com';
+    const response = await api.get(`/api/purchase-status/${purchaseId}`);
     
-    const response = await fetch(`${SERVER_URL}/api/purchase-status/${purchaseId}`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
-    
-    if (response.ok) {
-      return await response.json();
+    if (response.data) {
+      return {
+        success: true,
+        status: response.data.status,
+        licenseKey: response.data.license_key,
+        purchaseDate: response.data.purchase_date,
+      };
     }
     
     return {
@@ -134,7 +133,7 @@ export const checkPurchaseStatus = async (purchaseId) => {
     console.error('Erro ao verificar status da compra:', error);
     return {
       success: false,
-      error: 'Erro ao verificar status: ' + error.message,
+      error: 'Erro ao verificar status: ' + (error.response?.data?.detail || error.message),
     };
   }
 };

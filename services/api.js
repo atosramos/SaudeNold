@@ -89,6 +89,17 @@ export const medicalExamsAPI = {
   getTimeline: (examId, parameterName) => api.get(`/api/medical-exams/${examId}/timeline/${parameterName}`),
 };
 
+// ========== LICENÇAS PRO ==========
+export const licensesAPI = {
+  validate: (key, deviceId) => api.post('/api/validate-license', { key, device_id: deviceId }),
+  generate: (licenseType, userId, purchaseId) => api.post('/api/generate-license', {
+    license_type: licenseType,
+    user_id: userId,
+    purchase_id: purchaseId,
+  }),
+  getPurchaseStatus: (purchaseId) => api.get(`/api/purchase-status/${purchaseId}`),
+};
+
 // ========== HEALTH CHECK ==========
 export const healthCheck = () => api.get('/health');
 
