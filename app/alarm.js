@@ -564,6 +564,15 @@ export default function AlarmScreen() {
                 <Text style={styles.dosage}>Dosagem: {medication.dosage}</Text>
               )}
               
+              {(params.schedule || medication?.schedule || (medication?.schedules && medication.schedules.length > 0)) && (
+                <View style={styles.scheduleContainer}>
+                  <Ionicons name="time-outline" size={20} color="#FF6B6B" />
+                  <Text style={styles.scheduleText}>
+                    Horário programado: {params.schedule || medication?.schedule || medication?.schedules?.[0]}
+                  </Text>
+                </View>
+              )}
+              
               {isPaused && (
                 <View style={styles.pauseIndicator}>
                   <Text style={styles.pauseText}>Alarme pausado</Text>
@@ -665,7 +674,24 @@ const styles = StyleSheet.create({
   dosage: {
     fontSize: 22,
     color: '#fff',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  scheduleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
     marginBottom: 24,
+  },
+  scheduleText: {
+    fontSize: 18,
+    color: '#fff',
+    fontWeight: '600',
+    marginLeft: 8,
     textAlign: 'center',
   },
   pauseIndicator: {
