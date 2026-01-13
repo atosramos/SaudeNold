@@ -408,10 +408,15 @@ export const checkPendingPurchases = async () => {
               licenseKey: serverResult.licenseKey,
               licenseType,
             });
+            
+            // Rastrear compra bem-sucedida
+            const price = LICENSE_PRODUCTS[licenseType]?.priceValue || 0;
+            trackPurchase(licenseType, price, 'BRL');
           }
         }
       } catch (error) {
         console.error('Erro ao processar compra pendente:', error);
+        trackError('Erro ao processar compra pendente', { error: error.message });
       }
     }
     

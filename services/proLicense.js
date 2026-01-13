@@ -214,6 +214,7 @@ export const activateLicense = async (key) => {
     const validation = await validateLicenseKey(key);
     
     if (!validation.valid) {
+      trackLicenseValidation(false, validation.error || 'Chave invalida');
       return {
         success: false,
         error: validation.error,
