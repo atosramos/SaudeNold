@@ -1708,6 +1708,21 @@ const styles = StyleSheet.create({
     marginTop: 8,
     textAlign: 'center',
   },
+  pregnancyStatusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E8F8F5',
+    padding: 12,
+    borderRadius: 12,
+    marginTop: 12,
+    gap: 8,
+  },
+  pregnancyStatusText: {
+    fontSize: 18,
+    color: '#333',
+    flex: 1,
+    fontWeight: '600',
+  },
   genderContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
