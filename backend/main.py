@@ -1152,3 +1152,467 @@ def debug_api_key_info():
         "note": "Este endpoint deve ser removido em produção"
     }
 
+
+# ========== ANALYTICS E MONITORAMENTO ==========
+
+@app.get("/api/analytics/licenses", response_model=schemas.LicenseStatsResponse)
+@limiter.limit("30/minute")
+def get_license_stats(request: Request, api_key: str = Depends(verify_api_key)):
+    """Retorna estatísticas de licenças"""
+    security_logger.info(f"Acesso GET /api/analytics/licenses de {get_remote_address(request)}")
+    db = next(get_db())
+    
+    try:
+        # Total de licenças
+        total_licenses = db.query(models.License).count()
+        
+        # Licenças ativas (não expiradas e não revogadas)
+        now = dt.now(timezone.utc)
+        active_licenses = db.query(models.License).filter(
+            models.License.is_active == True,
+            models.License.expiration_date > now
+        ).count()
+        
+        # Licenças expiradas
+        expired_licenses = db.query(models.License).filter(
+            models.License.expiration_date <= now,
+            models.License.is_active == True
+        ).count()
+        
+        # Licenças revogadas
+        revoked_licenses = db.query(models.License).filter(
+            models.License.is_active == False
+        ).count()
+        
+        # Licenças por tipo
+        licenses_by_type = {}
+        for license_type in ['1_month', '6_months', '1_year']:
+            count = db.query(models.License).filter(
+                models.License.license_type == license_type
+            ).count()
+            licenses_by_type[license_type] = count
+        
+        # Licenças por status
+        licenses_by_status = {
+            "active": active_licenses,
+            "expired": expired_licenses,
+            "revoked": revoked_licenses
+        }
+        
+        return schemas.LicenseStatsResponse(
+            total_licenses=total_licenses,
+            active_licenses=active_licenses,
+            expired_licenses=expired_licenses,
+            revoked_licenses=revoked_licenses,
+            licenses_by_type=licenses_by_type,
+            licenses_by_status=licenses_by_status
+        )
+    except Exception as e:
+        security_logger.error(f"Erro ao obter estatísticas de licenças: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro ao obter estatísticas: {str(e)}")
+
+
+@app.get("/api/analytics/activations", response_model=schemas.ActivationStatsResponse)
+@limiter.limit("30/minute")
+def get_activation_stats(request: Request, api_key: str = Depends(verify_api_key)):
+    """Retorna estatísticas de ativações de licenças"""
+    security_logger.info(f"Acesso GET /api/analytics/activations de {get_remote_address(request)}")
+    db = next(get_db())
+    
+    try:
+        now = dt.now(timezone.utc)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        week_start = today_start - timedelta(days=7)
+        month_start = today_start - timedelta(days=30)
+        
+        # Total de ativações (licenças com device_id)
+        total_activations = db.query(models.License).filter(
+            models.License.device_id.isnot(None)
+        ).count()
+        
+        # Ativações hoje
+        activations_today = db.query(models.License).filter(
+            models.License.device_id.isnot(None),
+            models.License.activated_at >= today_start
+        ).count()
+        
+        # Ativações esta semana
+        activations_this_week = db.query(models.License).filter(
+            models.License.device_id.isnot(None),
+            models.License.activated_at >= week_start
+        ).count()
+        
+        # Ativações este mês
+        activations_this_month = db.query(models.License).filter(
+            models.License.device_id.isnot(None),
+            models.License.activated_at >= month_start
+        ).count()
+        
+        # Ativações por tipo
+        activations_by_type = {}
+        for license_type in ['1_month', '6_months', '1_year']:
+            count = db.query(models.License).filter(
+                models.License.license_type == license_type,
+                models.License.device_id.isnot(None)
+            ).count()
+            activations_by_type[license_type] = count
+        
+        # Tendência de ativações (últimos 30 dias)
+        activation_trend = []
+        for i in range(30):
+            date = today_start - timedelta(days=i)
+            next_date = date + timedelta(days=1)
+            count = db.query(models.License).filter(
+                models.License.device_id.isnot(None),
+                models.License.activated_at >= date,
+                models.License.activated_at < next_date
+            ).count()
+            activation_trend.append({
+                "date": date.strftime("%Y-%m-%d"),
+                "count": count
+            })
+        activation_trend.reverse()  # Mais antigo primeiro
+        
+        return schemas.ActivationStatsResponse(
+            total_activations=total_activations,
+            activations_today=activations_today,
+            activations_this_week=activations_this_week,
+            activations_this_month=activations_this_month,
+            activations_by_type=activations_by_type,
+            activation_trend=activation_trend
+        )
+    except Exception as e:
+        security_logger.error(f"Erro ao obter estatísticas de ativações: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro ao obter estatísticas: {str(e)}")
+
+
+@app.get("/api/analytics/validations", response_model=schemas.ValidationStatsResponse)
+@limiter.limit("30/minute")
+def get_validation_stats(request: Request, api_key: str = Depends(verify_api_key)):
+    """Retorna estatísticas de validações de licenças"""
+    security_logger.info(f"Acesso GET /api/analytics/validations de {get_remote_address(request)}")
+    db = next(get_db())
+    
+    try:
+        now = dt.now(timezone.utc)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        week_start = today_start - timedelta(days=7)
+        
+        # Total de validações
+        total_validations = db.query(models.LicenseValidationLog).count()
+        
+        # Validações bem-sucedidas
+        successful_validations = db.query(models.LicenseValidationLog).filter(
+            models.LicenseValidationLog.validation_result == 'valid'
+        ).count()
+        
+        # Validações falhas
+        failed_validations = db.query(models.LicenseValidationLog).filter(
+            models.LicenseValidationLog.validation_result != 'valid'
+        ).count()
+        
+        # Tentativas suspeitas
+        suspicious_attempts = db.query(models.LicenseValidationLog).filter(
+            models.LicenseValidationLog.is_suspicious == True
+        ).count()
+        
+        # Validações hoje
+        validations_today = db.query(models.LicenseValidationLog).filter(
+            models.LicenseValidationLog.created_at >= today_start
+        ).count()
+        
+        # Validações esta semana
+        validations_this_week = db.query(models.LicenseValidationLog).filter(
+            models.LicenseValidationLog.created_at >= week_start
+        ).count()
+        
+        # Resultados por tipo
+        validation_results = {}
+        for result in ['valid', 'invalid', 'expired', 'revoked', 'error']:
+            count = db.query(models.LicenseValidationLog).filter(
+                models.LicenseValidationLog.validation_result == result
+            ).count()
+            validation_results[result] = count
+        
+        # Top mensagens de erro
+        from sqlalchemy import func
+        error_logs = db.query(
+            models.LicenseValidationLog.error_message,
+            func.count(models.LicenseValidationLog.id).label('count')
+        ).filter(
+            models.LicenseValidationLog.error_message.isnot(None)
+        ).group_by(
+            models.LicenseValidationLog.error_message
+        ).order_by(
+            func.count(models.LicenseValidationLog.id).desc()
+        ).limit(10).all()
+        
+        top_error_messages = [
+            {"error": error, "count": count}
+            for error, count in error_logs
+        ]
+        
+        return schemas.ValidationStatsResponse(
+            total_validations=total_validations,
+            successful_validations=successful_validations,
+            failed_validations=failed_validations,
+            suspicious_attempts=suspicious_attempts,
+            validations_today=validations_today,
+            validations_this_week=validations_this_week,
+            validation_results=validation_results,
+            top_error_messages=top_error_messages
+        )
+    except Exception as e:
+        security_logger.error(f"Erro ao obter estatísticas de validações: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro ao obter estatísticas: {str(e)}")
+
+
+@app.get("/api/analytics/purchases", response_model=schemas.PurchaseStatsResponse)
+@limiter.limit("30/minute")
+def get_purchase_stats(request: Request, api_key: str = Depends(verify_api_key)):
+    """Retorna estatísticas de compras"""
+    security_logger.info(f"Acesso GET /api/analytics/purchases de {get_remote_address(request)}")
+    db = next(get_db())
+    
+    try:
+        now = dt.now(timezone.utc)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        week_start = today_start - timedelta(days=7)
+        month_start = today_start - timedelta(days=30)
+        
+        # Total de compras
+        total_purchases = db.query(models.Purchase).count()
+        
+        # Compras completadas
+        completed_purchases = db.query(models.Purchase).filter(
+            models.Purchase.status == 'completed'
+        ).count()
+        
+        # Compras pendentes
+        pending_purchases = db.query(models.Purchase).filter(
+            models.Purchase.status == 'pending'
+        ).count()
+        
+        # Compras falhas
+        failed_purchases = db.query(models.Purchase).filter(
+            models.Purchase.status == 'failed'
+        ).count()
+        
+        # Receita total (apenas compras completadas)
+        from sqlalchemy import func
+        total_revenue_result = db.query(
+            func.sum(func.cast(models.Purchase.amount, db.Float))
+        ).filter(
+            models.Purchase.status == 'completed'
+        ).scalar()
+        total_revenue = float(total_revenue_result) if total_revenue_result else 0.0
+        
+        # Receita por tipo
+        revenue_by_type = {}
+        for license_type in ['1_month', '6_months', '1_year']:
+            revenue_result = db.query(
+                func.sum(func.cast(models.Purchase.amount, db.Float))
+            ).filter(
+                models.Purchase.license_type == license_type,
+                models.Purchase.status == 'completed'
+            ).scalar()
+            revenue_by_type[license_type] = float(revenue_result) if revenue_result else 0.0
+        
+        # Compras hoje
+        purchases_today = db.query(models.Purchase).filter(
+            models.Purchase.created_at >= today_start
+        ).count()
+        
+        # Compras esta semana
+        purchases_this_week = db.query(models.Purchase).filter(
+            models.Purchase.created_at >= week_start
+        ).count()
+        
+        # Compras este mês
+        purchases_this_month = db.query(models.Purchase).filter(
+            models.Purchase.created_at >= month_start
+        ).count()
+        
+        return schemas.PurchaseStatsResponse(
+            total_purchases=total_purchases,
+            completed_purchases=completed_purchases,
+            pending_purchases=pending_purchases,
+            failed_purchases=failed_purchases,
+            total_revenue=total_revenue,
+            revenue_by_type=revenue_by_type,
+            purchases_today=purchases_today,
+            purchases_this_week=purchases_this_week,
+            purchases_this_month=purchases_this_month
+        )
+    except Exception as e:
+        security_logger.error(f"Erro ao obter estatísticas de compras: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro ao obter estatísticas: {str(e)}")
+
+
+@app.get("/api/analytics/dashboard", response_model=schemas.DashboardResponse)
+@limiter.limit("30/minute")
+def get_dashboard(request: Request, api_key: str = Depends(verify_api_key)):
+    """Retorna dashboard completo com todas as métricas"""
+    security_logger.info(f"Acesso GET /api/analytics/dashboard de {get_remote_address(request)}")
+    
+    # Obter todas as estatísticas diretamente (evitar recursão)
+    db = next(get_db())
+    
+    try:
+        # Estatísticas de licenças
+        from datetime import timezone
+        now = dt.now(timezone.utc)
+        total_licenses = db.query(models.License).count()
+        active_licenses = db.query(models.License).filter(
+            models.License.is_active == True,
+            models.License.expiration_date > now
+        ).count()
+        expired_licenses = db.query(models.License).filter(
+            models.License.expiration_date <= now,
+            models.License.is_active == True
+        ).count()
+        revoked_licenses = db.query(models.License).filter(
+            models.License.is_active == False
+        ).count()
+        licenses_by_type = {}
+        for license_type in ['1_month', '6_months', '1_year']:
+            licenses_by_type[license_type] = db.query(models.License).filter(
+                models.License.license_type == license_type
+            ).count()
+        license_stats = schemas.LicenseStatsResponse(
+            total_licenses=total_licenses,
+            active_licenses=active_licenses,
+            expired_licenses=expired_licenses,
+            revoked_licenses=revoked_licenses,
+            licenses_by_type=licenses_by_type,
+            licenses_by_status={"active": active_licenses, "expired": expired_licenses, "revoked": revoked_licenses}
+        )
+        
+        # Estatísticas de ativações (simplificado para evitar duplicação)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        week_start = today_start - timedelta(days=7)
+        month_start = today_start - timedelta(days=30)
+        total_activations = db.query(models.License).filter(
+            models.License.device_id.isnot(None)
+        ).count()
+        activations_by_type = {}
+        for license_type in ['1_month', '6_months', '1_year']:
+            activations_by_type[license_type] = db.query(models.License).filter(
+                models.License.license_type == license_type,
+                models.License.device_id.isnot(None)
+            ).count()
+        activation_trend = []
+        for i in range(30):
+            date = today_start - timedelta(days=i)
+            next_date = date + timedelta(days=1)
+            count = db.query(models.License).filter(
+                models.License.device_id.isnot(None),
+                models.License.activated_at >= date,
+                models.License.activated_at < next_date
+            ).count()
+            activation_trend.append({"date": date.strftime("%Y-%m-%d"), "count": count})
+        activation_trend.reverse()
+        activation_stats = schemas.ActivationStatsResponse(
+            total_activations=total_activations,
+            activations_today=db.query(models.License).filter(
+                models.License.device_id.isnot(None),
+                models.License.activated_at >= today_start
+            ).count(),
+            activations_this_week=db.query(models.License).filter(
+                models.License.device_id.isnot(None),
+                models.License.activated_at >= week_start
+            ).count(),
+            activations_this_month=db.query(models.License).filter(
+                models.License.device_id.isnot(None),
+                models.License.activated_at >= month_start
+            ).count(),
+            activations_by_type=activations_by_type,
+            activation_trend=activation_trend
+        )
+        
+        # Estatísticas de validações
+        total_validations = db.query(models.LicenseValidationLog).count()
+        validation_results = {}
+        for result in ['valid', 'invalid', 'expired', 'revoked', 'error']:
+            validation_results[result] = db.query(models.LicenseValidationLog).filter(
+                models.LicenseValidationLog.validation_result == result
+            ).count()
+        from sqlalchemy import func
+        error_logs = db.query(
+            models.LicenseValidationLog.error_message,
+            func.count(models.LicenseValidationLog.id).label('count')
+        ).filter(
+            models.LicenseValidationLog.error_message.isnot(None)
+        ).group_by(
+            models.LicenseValidationLog.error_message
+        ).order_by(
+            func.count(models.LicenseValidationLog.id).desc()
+        ).limit(10).all()
+        validation_stats = schemas.ValidationStatsResponse(
+            total_validations=total_validations,
+            successful_validations=validation_results.get('valid', 0),
+            failed_validations=total_validations - validation_results.get('valid', 0),
+            suspicious_attempts=db.query(models.LicenseValidationLog).filter(
+                models.LicenseValidationLog.is_suspicious == True
+            ).count(),
+            validations_today=db.query(models.LicenseValidationLog).filter(
+                models.LicenseValidationLog.created_at >= today_start
+            ).count(),
+            validations_this_week=db.query(models.LicenseValidationLog).filter(
+                models.LicenseValidationLog.created_at >= week_start
+            ).count(),
+            validation_results=validation_results,
+            top_error_messages=[{"error": error, "count": count} for error, count in error_logs]
+        )
+        
+        # Estatísticas de compras
+        total_purchases = db.query(models.Purchase).count()
+        total_revenue_result = db.query(
+            func.sum(func.cast(models.Purchase.amount, db.Float))
+        ).filter(
+            models.Purchase.status == 'completed'
+        ).scalar()
+        revenue_by_type = {}
+        for license_type in ['1_month', '6_months', '1_year']:
+            revenue_result = db.query(
+                func.sum(func.cast(models.Purchase.amount, db.Float))
+            ).filter(
+                models.Purchase.license_type == license_type,
+                models.Purchase.status == 'completed'
+            ).scalar()
+            revenue_by_type[license_type] = float(revenue_result) if revenue_result else 0.0
+        purchase_stats = schemas.PurchaseStatsResponse(
+            total_purchases=total_purchases,
+            completed_purchases=db.query(models.Purchase).filter(
+                models.Purchase.status == 'completed'
+            ).count(),
+            pending_purchases=db.query(models.Purchase).filter(
+                models.Purchase.status == 'pending'
+            ).count(),
+            failed_purchases=db.query(models.Purchase).filter(
+                models.Purchase.status == 'failed'
+            ).count(),
+            total_revenue=float(total_revenue_result) if total_revenue_result else 0.0,
+            revenue_by_type=revenue_by_type,
+            purchases_today=db.query(models.Purchase).filter(
+                models.Purchase.created_at >= today_start
+            ).count(),
+            purchases_this_week=db.query(models.Purchase).filter(
+                models.Purchase.created_at >= week_start
+            ).count(),
+            purchases_this_month=db.query(models.Purchase).filter(
+                models.Purchase.created_at >= month_start
+            ).count()
+        )
+        
+        return schemas.DashboardResponse(
+            license_stats=license_stats,
+            activation_stats=activation_stats,
+            validation_stats=validation_stats,
+            purchase_stats=purchase_stats,
+            last_updated=now
+        )
+    except Exception as e:
+        security_logger.error(f"Erro ao obter dashboard: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro ao obter dashboard: {str(e)}")
+

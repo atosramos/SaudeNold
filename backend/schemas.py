@@ -1,5 +1,5 @@
 from pydantic import BaseModel, validator
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 
 
@@ -236,4 +236,54 @@ class LicenseRevokeResponse(BaseModel):
     success: bool
     message: Optional[str] = None
     error: Optional[str] = None
+
+
+# ========== ANALYTICS ==========
+class LicenseStatsResponse(BaseModel):
+    total_licenses: int
+    active_licenses: int
+    expired_licenses: int
+    revoked_licenses: int
+    licenses_by_type: Dict[str, int]  # { "1_month": count, "6_months": count, "1_year": count }
+    licenses_by_status: Dict[str, int]  # { "active": count, "expired": count, "revoked": count }
+
+
+class ActivationStatsResponse(BaseModel):
+    total_activations: int
+    activations_today: int
+    activations_this_week: int
+    activations_this_month: int
+    activations_by_type: Dict[str, int]  # { "1_month": count, "6_months": count, "1_year": count }
+    activation_trend: List[Dict[str, Any]]  # [{ "date": "YYYY-MM-DD", "count": int }]
+
+
+class ValidationStatsResponse(BaseModel):
+    total_validations: int
+    successful_validations: int
+    failed_validations: int
+    suspicious_attempts: int
+    validations_today: int
+    validations_this_week: int
+    validation_results: Dict[str, int]  # { "valid": count, "invalid": count, "expired": count, "revoked": count }
+    top_error_messages: List[Dict[str, Any]]  # [{ "error": str, "count": int }]
+
+
+class PurchaseStatsResponse(BaseModel):
+    total_purchases: int
+    completed_purchases: int
+    pending_purchases: int
+    failed_purchases: int
+    total_revenue: float
+    revenue_by_type: Dict[str, float]  # { "1_month": amount, "6_months": amount, "1_year": amount }
+    purchases_today: int
+    purchases_this_week: int
+    purchases_this_month: int
+
+
+class DashboardResponse(BaseModel):
+    license_stats: LicenseStatsResponse
+    activation_stats: ActivationStatsResponse
+    validation_stats: ValidationStatsResponse
+    purchase_stats: PurchaseStatsResponse
+    last_updated: datetime
 
