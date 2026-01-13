@@ -242,12 +242,18 @@ export const activateLicense = async (key) => {
     
     await AsyncStorage.setItem(LICENSE_INFO_KEY, JSON.stringify(licenseInfo));
     
+    // Rastrear ativacao
+    const deviceId = await getDeviceId();
+    trackLicenseActivation(validation.licenseType, deviceId);
+    trackLicenseValidation(true);
+    
     return {
       success: true,
       licenseInfo,
     };
   } catch (error) {
     console.error('Erro ao ativar licença:', error);
+    trackError('Erro ao ativar licenca', { error: error.message });
     return {
       success: false,
       error: 'Erro ao ativar licença: ' + error.message,
