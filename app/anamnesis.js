@@ -83,6 +83,8 @@ export default function Anamnesis() {
   const loadAnamnesis = async () => {
     try {
       const stored = await AsyncStorage.getItem('anamnesis');
+      let savedMedications = [];
+      
       if (stored) {
         const data = JSON.parse(stored);
         setAge(data.age || '');
@@ -96,7 +98,7 @@ export default function Anamnesis() {
         setAlcohol(data.alcohol || '');
         setPhysicalActivity(data.physicalActivity || '');
         setFamilyHistory(data.familyHistory || []);
-        setCurrentMedications(data.currentMedications || []);
+        savedMedications = data.currentMedications || [];
         setSystemReview(data.systemReview || {
           cardiovascular: '',
           respiratory: '',
@@ -108,6 +110,39 @@ export default function Anamnesis() {
           musculoskeletal: '',
         });
         setObservations(data.observations || '');
+      }
+
+      // Carregar medicamentos de "Meus Medicamentos" e sincronizar
+      try {
+        const medicationsStored = await AsyncStorage.getItem('medications');
+        if (medicationsStored) {
+          const medications = JSON.parse(medicationsStored);
+          
+          // Converter medicamentos para formato de string (nome + dosagem)
+          const medicationsFromList = medications.map(med => {
+            const name = med.name || '';
+            const dosage = med.dosage || '';
+            return dosage ? `${name} ${dosage}`.trim() : name;
+          }).filter(med => med); // Remove strings vazias
+
+          // Combinar medicamentos salvos na anamnese com os da lista de medicamentos
+          // Evitar duplicatas
+          const allMedications = [...savedMedications];
+          medicationsFromList.forEach(med => {
+            if (!allMedications.includes(med)) {
+              allMedications.push(med);
+            }
+          });
+
+          setCurrentMedications(allMedications);
+        } else {
+          // Se não há medicamentos na lista, usar apenas os salvos na anamnese
+          setCurrentMedications(savedMedications);
+        }
+      } catch (error) {
+        console.error('Erro ao carregar medicamentos:', error);
+        // Em caso de erro, usar apenas os medicamentos salvos na anamnese
+        setCurrentMedications(savedMedications);
       }
     } catch (error) {
       console.error('Erro ao carregar anamnese:', error);
@@ -768,6 +803,9 @@ export default function Anamnesis() {
         {/* Medicamentos em Uso */}
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Medicamentos em Uso</Text>
+          <Text style={styles.infoText}>
+            Os medicamentos cadastrados em "Meus Medicamentos" são sincronizados automaticamente aqui.
+          </Text>
           {editing && (
             <View style={styles.addAllergyContainer}>
               <TextInput
@@ -1041,6 +1079,13 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     textAlign: 'center',
     padding: 20,
+  },
+  infoText: {
+    fontSize: 18,
+    color: '#4ECDC4',
+    fontStyle: 'italic',
+    marginBottom: 12,
+    paddingHorizontal: 4,
   },
   addSurgeryButton: {
     flexDirection: 'row',
