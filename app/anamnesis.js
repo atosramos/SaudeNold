@@ -28,6 +28,7 @@ export default function Anamnesis() {
   const [birthDate, setBirthDate] = useState(null);
   const [showBirthDatePicker, setShowBirthDatePicker] = useState(false);
   const [gender, setGender] = useState('');
+  const [isPregnant, setIsPregnant] = useState(null);
   
   // Calcular idade a partir da data de nascimento
   const calculateAge = (date) => {
@@ -152,6 +153,7 @@ export default function Anamnesis() {
           setBirthDate(new Date(estimatedYear, today.getMonth(), today.getDate()));
         }
         setGender(data.gender || '');
+        setIsPregnant(data.isPregnant !== undefined ? data.isPregnant : null);
         setBloodType(data.bloodType || '');
         setAllergies(data.allergies || []);
         setSurgeries(data.surgeries || []);
@@ -219,8 +221,9 @@ export default function Anamnesis() {
     try {
       const anamnesisData = {
         birthDate: birthDate ? birthDate.toISOString() : null,
-        age: age, // Manter idade calculada para compatibilidade
+        age: age !== null && age !== undefined ? age : null, // Manter idade calculada para compatibilidade
         gender,
+        isPregnant: gender === 'Feminino' ? isPregnant : null,
         bloodType,
         allergies,
         surgeries,
@@ -451,6 +454,39 @@ export default function Anamnesis() {
                   </Text>
                 )}
               </View>
+              {/* Mostrar status de gestação se for feminino */}
+              {gender === 'Feminino' && isPregnant !== null && (
+                <View style={styles.pregnancyStatusContainer}>
+                  <Ionicons 
+                    name={isPregnant ? "checkmark-circle" : "close-circle"} 
+                    size={24} 
+                    color={isPregnant ? "#2ECC71" : "#E74C3C"} 
+                  />
+                  <Text style={styles.pregnancyStatusText}>
+                    {isPregnant ? 'Em período de gestação' : 'Não está em período de gestação'}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      Alert.alert(
+                        'Alterar Status',
+                        'Você está em período de gestação?',
+                        [
+                          {
+                            text: 'Não',
+                            onPress: () => setIsPregnant(false),
+                          },
+                          {
+                            text: 'Sim',
+                            onPress: () => setIsPregnant(true),
+                          },
+                        ]
+                      );
+                    }}
+                  >
+                    <Ionicons name="create-outline" size={20} color="#4ECDC4" />
+                  </TouchableOpacity>
+                </View>
+              )}
               <View style={styles.personalDataRow}>
                 <Text style={styles.personalDataLabel}>Sexo:</Text>
                 <View style={styles.genderContainer}>
@@ -461,7 +497,29 @@ export default function Anamnesis() {
                         styles.genderButton,
                         gender === g && styles.genderButtonActive
                       ]}
-                      onPress={() => setGender(g)}
+                      onPress={() => {
+                        setGender(g);
+                        // Se mudou para Feminino e ainda não foi perguntado, perguntar sobre gestação
+                        if (g === 'Feminino' && isPregnant === null) {
+                          Alert.alert(
+                            'Informação Importante',
+                            'Você está em período de gestação?',
+                            [
+                              {
+                                text: 'Não',
+                                onPress: () => setIsPregnant(false),
+                              },
+                              {
+                                text: 'Sim',
+                                onPress: () => setIsPregnant(true),
+                              },
+                            ]
+                          );
+                        } else if (g === 'Masculino') {
+                          // Se mudou para Masculino, limpar informação de gestação
+                          setIsPregnant(null);
+                        }
+                      }}
                     >
                       <Text style={[
                         styles.genderText,
@@ -478,6 +536,9 @@ export default function Anamnesis() {
             <View style={styles.displayValue}>
               <Text style={styles.displayText}>
                 {birthDate ? `Data de Nascimento: ${formatDate(birthDate.toISOString())}${age !== null && age !== undefined ? ` (${age} ${age === 1 ? 'ano' : 'anos'})` : ''}` : 'Data de nascimento não informada'} | {gender || 'Sexo não informado'}
+                {gender === 'Feminino' && isPregnant !== null && (
+                  ` | ${isPregnant ? 'Grávida' : 'Não grávida'}`
+                )}
               </Text>
             </View>
           ) : null}
