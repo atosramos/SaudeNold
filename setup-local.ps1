@@ -105,7 +105,7 @@ DATABASE_NAME=saudenold
 API_KEY=$apiKey
 
 # CORS
-CORS_ORIGINS=http://localhost:8082,exp://*
+CORS_ORIGINS=http://localhost:8081,http://localhost:8082,exp://*
 
 # License Secret Key
 LICENSE_SECRET_KEY=$licenseKey
