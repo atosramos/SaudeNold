@@ -65,7 +65,7 @@ export default function Anamnesis() {
   const [showFamilyHistoryForm, setShowFamilyHistoryForm] = useState(false);
   // Medicamentos em uso
   const [currentMedications, setCurrentMedications] = useState([]);
-  const [newCurrentMedication, setNewCurrentMedication] = useState('');
+  const [medicationsList, setMedicationsList] = useState([]); // Lista completa de medicamentos para buscar IDs
   // Revisão de sistemas
   const [systemReview, setSystemReview] = useState({
     cardiovascular: '',
@@ -80,6 +80,28 @@ export default function Anamnesis() {
   // Observações gerais
   const [observations, setObservations] = useState('');
   const [editing, setEditing] = useState(true);
+  
+  // Estados para accordion (seções expansíveis)
+  const [expandedSections, setExpandedSections] = useState({
+    personalData: true,
+    bloodType: false,
+    allergies: false,
+    surgeries: false,
+    conditions: false,
+    habits: false,
+    familyHistory: false,
+    medications: false,
+    systemReview: false,
+    observations: false,
+  });
+  
+  // Função para alternar expansão de seção
+  const toggleSection = (section) => {
+    setExpandedSections(prev => ({
+      ...prev,
+      [section]: !prev[section]
+    }));
+  };
 
   // Estados para nova cirurgia
   const [newSurgery, setNewSurgery] = useState({
@@ -141,6 +163,7 @@ export default function Anamnesis() {
         const medicationsStored = await AsyncStorage.getItem('medications');
         if (medicationsStored) {
           const medications = JSON.parse(medicationsStored);
+          setMedicationsList(medications); // Salvar lista completa para buscar IDs
           
           // Converter medicamentos para formato de string (nome + dosagem)
           const medicationsFromList = medications.map(med => {
@@ -162,11 +185,13 @@ export default function Anamnesis() {
         } else {
           // Se não há medicamentos na lista, usar apenas os salvos na anamnese
           setCurrentMedications(savedMedications);
+          setMedicationsList([]);
         }
       } catch (error) {
         console.error('Erro ao carregar medicamentos:', error);
         // Em caso de erro, usar apenas os medicamentos salvos na anamnese
         setCurrentMedications(savedMedications);
+        setMedicationsList([]);
       }
     } catch (error) {
       console.error('Erro ao carregar anamnese:', error);
@@ -309,23 +334,28 @@ export default function Anamnesis() {
     setFamilyHistory(familyHistory.filter(h => h !== history));
   };
 
-  const addCurrentMedication = () => {
-    if (!newCurrentMedication.trim()) {
-      Alert.alert('Erro', 'Por favor, digite o nome do medicamento');
-      return;
-    }
-
-    if (currentMedications.includes(newCurrentMedication.trim())) {
-      Alert.alert('Aviso', 'Este medicamento já está cadastrado');
-      return;
-    }
-
-    setCurrentMedications([...currentMedications, newCurrentMedication.trim()]);
-    setNewCurrentMedication('');
+  // Buscar ID do medicamento pelo nome
+  const findMedicationId = (medicationName) => {
+    const med = medicationsList.find(m => {
+      const name = m.name || '';
+      const dosage = m.dosage || '';
+      const fullName = dosage ? `${name} ${dosage}`.trim() : name;
+      return fullName === medicationName || name === medicationName;
+    });
+    return med?.id;
   };
-
-  const removeCurrentMedication = (medication) => {
-    setCurrentMedications(currentMedications.filter(m => m !== medication));
+  
+  // Navegar para detalhes do medicamento
+  const openMedicationDetails = (medicationName) => {
+    const medicationId = findMedicationId(medicationName);
+    if (medicationId) {
+      router.push({
+        pathname: '/medications/[id]',
+        params: { id: medicationId.toString() }
+      });
+    } else {
+      Alert.alert('Aviso', 'Medicamento não encontrado na lista de "Meus Medicamentos"');
+    }
   };
 
   const formatDate = (dateString) => {
@@ -415,19 +445,31 @@ export default function Anamnesis() {
                 </View>
               </View>
             </View>
-          ) : (
+          ) : expandedSections.personalData ? (
             <View style={styles.displayValue}>
               <Text style={styles.displayText}>
                 {birthDate ? `Data de Nascimento: ${formatDate(birthDate.toISOString())} (${age} ${age === 1 ? 'ano' : 'anos'})` : 'Data de nascimento não informada'} | {gender || 'Sexo não informado'}
               </Text>
             </View>
-          )}
+          ) : null}
         </View>
 
         {/* Tipo Sanguíneo */}
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Tipo Sanguíneo *</Text>
-          {editing ? (
+          <TouchableOpacity 
+            style={styles.sectionHeaderButton}
+            onPress={() => toggleSection('bloodType')}
+          >
+            <View style={styles.sectionHeaderContent}>
+              <Ionicons 
+                name={expandedSections.bloodType ? "chevron-down" : "chevron-forward"} 
+                size={24} 
+                color="#4ECDC4" 
+              />
+              <Text style={styles.label}>Tipo Sanguíneo *</Text>
+            </View>
+          </TouchableOpacity>
+          {expandedSections.bloodType && editing ? (
             <View style={styles.bloodTypeContainer}>
               {bloodTypes.map((type) => (
                 <TouchableOpacity
@@ -447,17 +489,29 @@ export default function Anamnesis() {
                 </TouchableOpacity>
               ))}
             </View>
-          ) : (
+          ) : expandedSections.bloodType ? (
             <View style={styles.displayValue}>
               <Text style={styles.displayText}>{bloodType || 'Não informado'}</Text>
             </View>
-          )}
+          ) : null}
         </View>
 
         {/* Alergias */}
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Alergias Conhecidas</Text>
-          {editing && (
+          <TouchableOpacity 
+            style={styles.sectionHeaderButton}
+            onPress={() => toggleSection('allergies')}
+          >
+            <View style={styles.sectionHeaderContent}>
+              <Ionicons 
+                name={expandedSections.allergies ? "chevron-down" : "chevron-forward"} 
+                size={24} 
+                color="#4ECDC4" 
+              />
+              <Text style={styles.label}>Alergias Conhecidas</Text>
+            </View>
+          </TouchableOpacity>
+          {expandedSections.allergies && editing && (
             <View style={styles.addAllergyContainer}>
               <TextInput
                 style={styles.addAllergyInput}
@@ -475,7 +529,7 @@ export default function Anamnesis() {
               </TouchableOpacity>
             </View>
           )}
-          {allergies.length > 0 ? (
+          {expandedSections.allergies && allergies.length > 0 ? (
             <View style={styles.listContainer}>
               {allergies.map((allergy, index) => (
                 <View key={index} style={styles.listItem}>
@@ -488,15 +542,27 @@ export default function Anamnesis() {
                 </View>
               ))}
             </View>
-          ) : (
+          ) : expandedSections.allergies ? (
             <Text style={styles.emptyText}>Nenhuma alergia cadastrada</Text>
-          )}
+          ) : null}
         </View>
 
         {/* Cirurgias */}
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Cirurgias Realizadas</Text>
-          {editing && (
+          <TouchableOpacity 
+            style={styles.sectionHeaderButton}
+            onPress={() => toggleSection('surgeries')}
+          >
+            <View style={styles.sectionHeaderContent}>
+              <Ionicons 
+                name={expandedSections.surgeries ? "chevron-down" : "chevron-forward"} 
+                size={24} 
+                color="#4ECDC4" 
+              />
+              <Text style={styles.label}>Cirurgias Realizadas</Text>
+            </View>
+          </TouchableOpacity>
+          {expandedSections.surgeries && editing && (
             <>
               {!showNewSurgeryForm ? (
                 <TouchableOpacity
@@ -567,7 +633,7 @@ export default function Anamnesis() {
               )}
             </>
           )}
-          {surgeries.length > 0 ? (
+          {expandedSections.surgeries && surgeries.length > 0 ? (
             <View style={styles.listContainer}>
               {surgeries.map((surgery) => (
                 <View key={surgery.id} style={styles.surgeryItem}>
@@ -588,15 +654,27 @@ export default function Anamnesis() {
                 </View>
               ))}
             </View>
-          ) : (
+          ) : expandedSections.surgeries ? (
             <Text style={styles.emptyText}>Nenhuma cirurgia cadastrada</Text>
-          )}
+          ) : null}
         </View>
 
         {/* Condições Médicas */}
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Condições Médicas / Observações</Text>
-          {editing ? (
+          <TouchableOpacity 
+            style={styles.sectionHeaderButton}
+            onPress={() => toggleSection('conditions')}
+          >
+            <View style={styles.sectionHeaderContent}>
+              <Ionicons 
+                name={expandedSections.conditions ? "chevron-down" : "chevron-forward"} 
+                size={24} 
+                color="#4ECDC4" 
+              />
+              <Text style={styles.label}>Condições Médicas / Observações</Text>
+            </View>
+          </TouchableOpacity>
+          {expandedSections.conditions && editing ? (
             <>
               <View style={styles.conditionsContainer}>
                 {commonConditions.map((condition) => (
@@ -782,7 +860,7 @@ export default function Anamnesis() {
                 </View>
               </View>
             </>
-          ) : (
+          ) : expandedSections.habits ? (
             <View style={styles.displayValue}>
               <Text style={styles.displayText}>
                 {smoking ? `Tabagismo: ${smoking}` : 'Tabagismo não informado'} | {' '}
@@ -790,13 +868,25 @@ export default function Anamnesis() {
                 {physicalActivity ? `Atividade Física: ${physicalActivity}` : 'Atividade física não informada'}
               </Text>
             </View>
-          )}
+          ) : null}
         </View>
 
         {/* Antecedentes Familiares */}
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Antecedentes Familiares</Text>
-          {editing && (
+          <TouchableOpacity 
+            style={styles.sectionHeaderButton}
+            onPress={() => toggleSection('familyHistory')}
+          >
+            <View style={styles.sectionHeaderContent}>
+              <Ionicons 
+                name={expandedSections.familyHistory ? "chevron-down" : "chevron-forward"} 
+                size={24} 
+                color="#4ECDC4" 
+              />
+              <Text style={styles.label}>Antecedentes Familiares</Text>
+            </View>
+          </TouchableOpacity>
+          {expandedSections.familyHistory && editing && (
             <>
               {!showFamilyHistoryForm ? (
                 <TouchableOpacity
@@ -836,7 +926,7 @@ export default function Anamnesis() {
               )}
             </>
           )}
-          {familyHistory.length > 0 ? (
+          {expandedSections.familyHistory && familyHistory.length > 0 ? (
             <View style={styles.listContainer}>
               {familyHistory.map((history, index) => (
                 <View key={index} style={styles.listItem}>
@@ -849,57 +939,76 @@ export default function Anamnesis() {
                 </View>
               ))}
             </View>
-          ) : (
+          ) : expandedSections.familyHistory ? (
             <Text style={styles.emptyText}>Nenhum histórico familiar cadastrado</Text>
-          )}
+          ) : null}
         </View>
 
         {/* Medicamentos em Uso */}
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Medicamentos em Uso</Text>
-          <Text style={styles.infoText}>
-            Os medicamentos cadastrados em "Meus Medicamentos" são sincronizados automaticamente aqui.
-          </Text>
-          {editing && (
-            <View style={styles.addAllergyContainer}>
-              <TextInput
-                style={styles.addAllergyInput}
-                value={newCurrentMedication}
-                onChangeText={setNewCurrentMedication}
-                placeholder="Ex: Losartana 50mg, Metformina 850mg"
-                placeholderTextColor="#999"
-                onSubmitEditing={addCurrentMedication}
+          <TouchableOpacity 
+            style={styles.sectionHeaderButton}
+            onPress={() => toggleSection('medications')}
+          >
+            <View style={styles.sectionHeaderContent}>
+              <Ionicons 
+                name={expandedSections.medications ? "chevron-down" : "chevron-forward"} 
+                size={24} 
+                color="#4ECDC4" 
               />
-              <TouchableOpacity
-                style={styles.addButton}
-                onPress={addCurrentMedication}
-              >
-                <Ionicons name="add-circle" size={32} color="#4ECDC4" />
-              </TouchableOpacity>
+              <Text style={styles.label}>Medicamentos em Uso</Text>
             </View>
-          )}
-          {currentMedications.length > 0 ? (
-            <View style={styles.listContainer}>
-              {currentMedications.map((medication, index) => (
-                <View key={index} style={styles.listItem}>
-                  <Text style={styles.listItemText}>{medication}</Text>
-                  {editing && (
-                    <TouchableOpacity onPress={() => removeCurrentMedication(medication)}>
-                      <Ionicons name="close-circle" size={24} color="#FF6B6B" />
+          </TouchableOpacity>
+          {expandedSections.medications && (
+            <>
+              <Text style={styles.infoText}>
+                Os medicamentos cadastrados em "Meus Medicamentos" são sincronizados automaticamente aqui.
+              </Text>
+              {editing && (
+                <TouchableOpacity
+                  style={styles.addMedicationButton}
+                  onPress={() => router.push('/medications')}
+                >
+                  <Ionicons name="add-circle" size={28} color="#4ECDC4" />
+                  <Text style={styles.addMedicationButtonText}>Adicionar Medicamento</Text>
+                </TouchableOpacity>
+              )}
+              {currentMedications.length > 0 ? (
+                <View style={styles.listContainer}>
+                  {currentMedications.map((medication, index) => (
+                    <TouchableOpacity 
+                      key={index} 
+                      style={styles.listItem}
+                      onPress={() => openMedicationDetails(medication)}
+                    >
+                      <Text style={styles.listItemText}>{medication}</Text>
+                      <Ionicons name="chevron-forward" size={20} color="#4ECDC4" />
                     </TouchableOpacity>
-                  )}
+                  ))}
                 </View>
-              ))}
-            </View>
-          ) : (
-            <Text style={styles.emptyText}>Nenhum medicamento cadastrado</Text>
+              ) : (
+                <Text style={styles.emptyText}>Nenhum medicamento cadastrado</Text>
+              )}
+            </>
           )}
         </View>
 
         {/* Revisão de Sistemas */}
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Revisão de Sistemas</Text>
-          {editing ? (
+          <TouchableOpacity 
+            style={styles.sectionHeaderButton}
+            onPress={() => toggleSection('systemReview')}
+          >
+            <View style={styles.sectionHeaderContent}>
+              <Ionicons 
+                name={expandedSections.systemReview ? "chevron-down" : "chevron-forward"} 
+                size={24} 
+                color="#4ECDC4" 
+              />
+              <Text style={styles.label}>Revisão de Sistemas</Text>
+            </View>
+          </TouchableOpacity>
+          {expandedSections.systemReview && editing ? (
             <View style={styles.systemReviewContainer}>
               {[
                 { key: 'cardiovascular', label: 'Cardiovascular', placeholder: 'Ex: Palpitações, dor no peito' },
@@ -924,7 +1033,7 @@ export default function Anamnesis() {
                 </View>
               ))}
             </View>
-          ) : (
+          ) : expandedSections.systemReview ? (
             <View style={styles.listContainer}>
               {Object.entries(systemReview).map(([key, value]) => {
                 if (!value) return null;
@@ -952,13 +1061,25 @@ export default function Anamnesis() {
                 <Text style={styles.emptyText}>Nenhuma informação registrada</Text>
               )}
             </View>
-          )}
+          ) : null}
         </View>
 
         {/* Observações Gerais */}
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Observações Gerais</Text>
-          {editing ? (
+          <TouchableOpacity 
+            style={styles.sectionHeaderButton}
+            onPress={() => toggleSection('observations')}
+          >
+            <View style={styles.sectionHeaderContent}>
+              <Ionicons 
+                name={expandedSections.observations ? "chevron-down" : "chevron-forward"} 
+                size={24} 
+                color="#4ECDC4" 
+              />
+              <Text style={styles.label}>Observações Gerais</Text>
+            </View>
+          </TouchableOpacity>
+          {expandedSections.observations && editing ? (
             <TextInput
               style={[styles.input, styles.textArea]}
               value={observations}
@@ -968,13 +1089,13 @@ export default function Anamnesis() {
               multiline
               numberOfLines={6}
             />
-          ) : (
+          ) : expandedSections.observations ? (
             <View style={styles.displayValue}>
               <Text style={styles.displayText}>
                 {observations || 'Nenhuma observação cadastrada'}
               </Text>
             </View>
-          )}
+          ) : null}
         </View>
 
         {editing && (
@@ -1031,13 +1152,26 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   inputGroup: {
-    marginBottom: 32,
+    marginBottom: 16,
+  },
+  sectionHeaderButton: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 2,
+    borderColor: '#4ECDC4',
+  },
+  sectionHeaderContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   label: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#333',
-    marginBottom: 12,
+    marginLeft: 8,
+    flex: 1,
   },
   input: {
     backgroundColor: '#fff',
@@ -1107,6 +1241,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 8,
+  },
+  addMedicationButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 2,
+    borderColor: '#4ECDC4',
+    gap: 8,
+  },
+  addMedicationButtonText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#4ECDC4',
   },
   listContainer: {
     backgroundColor: '#fff',
