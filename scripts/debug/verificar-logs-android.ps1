@@ -6,17 +6,61 @@ Write-Host "  Verificando Logs do Android" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Verificar se adb está disponível
-$adbPath = Get-Command adb -ErrorAction SilentlyContinue
+# Encontrar Android SDK e ADB
+$androidSdk = $null
+$adbPath = $null
+
+# Verificar locais comuns do Android SDK
+$sdkLocations = @(
+    "$env:LOCALAPPDATA\Android\Sdk",
+    "$env:USERPROFILE\AppData\Local\Android\Sdk",
+    "$env:ANDROID_HOME",
+    "$env:ANDROID_SDK_ROOT"
+)
+
+foreach ($sdk in $sdkLocations) {
+    if ($sdk -and (Test-Path $sdk)) {
+        $platformTools = Join-Path $sdk "platform-tools\adb.exe"
+        if (Test-Path $platformTools) {
+            $androidSdk = $sdk
+            $adbPath = $platformTools
+            break
+        }
+    }
+}
+
+# Se não encontrou, tentar usar adb do PATH
+if (-not $adbPath) {
+    $adbCheck = Get-Command adb -ErrorAction SilentlyContinue
+    if ($adbCheck) {
+        $adbPath = $adbCheck.Source
+        Write-Host "ADB encontrado no PATH: $adbPath" -ForegroundColor Green
+    }
+}
+
+# Se ainda não encontrou, erro
 if (-not $adbPath) {
     Write-Host "ERRO: ADB (Android Debug Bridge) nao encontrado!" -ForegroundColor Red
-    Write-Host "Por favor, instale o Android SDK Platform Tools" -ForegroundColor Yellow
-    Write-Host "Ou adicione o caminho do SDK ao PATH" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Locais verificados:" -ForegroundColor Yellow
+    foreach ($loc in $sdkLocations) {
+        if ($loc) {
+            Write-Host "  - $loc" -ForegroundColor Gray
+        }
+    }
+    Write-Host ""
+    Write-Host "Solucao:" -ForegroundColor Yellow
+    Write-Host "  1. Instale o Android SDK Platform Tools" -ForegroundColor White
+    Write-Host "  2. Ou adicione o caminho ao PATH:" -ForegroundColor White
+    Write-Host "     `$env:PATH += ';$env:LOCALAPPDATA\Android\Sdk\platform-tools'" -ForegroundColor Gray
     exit 1
 }
 
+Write-Host "ADB encontrado: $adbPath" -ForegroundColor Green
+Write-Host ""
+
 Write-Host "1. Verificando dispositivos conectados..." -ForegroundColor Green
-$devices = adb devices
+$devices = & $adbPath devices
 Write-Host $devices
 Write-Host ""
 
@@ -31,7 +75,7 @@ if ($deviceCount -eq 0) {
 }
 
 Write-Host "2. Limpando logs antigos..." -ForegroundColor Green
-adb logcat -c
+& $adbPath logcat -c
 Write-Host ""
 
 Write-Host "3. Capturando logs do app SaudeNold..." -ForegroundColor Green
@@ -39,4 +83,4 @@ Write-Host "   (Pressione Ctrl+C para parar)" -ForegroundColor Yellow
 Write-Host ""
 
 # Filtrar logs relevantes
-adb logcat | Select-String -Pattern "SaudeNold|ReactNative|Expo|FATAL|AndroidRuntime|Error|Exception" -Context 2,2
+& $adbPath logcat | Select-String -Pattern "SaudeNold|ReactNative|Expo|FATAL|AndroidRuntime|Error|Exception" -Context 2,2
