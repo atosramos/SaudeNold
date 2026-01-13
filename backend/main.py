@@ -25,6 +25,29 @@ from alert_service import alert_service, AlertType
 # Carregar variáveis de ambiente do .env
 load_dotenv()
 
+# Configurar Sentry (se habilitado)
+SENTRY_DSN = os.getenv("SENTRY_DSN")
+if SENTRY_DSN:
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.fastapi import FastApiIntegration
+        from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+        
+        sentry_sdk.init(
+            dsn=SENTRY_DSN,
+            integrations=[
+                FastApiIntegration(),
+                SqlalchemyIntegration(),
+            ],
+            traces_sample_rate=0.1,  # 10% das transacoes
+            environment=os.getenv("ENVIRONMENT", "production"),
+        )
+        logging.info("Sentry configurado com sucesso")
+    except ImportError:
+        logging.warning("Sentry SDK nao instalado. Execute: pip install sentry-sdk")
+    except Exception as e:
+        logging.error(f"Erro ao configurar Sentry: {str(e)}")
+
 # Configurar logging de segurança
 logging.basicConfig(
     level=logging.INFO,
