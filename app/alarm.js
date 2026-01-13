@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View, TouchableOpacity, Modal, Image } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, Modal, Image, ScrollView, SafeAreaView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useEffect, useRef } from 'react';
 import { Audio } from 'expo-av';
@@ -541,66 +541,72 @@ export default function AlarmScreen() {
         transparent={false}
         onRequestClose={handleStop}
       >
-        <View style={styles.container}>
-          <View style={styles.alarmContent}>
-            <View style={styles.iconContainer}>
-              <Ionicons name="medical" size={120} color="#FF6B6B" />
-            </View>
-            
-            <Text style={styles.title}>Hora do Medicamento!</Text>
-            
-            {medication.image && (
-              <Image source={{ uri: medication.image }} style={styles.medicationImage} />
-            )}
-            
-            <Text style={styles.medicationName}>{medication.name}</Text>
-            
-            {medication.dosage && (
-              <Text style={styles.dosage}>Dosagem: {medication.dosage}</Text>
-            )}
-            
-            {isPaused && (
-              <View style={styles.pauseIndicator}>
-                <Text style={styles.pauseText}>Alarme pausado</Text>
-                <Text style={styles.pauseSubtext}>
-                  {snoozeTimeoutRef.current ? 'Retomará em 15 minutos' : 'Retomará em 5 minutos'}
-                </Text>
+        <SafeAreaView style={styles.container}>
+          <ScrollView 
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+            bounces={false}
+          >
+            <View style={styles.alarmContent}>
+              <View style={styles.iconContainer}>
+                <Ionicons name="medical" size={80} color="#FF6B6B" />
               </View>
-            )}
-            
-            <View style={styles.buttonsContainer}>
-              <TouchableOpacity
-                style={[styles.button, styles.takeButton]}
-                onPress={handleTakeMedication}
-              >
-                <Ionicons name="checkmark-circle" size={40} color="#fff" />
-                <Text style={styles.buttonText}>Tomei</Text>
-              </TouchableOpacity>
               
-              <TouchableOpacity
-                style={[styles.button, styles.snoozeButton]}
-                onPress={handleSnooze}
-              >
-                <Ionicons name="time" size={40} color="#fff" />
-                <Text style={styles.buttonText}>Soneca 15min</Text>
-              </TouchableOpacity>
+              <Text style={styles.title}>Hora do Medicamento!</Text>
               
-              <TouchableOpacity
-                style={[styles.button, styles.pauseButton]}
-                onPress={handlePause}
-              >
-                <Ionicons 
-                  name={isPaused ? "play" : "pause"} 
-                  size={40} 
-                  color="#fff" 
-                />
-                <Text style={styles.buttonText}>
-                  {isPaused ? "Retomar" : "Pausar"}
-                </Text>
-              </TouchableOpacity>
+              {medication.image && (
+                <Image source={{ uri: medication.image }} style={styles.medicationImage} />
+              )}
+              
+              <Text style={styles.medicationName}>{medication.name}</Text>
+              
+              {medication.dosage && (
+                <Text style={styles.dosage}>Dosagem: {medication.dosage}</Text>
+              )}
+              
+              {isPaused && (
+                <View style={styles.pauseIndicator}>
+                  <Text style={styles.pauseText}>Alarme pausado</Text>
+                  <Text style={styles.pauseSubtext}>
+                    {snoozeTimeoutRef.current ? 'Retomará em 15 minutos' : 'Retomará em 5 minutos'}
+                  </Text>
+                </View>
+              )}
+              
+              <View style={styles.buttonsContainer}>
+                <TouchableOpacity
+                  style={[styles.button, styles.takeButton]}
+                  onPress={handleTakeMedication}
+                >
+                  <Ionicons name="checkmark-circle" size={32} color="#fff" />
+                  <Text style={styles.buttonText}>Tomei</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  style={[styles.button, styles.snoozeButton]}
+                  onPress={handleSnooze}
+                >
+                  <Ionicons name="time" size={32} color="#fff" />
+                  <Text style={styles.buttonText}>Soneca 15min</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  style={[styles.button, styles.pauseButton]}
+                  onPress={handlePause}
+                >
+                  <Ionicons 
+                    name={isPaused ? "play" : "pause"} 
+                    size={32} 
+                    color="#fff" 
+                  />
+                  <Text style={styles.buttonText}>
+                    {isPaused ? "Retomar" : "Pausar"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
-        </View>
+          </ScrollView>
+        </SafeAreaView>
       </Modal>
       <ModalComponent />
     </>
@@ -611,84 +617,94 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#FF6B6B',
+  },
+  scrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingVertical: 20,
+    paddingHorizontal: 20,
   },
   alarmContent: {
     alignItems: 'center',
-    padding: 40,
     width: '100%',
+    maxWidth: '100%',
   },
   iconContainer: {
-    marginBottom: 30,
+    marginBottom: 20,
     backgroundColor: '#fff',
-    borderRadius: 100,
-    padding: 20,
+    borderRadius: 60,
+    padding: 15,
+    width: 120,
+    height: 120,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   title: {
-    fontSize: 42,
+    fontSize: 32,
     fontWeight: 'bold',
     color: '#fff',
-    marginBottom: 30,
+    marginBottom: 20,
     textAlign: 'center',
   },
   medicationImage: {
-    width: 200,
-    height: 200,
-    borderRadius: 20,
-    marginBottom: 20,
-    borderWidth: 4,
+    width: 150,
+    height: 150,
+    borderRadius: 16,
+    marginBottom: 16,
+    borderWidth: 3,
     borderColor: '#fff',
   },
   medicationName: {
-    fontSize: 36,
+    fontSize: 28,
     fontWeight: 'bold',
     color: '#fff',
-    marginBottom: 16,
+    marginBottom: 12,
     textAlign: 'center',
   },
   dosage: {
-    fontSize: 28,
+    fontSize: 22,
     color: '#fff',
-    marginBottom: 40,
+    marginBottom: 24,
     textAlign: 'center',
   },
   pauseIndicator: {
     backgroundColor: 'rgba(255, 255, 255, 0.3)',
-    padding: 20,
-    borderRadius: 16,
-    marginBottom: 30,
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 20,
+    width: '100%',
   },
   pauseText: {
-    fontSize: 24,
+    fontSize: 20,
     color: '#fff',
     fontWeight: 'bold',
     textAlign: 'center',
   },
   pauseSubtext: {
-    fontSize: 20,
+    fontSize: 16,
     color: '#fff',
     textAlign: 'center',
-    marginTop: 8,
+    marginTop: 6,
   },
   buttonsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 16,
     width: '100%',
-    justifyContent: 'center',
-    paddingHorizontal: 20,
+    justifyContent: 'space-between',
+    gap: 12,
+    marginTop: 10,
   },
   button: {
     flex: 1,
-    minWidth: 140,
+    minWidth: '30%',
     backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 24,
+    borderRadius: 16,
+    padding: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 100,
-    maxWidth: 180,
+    minHeight: 90,
+    maxWidth: '48%',
   },
   takeButton: {
     backgroundColor: '#4ECDC4',
@@ -698,12 +714,16 @@ const styles = StyleSheet.create({
   },
   pauseButton: {
     backgroundColor: '#95E1D3',
+    width: '100%',
+    maxWidth: '100%',
+    marginTop: 8,
   },
   buttonText: {
-    fontSize: 28,
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#fff',
-    marginTop: 12,
+    marginTop: 8,
+    textAlign: 'center',
   },
 });
 
