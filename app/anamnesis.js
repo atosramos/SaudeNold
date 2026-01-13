@@ -801,71 +801,151 @@ export default function Anamnesis() {
           {editing ? (
             <>
               <View style={styles.habitsContainer}>
+                {/* Tabagismo Dropdown */}
                 <View style={styles.habitItem}>
                   <Text style={styles.habitLabel}>Tabagismo:</Text>
-                  <View style={styles.habitOptions}>
-                    {['Não fuma', 'Ex-fumante', 'Fumante'].map((option) => (
-                      <TouchableOpacity
-                        key={option}
-                        style={[
-                          styles.habitButton,
-                          smoking === option && styles.habitButtonActive
-                        ]}
-                        onPress={() => setSmoking(option)}
-                      >
-                        <Text style={[
-                          styles.habitText,
-                          smoking === option && styles.habitTextActive
-                        ]}>
-                          {option}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
+                  <TouchableOpacity
+                    style={styles.dropdownButton}
+                    onPress={() => {
+                      setShowSmokingDropdown(!showSmokingDropdown);
+                      setShowAlcoholDropdown(false);
+                      setShowPhysicalActivityDropdown(false);
+                    }}
+                  >
+                    <Text style={styles.dropdownButtonText}>
+                      {smoking || 'Selecione uma opção'}
+                    </Text>
+                    <Ionicons 
+                      name={showSmokingDropdown ? "chevron-up" : "chevron-down"} 
+                      size={20} 
+                      color="#4ECDC4" 
+                    />
+                  </TouchableOpacity>
+                  {showSmokingDropdown && (
+                    <View style={styles.dropdownOptions}>
+                      {smokingOptions.map((option) => (
+                        <TouchableOpacity
+                          key={option}
+                          style={[
+                            styles.dropdownOption,
+                            smoking === option && styles.dropdownOptionSelected
+                          ]}
+                          onPress={() => {
+                            setSmoking(option);
+                            setShowSmokingDropdown(false);
+                          }}
+                        >
+                          <Text style={[
+                            styles.dropdownOptionText,
+                            smoking === option && styles.dropdownOptionTextSelected
+                          ]}>
+                            {option}
+                          </Text>
+                          {smoking === option && (
+                            <Ionicons name="checkmark" size={20} color="#4ECDC4" />
+                          )}
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
                 </View>
+                
+                {/* Álcool Dropdown */}
                 <View style={styles.habitItem}>
                   <Text style={styles.habitLabel}>Álcool:</Text>
-                  <View style={styles.habitOptions}>
-                    {['Não bebe', 'Socialmente', 'Regularmente'].map((option) => (
-                      <TouchableOpacity
-                        key={option}
-                        style={[
-                          styles.habitButton,
-                          alcohol === option && styles.habitButtonActive
-                        ]}
-                        onPress={() => setAlcohol(option)}
-                      >
-                        <Text style={[
-                          styles.habitText,
-                          alcohol === option && styles.habitTextActive
-                        ]}>
-                          {option}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
+                  <TouchableOpacity
+                    style={styles.dropdownButton}
+                    onPress={() => {
+                      setShowAlcoholDropdown(!showAlcoholDropdown);
+                      setShowSmokingDropdown(false);
+                      setShowPhysicalActivityDropdown(false);
+                    }}
+                  >
+                    <Text style={styles.dropdownButtonText}>
+                      {alcohol || 'Selecione uma opção'}
+                    </Text>
+                    <Ionicons 
+                      name={showAlcoholDropdown ? "chevron-up" : "chevron-down"} 
+                      size={20} 
+                      color="#4ECDC4" 
+                    />
+                  </TouchableOpacity>
+                  {showAlcoholDropdown && (
+                    <View style={styles.dropdownOptions}>
+                      {alcoholOptions.map((option) => (
+                        <TouchableOpacity
+                          key={option}
+                          style={[
+                            styles.dropdownOption,
+                            alcohol === option && styles.dropdownOptionSelected
+                          ]}
+                          onPress={() => {
+                            setAlcohol(option);
+                            setShowAlcoholDropdown(false);
+                          }}
+                        >
+                          <Text style={[
+                            styles.dropdownOptionText,
+                            alcohol === option && styles.dropdownOptionTextSelected
+                          ]}>
+                            {option}
+                          </Text>
+                          {alcohol === option && (
+                            <Ionicons name="checkmark" size={20} color="#4ECDC4" />
+                          )}
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
                 </View>
+                
+                {/* Atividade Física Dropdown */}
                 <View style={styles.habitItem}>
                   <Text style={styles.habitLabel}>Atividade Física:</Text>
-                  <View style={styles.habitOptions}>
-                    {['Sedentário', 'Leve', 'Moderada', 'Intensa'].map((option) => (
-                      <TouchableOpacity
-                        key={option}
-                        style={[
-                          styles.habitButton,
-                          physicalActivity === option && styles.habitButtonActive
-                        ]}
-                        onPress={() => setPhysicalActivity(option)}
-                      >
-                        <Text style={[
-                          styles.habitText,
-                          physicalActivity === option && styles.habitTextActive
-                        ]}>
-                          {option}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
+                  <TouchableOpacity
+                    style={styles.dropdownButton}
+                    onPress={() => {
+                      setShowPhysicalActivityDropdown(!showPhysicalActivityDropdown);
+                      setShowSmokingDropdown(false);
+                      setShowAlcoholDropdown(false);
+                    }}
+                  >
+                    <Text style={styles.dropdownButtonText}>
+                      {physicalActivity || 'Selecione uma opção'}
+                    </Text>
+                    <Ionicons 
+                      name={showPhysicalActivityDropdown ? "chevron-up" : "chevron-down"} 
+                      size={20} 
+                      color="#4ECDC4" 
+                    />
+                  </TouchableOpacity>
+                  {showPhysicalActivityDropdown && (
+                    <View style={styles.dropdownOptions}>
+                      {physicalActivityOptions.map((option) => (
+                        <TouchableOpacity
+                          key={option}
+                          style={[
+                            styles.dropdownOption,
+                            physicalActivity === option && styles.dropdownOptionSelected
+                          ]}
+                          onPress={() => {
+                            setPhysicalActivity(option);
+                            setShowPhysicalActivityDropdown(false);
+                          }}
+                        >
+                          <Text style={[
+                            styles.dropdownOptionText,
+                            physicalActivity === option && styles.dropdownOptionTextSelected
+                          ]}>
+                            {option}
+                          </Text>
+                          {physicalActivity === option && (
+                            <Ionicons name="checkmark" size={20} color="#4ECDC4" />
+                          )}
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
                 </View>
               </View>
             </>
@@ -1588,30 +1668,48 @@ const styles = StyleSheet.create({
     color: '#333',
     marginBottom: 12,
   },
-  habitOptions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  habitButton: {
+  dropdownButton: {
     backgroundColor: '#fff',
     borderRadius: 12,
     padding: 16,
     borderWidth: 2,
     borderColor: '#4ECDC4',
-    minWidth: 120,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  habitButtonActive: {
-    backgroundColor: '#4ECDC4',
+  dropdownButtonText: {
+    fontSize: 18,
+    color: '#333',
+    flex: 1,
   },
-  habitText: {
-    fontSize: 20,
-    fontWeight: 'bold',
+  dropdownOptions: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    marginTop: 8,
+    borderWidth: 2,
+    borderColor: '#e0e0e0',
+    overflow: 'hidden',
+  },
+  dropdownOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  dropdownOptionSelected: {
+    backgroundColor: '#E8F8F5',
+  },
+  dropdownOptionText: {
+    fontSize: 18,
+    color: '#333',
+    flex: 1,
+  },
+  dropdownOptionTextSelected: {
     color: '#4ECDC4',
-  },
-  habitTextActive: {
-    color: '#fff',
+    fontWeight: 'bold',
   },
   familyHistoryForm: {
     backgroundColor: '#f9f9f9',
