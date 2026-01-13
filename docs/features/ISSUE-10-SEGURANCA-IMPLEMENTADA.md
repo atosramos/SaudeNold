@@ -69,7 +69,7 @@
 ### 10. HTTPS Obrigatório ✅
 - **Security Headers**: Middleware já implementado
 - **Strict-Transport-Security**: Header configurado
-- **Recomendação**: Configurar certificados SSL/TLS no Ingress do Kubernetes
+- **Recomendação**: Configurar certificados SSL/TLS no servidor web (Nginx, Apache) ou usar um proxy reverso com HTTPS
 
 ## 📊 Modelo de Dados
 
@@ -147,7 +147,8 @@ error: Optional[str] = None
    - Análise de padrões de fraude
 
 2. **HTTPS**:
-   - Configurar certificados SSL/TLS no Kubernetes
+   - Configurar certificados SSL/TLS no servidor web (Nginx, Apache) ou proxy reverso
+   - Usar Let's Encrypt para certificados gratuitos
    - Forçar redirecionamento HTTP → HTTPS
    - Validar certificados em produção
 
