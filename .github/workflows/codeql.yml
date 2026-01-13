@@ -1,0 +1,47 @@
+name: "CodeQL"
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  schedule:
+    - cron: '0 0 * * 0' # Semanalmente no domingo
+
+jobs:
+  analyze:
+    name: Analyze
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'javascript-typescript' ]
+        # Removido 'java-kotlin' porque o autobuild está falhando
+        # Se precisar analisar código Android no futuro, configure build manual
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3
+      with:
+        languages: ${{ matrix.language }}
+        # Se precisar analisar Java/Kotlin no futuro, adicione:
+        # build-mode: manual
+        # e configure os passos de build manual abaixo
+
+    - name: Autobuild
+      uses: github/codeql-action/autobuild@v3
+      # Este passo só funciona para JavaScript/TypeScript
+      # Para Java/Kotlin, seria necessário configurar build manual
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+      with:
+        category: "/language:${{matrix.language}}"
