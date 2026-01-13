@@ -395,7 +395,7 @@ export default function Anamnesis() {
               <View style={styles.personalDataRow}>
                 <Text style={styles.personalDataLabel}>Sexo:</Text>
                 <View style={styles.genderContainer}>
-                  {['Masculino', 'Feminino', 'Outro'].map((g) => (
+                  {['Masculino', 'Feminino'].map((g) => (
                     <TouchableOpacity
                       key={g}
                       style={[
