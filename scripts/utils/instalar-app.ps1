@@ -67,7 +67,20 @@ $deviceCount = ($devices | Select-String "device$" | Measure-Object).Count
 
 if ($deviceCount -eq 0) {
     Write-Host "ERRO: Nenhum dispositivo conectado!" -ForegroundColor Red
-    Write-Host "Conecte o dispositivo via USB e ative a depuracao USB" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Para conectar o dispositivo:" -ForegroundColor Yellow
+    Write-Host "  1. Ative o Modo Desenvolvedor:" -ForegroundColor White
+    Write-Host "     Configuracoes > Sobre o telefone > Tocar 7x no 'Numero da compilacao'" -ForegroundColor Gray
+    Write-Host "  2. Ative a Depuracao USB:" -ForegroundColor White
+    Write-Host "     Configuracoes > Opcoes do desenvolvedor > Depuracao USB" -ForegroundColor Gray
+    Write-Host "  3. Conecte o cabo USB" -ForegroundColor White
+    Write-Host "  4. Autorize no popup do dispositivo" -ForegroundColor White
+    Write-Host ""
+    Write-Host "Documentacao completa:" -ForegroundColor Cyan
+    Write-Host "  docs/troubleshooting/CONECTAR-DISPOSITIVO-ANDROID.md" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "Verificar dispositivos:" -ForegroundColor Yellow
+    Write-Host "  & `"$adbPath`" devices" -ForegroundColor Gray
     exit 1
 }
 
