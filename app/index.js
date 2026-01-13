@@ -78,19 +78,11 @@ export default function Home() {
         </TouchableOpacity>
 
         <TouchableOpacity 
-          style={[styles.menuButton, styles.proButton]}
+          style={[styles.menuButton, styles.proButton, styles.lastButton]}
           onPress={() => router.push('/pro-license')}
         >
           <Ionicons name="star" size={48} color="#fff" />
           <Text style={styles.menuButtonText}>Licença PRO</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity 
-          style={[styles.menuButton, styles.aboutButton, styles.lastButton]}
-          onPress={() => router.push('/about')}
-        >
-          <Ionicons name="information-circle" size={48} color="#fff" />
-          <Text style={styles.menuButtonText}>Código Fonte Utilizado</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -158,9 +150,6 @@ const styles = StyleSheet.create({
   },
   proButton: {
     backgroundColor: '#FFD700',
-  },
-  aboutButton: {
-    backgroundColor: '#607D8B',
   },
   lastButton: {
     marginBottom: 0,
