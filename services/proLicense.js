@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { trackLicenseActivation, trackLicenseValidation, trackError } from './analytics';
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import api from './api';
