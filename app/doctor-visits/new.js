@@ -312,7 +312,8 @@ export default function NewDoctorVisit() {
           <Text style={styles.saveButtonText}>Salvar Visita</Text>
         </TouchableOpacity>
       </View>
-    </ScrollView>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
