@@ -111,6 +111,15 @@ export default function Anamnesis() {
   });
   const [showSurgeryDatePicker, setShowSurgeryDatePicker] = useState(false);
   const [showNewSurgeryForm, setShowNewSurgeryForm] = useState(false);
+  
+  // Estados para dropdowns de hábitos
+  const [showSmokingDropdown, setShowSmokingDropdown] = useState(false);
+  const [showAlcoholDropdown, setShowAlcoholDropdown] = useState(false);
+  const [showPhysicalActivityDropdown, setShowPhysicalActivityDropdown] = useState(false);
+  
+  const smokingOptions = ['Não fuma', 'Ex-fumante', 'Fumante'];
+  const alcoholOptions = ['Não bebe', 'Socialmente', 'Regularmente'];
+  const physicalActivityOptions = ['Sedentário', 'Leve', 'Moderada', 'Intensa'];
 
   useFocusEffect(
     useCallback(() => {
