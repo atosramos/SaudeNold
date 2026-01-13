@@ -198,7 +198,16 @@ export const scheduleMedicationAlarms = async (medication) => {
         continue; // Pular este horário
       }
       const [hours, minutes] = schedule.split(':').map(Number);
-      const scheduleLog = `Agendando para ${schedule} (${hours}:${minutes})`;
+      
+      // Validar horário
+      if (isNaN(hours) || isNaN(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+        const errorMsg = `Horário inválido: ${schedule}. Deve estar no formato HH:MM (0-23:0-59)`;
+        console.error(`❌ ${errorMsg}`);
+        await addDebugLog(errorMsg, 'error');
+        continue;
+      }
+      
+      const scheduleLog = `Agendando para ${schedule} (${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')})`;
       console.log(`⏰ ${scheduleLog}`);
       await addDebugLog(scheduleLog, 'info');
       
@@ -237,18 +246,18 @@ export const scheduleMedicationAlarms = async (medication) => {
             },
             trigger: Platform.OS === 'android'
               ? {
-                  // Para Android Studio, incluir channelId no trigger
+                  // Para Android, usar formato específico para garantir precisão
                   channelId: 'medication-alarm',
-                  weekday: expoWeekday, // Expo usa 1-7 (Segunda a Domingo)
-                  hour: hours,
-                  minute: minutes,
+                  weekday: parseInt(expoWeekday, 10), // Expo usa 1-7 (Segunda a Domingo)
+                  hour: parseInt(hours, 10), // Garantir que é inteiro
+                  minute: parseInt(minutes, 10), // Garantir que é inteiro
                   repeats: true,
                 }
               : {
                   // Para iOS, formato padrão
-                  weekday: expoWeekday,
-                  hour: hours,
-                  minute: minutes,
+                  weekday: parseInt(expoWeekday, 10),
+                  hour: parseInt(hours, 10),
+                  minute: parseInt(minutes, 10),
                   repeats: true,
                 },
           });
@@ -300,16 +309,17 @@ export const scheduleMedicationAlarms = async (medication) => {
           },
           trigger: Platform.OS === 'android'
             ? {
-                // Para Android Studio, incluir channelId no trigger
+                // Para Android, usar formato específico para garantir precisão
+                // IMPORTANTE: hour e minute devem ser números inteiros (0-23 e 0-59)
                 channelId: 'medication-alarm',
-                hour: hours,
-                minute: minutes,
+                hour: parseInt(hours, 10), // Garantir que é inteiro
+                minute: parseInt(minutes, 10), // Garantir que é inteiro
                 repeats: true,
               }
             : {
                 // Para iOS, formato padrão
-                hour: hours,
-                minute: minutes,
+                hour: parseInt(hours, 10),
+                minute: parseInt(minutes, 10),
                 repeats: true,
               },
         });
