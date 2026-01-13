@@ -12,6 +12,15 @@ export default function RootLayout() {
   const notificationListener = useRef();
   const responseListener = useRef();
 
+  // Inicializar analytics
+  useEffect(() => {
+    // Inicializar Google Analytics (se disponivel)
+    initGoogleAnalytics();
+    
+    // Inicializar LogRocket (se disponivel)
+    initLogRocket();
+  }, []);
+
   useEffect(() => {
     // Sincronizar ao abrir o app
     const syncData = async () => {

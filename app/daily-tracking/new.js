@@ -8,6 +8,7 @@ import { saveTrackingRecord, createTrackingRecord, TRACKING_TYPES } from '../../
 import { extractTrackingDataFromImage, convertExtractedDataToRecords } from '../../services/dailyTrackingOCR';
 import { useCustomAlert } from '../../hooks/useCustomAlert';
 import { isProFeatureAvailable } from '../../services/proLicense';
+import { trackProFeatureUsage } from '../../services/analytics';
 
 const TYPE_LABELS = {
   [TRACKING_TYPES.BLOOD_PRESSURE]: 'Pressão Arterial',
@@ -151,6 +152,9 @@ export default function NewDailyTracking() {
       showAlert('Processando', 'Analisando imagem com Gemini... Isso pode levar alguns segundos.', 'info');
       
       const extractedData = await extractTrackingDataFromImage(image, GEMINI_API_KEY);
+      
+      // Rastrear uso de feature PRO
+      trackProFeatureUsage('gemini_daily_tracking_extraction');
       
       if (!extractedData) {
         showAlert('Erro', 'Não foi possível extrair dados da imagem. Tente novamente ou digite manualmente.', 'error');

@@ -12,6 +12,7 @@ import { extractDataWithLLMFallback, extractDataWithGeminiDirect } from '../../s
 import { useCustomAlert } from '../../hooks/useCustomAlert';
 import { isProFeatureAvailable } from '../../services/proLicense';
 import PdfViewer from '../../components/PdfViewer';
+import { trackProFeatureUsage } from '../../services/analytics';
 
 export default function NewMedicalExam() {
   const router = useRouter();

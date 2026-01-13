@@ -210,6 +210,10 @@ export const purchaseLicenseWithGooglePay = async (licenseType) => {
             );
             
             if (serverResult.success) {
+              // Rastrear compra bem-sucedida
+              const price = LICENSE_PRODUCTS[licenseType]?.priceValue || 0;
+              trackPurchase(licenseType, price, 'BRL');
+              
               // Confirmar compra no Google Play
               await RNIap.finishTransaction({
                 purchase: purchaseResponse,
