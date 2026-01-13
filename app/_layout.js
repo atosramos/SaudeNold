@@ -71,10 +71,12 @@ export default function RootLayout() {
           pathname: '/alarm',
           params: {
             medicationId: notification.request.content.data.medicationId,
+            schedule: notification.request.content.data.schedule || '', // Passar schedule
             medication: JSON.stringify({
               id: notification.request.content.data.medicationId,
               name: medicationName,
               dosage: dosage,
+              schedule: notification.request.content.data.schedule || '',
             })
           }
         });
