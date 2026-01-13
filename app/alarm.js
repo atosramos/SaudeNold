@@ -227,18 +227,71 @@ export default function AlarmScreen() {
 
   const markMedicationAsTaken = async () => {
     try {
+      const now = new Date();
+      const today = now.toISOString().split('T')[0]; // YYYY-MM-DD
+      
+      // Obter schedule da notificação ou do medicamento
+      let schedule = params.schedule || medication?.schedule;
+      if (!schedule && medication?.schedules && medication.schedules.length > 0) {
+        // Se não tem schedule específico, usar o primeiro horário
+        schedule = medication.schedules[0];
+      }
+      
+      if (!schedule) {
+        console.warn('Schedule não encontrado, usando horário atual aproximado');
+        const hours = now.getHours().toString().padStart(2, '0');
+        const minutes = now.getMinutes().toString().padStart(2, '0');
+        schedule = `${hours}:${minutes}`;
+      }
+      
+      // Salvar log de medicamento tomado
+      const logKey = `medication_log_${medication.id}_${today}_${schedule}`;
+      const logData = {
+        medicationId: medication.id,
+        medicationName: medication.name,
+        schedule: schedule,
+        date: today,
+        takenAt: now.toISOString(),
+        status: 'taken'
+      };
+      await AsyncStorage.setItem(logKey, JSON.stringify(logData));
+      
+      // Salvar no array de logs do dia
+      const dailyLogsKey = `medication_logs_${today}`;
+      const dailyLogs = await AsyncStorage.getItem(dailyLogsKey);
+      let logs = dailyLogs ? JSON.parse(dailyLogs) : [];
+      logs.push(logData);
+      await AsyncStorage.setItem(dailyLogsKey, JSON.stringify(logs));
+      
+      // Atualizar lastTaken no medicamento
       const stored = await AsyncStorage.getItem('medications');
       if (stored) {
         const medications = JSON.parse(stored);
         const updatedMedications = medications.map(m => 
           m.id === medication.id 
-            ? { ...m, lastTaken: new Date().toISOString() }
+            ? { ...m, lastTaken: now.toISOString() }
             : m
         );
         await AsyncStorage.setItem('medications', JSON.stringify(updatedMedications));
       }
+      
+      // Cancelar notificações do dia para este horário
+      await cancelTodayNotifications(medication.id, schedule);
+      
+      console.log('Medicamento marcado como tomado:', logData);
     } catch (error) {
       console.error('Erro ao marcar medicamento como tomado:', error);
+    }
+  };
+  
+  // Função para cancelar notificações do dia
+  const cancelTodayNotifications = async (medicationId, schedule) => {
+    try {
+      const notificationId = `${medicationId}-${schedule}`;
+      await Notifications.cancelScheduledNotificationAsync(notificationId);
+      console.log('Notificação cancelada para hoje:', notificationId);
+    } catch (error) {
+      console.error('Erro ao cancelar notificação:', error);
     }
   };
 

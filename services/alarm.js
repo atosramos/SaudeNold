@@ -128,6 +128,40 @@ export const requestNotificationPermissions = async () => {
 };
 
 /**
+ * Verifica se medicamento já foi tomado hoje no horário específico
+ */
+const isMedicationAlreadyTaken = async (medicationId, schedule) => {
+  try {
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const logKey = `medication_log_${medicationId}_${today}_${schedule}`;
+    const log = await AsyncStorage.getItem(logKey);
+    
+    if (log) {
+      const logData = JSON.parse(log);
+      return logData.status === 'taken';
+    }
+    
+    // Verificar também no array de logs do dia
+    const dailyLogsKey = `medication_logs_${today}`;
+    const dailyLogs = await AsyncStorage.getItem(dailyLogsKey);
+    if (dailyLogs) {
+      const logs = JSON.parse(dailyLogs);
+      const found = logs.find(l => 
+        l.medicationId === medicationId && 
+        l.schedule === schedule && 
+        l.status === 'taken'
+      );
+      return !!found;
+    }
+    
+    return false;
+  } catch (error) {
+    console.error('Erro ao verificar se medicamento foi tomado:', error);
+    return false;
+  }
+};
+
+/**
  * Agenda alarmes para um medicamento
  */
 export const scheduleMedicationAlarms = async (medication) => {
@@ -155,6 +189,14 @@ export const scheduleMedicationAlarms = async (medication) => {
     
     // Para cada horário do medicamento
     for (const schedule of medication.schedules) {
+      // Verificar se já foi tomado hoje neste horário
+      const alreadyTaken = await isMedicationAlreadyTaken(medication.id, schedule);
+      if (alreadyTaken) {
+        const skipLog = `Medicamento ${medication.name} já foi tomado hoje às ${schedule}. Pulando agendamento.`;
+        console.log(`⏭️ ${skipLog}`);
+        await addDebugLog(skipLog, 'info');
+        continue; // Pular este horário
+      }
       const [hours, minutes] = schedule.split(':').map(Number);
       const scheduleLog = `Agendando para ${schedule} (${hours}:${minutes})`;
       console.log(`⏰ ${scheduleLog}`);
