@@ -20,6 +20,7 @@ from ocr_service import perform_ocr
 from data_extraction import extract_data_from_ocr_text
 from license_generator import generate_license_key, validate_license_key, LICENSE_DURATIONS
 from datetime import datetime as dt, timedelta
+from alert_service import alert_service, AlertType
 
 # Carregar variáveis de ambiente do .env
 load_dotenv()
@@ -808,6 +809,12 @@ def validate_license(
             
             if is_suspicious:
                 security_logger.warning(f"Tentativa suspeita de validação de {ip_address} - múltiplas tentativas falhas")
+                # Enviar alerta de atividade suspeita
+                alert_service.alert_suspicious_activity(
+                    f"Multiplas tentativas falhas de validacao de {ip_address}",
+                    ip_address,
+                    count=5
+                )
             
             return schemas.LicenseValidateResponse(
                 valid=False,
@@ -892,6 +899,11 @@ def validate_license(
         
     except Exception as e:
         security_logger.error(f"Erro ao validar licença: {str(e)}")
+        # Enviar alerta de erro critico
+        alert_service.alert_critical_error(
+            f"Erro ao validar licenca: {str(e)}",
+            error=e
+        )
         log_validation_attempt(
             db, normalized_key, license_data.device_id, ip_address, user_agent,
             'error', f'Erro interno: {str(e)}', is_suspicious
@@ -1058,9 +1070,17 @@ async def google_pay_webhook(
         
         if existing_purchase:
             # Atualizar status
+            previous_status = existing_purchase.status
             existing_purchase.status = webhook_data.status
             existing_purchase.google_pay_transaction_id = webhook_data.transaction_id
             existing_purchase.updated_at = dt.now()
+            
+            # Alerta se mudou para failed
+            if webhook_data.status == 'failed' and previous_status != 'failed':
+                alert_service.alert_payment_failure(
+                    webhook_data.purchase_id,
+                    f"Compra falhou: {webhook_data.purchase_id}"
+                )
             
             # Se completada e ainda não tem licença, gerar
             if webhook_data.status == 'completed' and not existing_purchase.license_key:
