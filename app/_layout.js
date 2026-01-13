@@ -6,6 +6,7 @@ import { rescheduleAllAlarms } from '../services/alarm';
 import * as Notifications from 'expo-notifications';
 import { Audio } from 'expo-av';
 import * as Speech from 'expo-speech';
+import { initGoogleAnalytics, initLogRocket } from '../services/analytics';
 
 export default function RootLayout() {
   const router = useRouter();
@@ -14,11 +15,19 @@ export default function RootLayout() {
 
   // Inicializar analytics
   useEffect(() => {
-    // Inicializar Google Analytics (se disponivel)
-    initGoogleAnalytics();
+    try {
+      // Inicializar Google Analytics (se disponivel)
+      initGoogleAnalytics();
+    } catch (error) {
+      console.error('Erro ao inicializar Google Analytics:', error);
+    }
     
-    // Inicializar LogRocket (se disponivel)
-    initLogRocket();
+    try {
+      // Inicializar LogRocket (se disponivel)
+      initLogRocket();
+    } catch (error) {
+      console.error('Erro ao inicializar LogRocket:', error);
+    }
   }, []);
 
   useEffect(() => {
