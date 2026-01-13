@@ -7,8 +7,8 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { scheduleVaccineAlarms, calculateNextVaccineDate, cancelVaccineAlarms } from '../services/alarm';
 
 // Calendário Nacional de Vacinação - Criança (0 a 9 anos, 11 meses e 29 dias)
-// Fonte: https://www.gov.br/saude/pt-br/vacinacao/arquivos/calendario-nacional-de-vacinacao-crianca
-const NATIONAL_VACCINE_CALENDAR = [
+// Fonte: https://www.gov.br/saude/pt-br/vacinacao/calendario
+const CHILD_VACCINE_CALENDAR = [
   { id: 'nat-1', age: 'Ao nascer', vaccine: 'BCG', dose: '1 dose', diseases: 'formas graves e disseminadas da tuberculose e, também, com efeito protetor contra a hanseníase' },
   { id: 'nat-2', age: 'Ao nascer', vaccine: 'Hepatite B', dose: '1 dose', diseases: 'hepatite B, hepatite D' },
   { id: 'nat-3', age: '2 meses', vaccine: 'Penta (DTP+Hib+HB)', dose: '1ª dose', diseases: 'difteria, tétano, coqueluche, infecções pelo H. influenzae tipo b, hepatite B' },
@@ -44,6 +44,42 @@ const NATIONAL_VACCINE_CALENDAR = [
   { id: 'nat-33', age: '9 a 14 anos', vaccine: 'HPV4', dose: '1 dose', diseases: 'infecções causadas pelo papilomavírus humano' },
 ];
 
+// Calendário Nacional de Vacinação - Adulto (20 a 59 anos)
+// Fonte: https://www.gov.br/saude/pt-br/vacinacao/calendario
+const ADULT_VACCINE_CALENDAR = [
+  { id: 'adult-1', age: '20 a 59 anos', vaccine: 'Hepatite B', dose: '3 doses (0, 1 e 6 meses)', diseases: 'hepatite B, hepatite D' },
+  { id: 'adult-2', age: '20 a 59 anos', vaccine: 'Tríplice viral (SCR)', dose: '1 dose (se não vacinado)', diseases: 'sarampo, caxumba, rubéola' },
+  { id: 'adult-3', age: '20 a 59 anos', vaccine: 'Dupla adulto (dT)', dose: 'Reforço a cada 10 anos', diseases: 'difteria, tétano' },
+  { id: 'adult-4', age: '20 a 59 anos', vaccine: 'Febre amarela', dose: '1 dose (reforço a cada 10 anos)', diseases: 'febre amarela' },
+  { id: 'adult-5', age: '20 a 59 anos', vaccine: 'Influenza (Gripe)', dose: 'Anual', diseases: 'influenza (gripe)' },
+  { id: 'adult-6', age: '20 a 59 anos', vaccine: 'COVID-19', dose: 'Conforme recomendação atual', diseases: 'formas graves da covid-19' },
+  { id: 'adult-7', age: '20 a 59 anos', vaccine: 'Hepatite A', dose: '2 doses (intervalo de 6 meses)', diseases: 'hepatite A' },
+  { id: 'adult-8', age: '20 a 59 anos', vaccine: 'Meningocócica ACWY', dose: '1 dose', diseases: 'doenças meningocócicas' },
+  { id: 'adult-9', age: '20 a 59 anos', vaccine: 'Pneumocócica 23-valente', dose: '1 dose (grupos de risco)', diseases: 'doenças pneumocócicas invasivas' },
+];
+
+// Calendário Nacional de Vacinação - Idoso (60 anos ou mais)
+// Fonte: https://www.gov.br/saude/pt-br/vacinacao/calendario
+const ELDERLY_VACCINE_CALENDAR = [
+  { id: 'elderly-1', age: '60 anos ou mais', vaccine: 'Influenza (Gripe)', dose: 'Anual', diseases: 'influenza (gripe)' },
+  { id: 'elderly-2', age: '60 anos ou mais', vaccine: 'Pneumocócica 23-valente', dose: '1 dose', diseases: 'doenças pneumocócicas invasivas' },
+  { id: 'elderly-3', age: '60 anos ou mais', vaccine: 'Dupla adulto (dT)', dose: 'Reforço a cada 10 anos', diseases: 'difteria, tétano' },
+  { id: 'elderly-4', age: '60 anos ou mais', vaccine: 'Hepatite B', dose: '3 doses (se não vacinado)', diseases: 'hepatite B, hepatite D' },
+  { id: 'elderly-5', age: '60 anos ou mais', vaccine: 'Febre amarela', dose: '1 dose (reforço a cada 10 anos)', diseases: 'febre amarela' },
+  { id: 'elderly-6', age: '60 anos ou mais', vaccine: 'COVID-19', dose: 'Conforme recomendação atual', diseases: 'formas graves da covid-19' },
+  { id: 'elderly-7', age: '60 anos ou mais', vaccine: 'Tríplice viral (SCR)', dose: '1 dose (se não vacinado)', diseases: 'sarampo, caxumba, rubéola' },
+];
+
+// Calendário Nacional de Vacinação - Gestante
+// Fonte: https://www.gov.br/saude/pt-br/vacinacao/calendario
+const PREGNANT_VACCINE_CALENDAR = [
+  { id: 'pregnant-1', age: 'Durante a gestação', vaccine: 'dTpa (Tríplice bacteriana acelular)', dose: '1 dose a cada gestação (preferencialmente entre 20 e 36 semanas)', diseases: 'difteria, tétano, coqueluche' },
+  { id: 'pregnant-2', age: 'Durante a gestação', vaccine: 'Hepatite B', dose: '3 doses (se não vacinada)', diseases: 'hepatite B, hepatite D' },
+  { id: 'pregnant-3', age: 'Durante a gestação', vaccine: 'Influenza (Gripe)', dose: 'Anual (qualquer trimestre)', diseases: 'influenza (gripe)' },
+  { id: 'pregnant-4', age: 'Durante a gestação', vaccine: 'COVID-19', dose: 'Conforme recomendação atual', diseases: 'formas graves da covid-19' },
+  { id: 'pregnant-5', age: 'Durante a gestação', vaccine: 'dT (Dupla adulto)', dose: 'Se não recebeu dTpa, usar dT', diseases: 'difteria, tétano' },
+];
+
 // Outras vacinas recomendadas
 const RECOMMENDED_VACCINES = [
   { id: 'rec-1', name: 'Gripe (Influenza)', description: 'Recomendada anualmente para todas as idades', frequency: 'Anual' },
@@ -70,6 +106,55 @@ export default function Vaccines() {
   const [editingVaccine, setEditingVaccine] = useState(null);
   const [editingCalendarVaccine, setEditingCalendarVaccine] = useState(null); // Vacina do calendário sendo editada
   const [filterStatus, setFilterStatus] = useState('all');
+  const [isPregnant, setIsPregnant] = useState(null); // null = não perguntado, true/false = resposta
+  const [anamnesisData, setAnamnesisData] = useState(null);
+  
+  // Calcular idade a partir da data de nascimento
+  const calculateAge = (birthDate) => {
+    if (!birthDate) return null;
+    const today = new Date();
+    const birth = new Date(birthDate);
+    let age = today.getFullYear() - birth.getFullYear();
+    const monthDiff = today.getMonth() - birth.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+      age--;
+    }
+    return age;
+  };
+  
+  // Determinar qual calendário mostrar baseado na idade
+  const getVaccineCalendars = () => {
+    const age = anamnesisData?.birthDate ? calculateAge(anamnesisData.birthDate) : null;
+    const gender = anamnesisData?.gender || '';
+    const calendars = [];
+    
+    if (age === null) {
+      // Se não tem data de nascimento, retornar array vazio (será mostrada mensagem)
+      return [];
+    }
+    
+    // Criança: 0 a 9 anos, 11 meses e 29 dias
+    if (age < 10) {
+      calendars.push({ type: 'child', title: 'Calendário da Criança', vaccines: CHILD_VACCINE_CALENDAR });
+    }
+    
+    // Adulto: 20 a 59 anos
+    if (age >= 20 && age < 60) {
+      calendars.push({ type: 'adult', title: 'Calendário do Adulto', vaccines: ADULT_VACCINE_CALENDAR });
+    }
+    
+    // Idoso: 60 anos ou mais
+    if (age >= 60) {
+      calendars.push({ type: 'elderly', title: 'Calendário do Idoso', vaccines: ELDERLY_VACCINE_CALENDAR });
+    }
+    
+    // Gestante: se for mulher e estiver grávida
+    if (gender === 'Feminino' && isPregnant === true) {
+      calendars.push({ type: 'pregnant', title: 'Calendário da Gestante', vaccines: PREGNANT_VACCINE_CALENDAR });
+    }
+    
+    return calendars;
+  };
   
   // Estado do formulário
   const [formData, setFormData] = useState({
@@ -94,10 +179,70 @@ export default function Vaccines() {
 
   useFocusEffect(
     useCallback(() => {
+      loadAnamnesis();
       loadCustomVaccines();
       loadVaccineRecords();
     }, [])
   );
+  
+  const loadAnamnesis = async () => {
+    try {
+      const stored = await AsyncStorage.getItem('anamnesis');
+      if (stored) {
+        const data = JSON.parse(stored);
+        setAnamnesisData(data);
+        // Se já foi perguntado sobre gestação, carregar
+        if (data.isPregnant !== undefined) {
+          setIsPregnant(data.isPregnant);
+        }
+      }
+    } catch (error) {
+      console.error('Erro ao carregar anamnese:', error);
+    }
+  };
+  
+  const askAboutPregnancy = () => {
+    if (anamnesisData?.gender !== 'Feminino') {
+      return;
+    }
+    
+    if (isPregnant === null) {
+      Alert.alert(
+        'Informação Importante',
+        'Você está em período de gestação? Isso nos ajuda a mostrar o calendário de vacinação adequado.',
+        [
+          {
+            text: 'Não',
+            onPress: () => {
+              setIsPregnant(false);
+              savePregnancyStatus(false);
+            },
+          },
+          {
+            text: 'Sim',
+            onPress: () => {
+              setIsPregnant(true);
+              savePregnancyStatus(true);
+            },
+          },
+        ]
+      );
+    }
+  };
+  
+  const savePregnancyStatus = async (pregnant) => {
+    try {
+      const stored = await AsyncStorage.getItem('anamnesis');
+      if (stored) {
+        const data = JSON.parse(stored);
+        data.isPregnant = pregnant;
+        await AsyncStorage.setItem('anamnesis', JSON.stringify(data));
+        setAnamnesisData(data);
+      }
+    } catch (error) {
+      console.error('Erro ao salvar status de gestação:', error);
+    }
+  };
 
   const loadCustomVaccines = async () => {
     try {
@@ -597,19 +742,78 @@ export default function Vaccines() {
       </View>
 
       <View style={styles.content}>
-        {/* Calendário Nacional */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Ionicons name="shield-checkmark" size={28} color="#2ECC71" />
-            <Text style={styles.sectionTitle}>Calendário Nacional de Vacinação</Text>
+        {/* Informações do usuário */}
+        {anamnesisData?.birthDate && (
+          <View style={styles.userInfoContainer}>
+            <Ionicons name="person-circle-outline" size={24} color="#2ECC71" />
+            <Text style={styles.userInfoText}>
+              Data de Nascimento: {new Date(anamnesisData.birthDate).toLocaleDateString('pt-BR')} 
+              ({calculateAge(anamnesisData.birthDate)} {calculateAge(anamnesisData.birthDate) === 1 ? 'ano' : 'anos'})
+            </Text>
           </View>
-          <Text style={styles.sectionDescription}>
-            Toque em uma vacina para registrar informações da carteira de vacinação.
-          </Text>
-          <View style={styles.vaccinesList}>
-            {NATIONAL_VACCINE_CALENDAR.map(vaccine => renderVaccineCard(vaccine))}
+        )}
+        
+        {/* Perguntar sobre gestação se for mulher */}
+        {anamnesisData?.gender === 'Feminino' && isPregnant === null && (
+          <View style={styles.pregnancyPrompt}>
+            <Text style={styles.pregnancyPromptText}>
+              Você está em período de gestação?
+            </Text>
+            <View style={styles.pregnancyButtons}>
+              <TouchableOpacity
+                style={[styles.pregnancyButton, styles.pregnancyButtonYes]}
+                onPress={() => {
+                  setIsPregnant(true);
+                  savePregnancyStatus(true);
+                }}
+              >
+                <Text style={styles.pregnancyButtonText}>Sim</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.pregnancyButton, styles.pregnancyButtonNo]}
+                onPress={() => {
+                  setIsPregnant(false);
+                  savePregnancyStatus(false);
+                }}
+              >
+                <Text style={styles.pregnancyButtonText}>Não</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
+        )}
+        
+        {/* Calendários Nacionais baseados na idade e gestação */}
+        {(() => {
+          const calendars = getVaccineCalendars();
+          if (calendars.length === 0) {
+            return (
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <Ionicons name="information-circle" size={28} color="#F39C12" />
+                  <Text style={styles.sectionTitle}>Informação Necessária</Text>
+                </View>
+                <Text style={styles.sectionDescription}>
+                  Para mostrar o calendário de vacinação adequado, por favor preencha a data de nascimento na Ficha de Anamnese.
+                </Text>
+              </View>
+            );
+          }
+          
+          return calendars.map((calendar, index) => (
+            <View key={index} style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Ionicons name="shield-checkmark" size={28} color="#2ECC71" />
+                <Text style={styles.sectionTitle}>{calendar.title}</Text>
+              </View>
+              <Text style={styles.sectionDescription}>
+                Toque em uma vacina para registrar informações da carteira de vacinação.
+              </Text>
+              <View style={styles.vaccinesList}>
+                {calendar.vaccines.map(vaccine => renderVaccineCard(vaccine))}
+              </View>
+            </View>
+          ));
+        })()}
 
         {/* Vacinas Recomendadas */}
         <View style={styles.section}>
@@ -994,6 +1198,63 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
+  },
+  userInfoContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E8F8F5',
+    padding: 16,
+    marginHorizontal: 16,
+    marginTop: 16,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#2ECC71',
+  },
+  userInfoText: {
+    fontSize: 18,
+    color: '#2ECC71',
+    fontWeight: '600',
+    marginLeft: 12,
+    flex: 1,
+  },
+  pregnancyPrompt: {
+    backgroundColor: '#FFF9E6',
+    padding: 16,
+    marginHorizontal: 16,
+    marginTop: 16,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#F39C12',
+  },
+  pregnancyPromptText: {
+    fontSize: 18,
+    color: '#333',
+    fontWeight: '600',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  pregnancyButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'center',
+  },
+  pregnancyButton: {
+    flex: 1,
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    minWidth: 120,
+  },
+  pregnancyButtonYes: {
+    backgroundColor: '#2ECC71',
+  },
+  pregnancyButtonNo: {
+    backgroundColor: '#E74C3C',
+  },
+  pregnancyButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
   header: {
     flexDirection: 'row',

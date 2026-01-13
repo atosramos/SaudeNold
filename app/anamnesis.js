@@ -25,8 +25,24 @@ const commonConditions = [
 export default function Anamnesis() {
   const router = useRouter();
   // Dados pessoais
-  const [age, setAge] = useState('');
+  const [birthDate, setBirthDate] = useState(null);
+  const [showBirthDatePicker, setShowBirthDatePicker] = useState(false);
   const [gender, setGender] = useState('');
+  
+  // Calcular idade a partir da data de nascimento
+  const calculateAge = (date) => {
+    if (!date) return '';
+    const today = new Date();
+    const birth = new Date(date);
+    let age = today.getFullYear() - birth.getFullYear();
+    const monthDiff = today.getMonth() - birth.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+      age--;
+    }
+    return age;
+  };
+  
+  const age = birthDate ? calculateAge(birthDate) : '';
   // Tipo sanguíneo
   const [bloodType, setBloodType] = useState('');
   // Alergias
@@ -87,7 +103,15 @@ export default function Anamnesis() {
       
       if (stored) {
         const data = JSON.parse(stored);
-        setAge(data.age || '');
+        // Suportar tanto data de nascimento quanto idade (para compatibilidade)
+        if (data.birthDate) {
+          setBirthDate(new Date(data.birthDate));
+        } else if (data.age) {
+          // Se tiver apenas idade, estimar data de nascimento (aproximada)
+          const today = new Date();
+          const estimatedYear = today.getFullYear() - parseInt(data.age) || 0;
+          setBirthDate(new Date(estimatedYear, today.getMonth(), today.getDate()));
+        }
         setGender(data.gender || '');
         setBloodType(data.bloodType || '');
         setAllergies(data.allergies || []);
@@ -152,7 +176,8 @@ export default function Anamnesis() {
   const saveAnamnesis = async () => {
     try {
       const anamnesisData = {
-        age,
+        birthDate: birthDate ? birthDate.toISOString() : null,
+        age: age, // Manter idade calculada para compatibilidade
         gender,
         bloodType,
         allergies,
@@ -337,16 +362,35 @@ export default function Anamnesis() {
           {editing ? (
             <View style={styles.personalDataContainer}>
               <View style={styles.personalDataRow}>
-                <Text style={styles.personalDataLabel}>Idade:</Text>
-                <TextInput
-                  style={styles.personalDataInput}
-                  value={age}
-                  onChangeText={setAge}
-                  placeholder="Ex: 75"
-                  placeholderTextColor="#999"
-                  keyboardType="numeric"
-                  maxLength={3}
-                />
+                <Text style={styles.personalDataLabel}>Data de Nascimento:</Text>
+                <TouchableOpacity
+                  style={styles.dateButton}
+                  onPress={() => setShowBirthDatePicker(true)}
+                >
+                  <Ionicons name="calendar-outline" size={24} color="#4ECDC4" />
+                  <Text style={styles.dateButtonText}>
+                    {birthDate ? formatDate(birthDate.toISOString()) : 'Selecione a data'}
+                  </Text>
+                </TouchableOpacity>
+                {showBirthDatePicker && (
+                  <DateTimePicker
+                    value={birthDate || new Date()}
+                    mode="date"
+                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                    maximumDate={new Date()}
+                    onChange={(event, selectedDate) => {
+                      setShowBirthDatePicker(false);
+                      if (selectedDate) {
+                        setBirthDate(selectedDate);
+                      }
+                    }}
+                  />
+                )}
+                {age && (
+                  <Text style={styles.ageDisplay}>
+                    Idade: {age} {age === 1 ? 'ano' : 'anos'}
+                  </Text>
+                )}
               </View>
               <View style={styles.personalDataRow}>
                 <Text style={styles.personalDataLabel}>Sexo:</Text>
@@ -374,7 +418,7 @@ export default function Anamnesis() {
           ) : (
             <View style={styles.displayValue}>
               <Text style={styles.displayText}>
-                {age ? `Idade: ${age} anos` : 'Idade não informada'} | {gender || 'Sexo não informado'}
+                {birthDate ? `Data de Nascimento: ${formatDate(birthDate.toISOString())} (${age} ${age === 1 ? 'ano' : 'anos'})` : 'Data de nascimento não informada'} | {gender || 'Sexo não informado'}
               </Text>
             </View>
           )}
@@ -1335,6 +1379,13 @@ const styles = StyleSheet.create({
     color: '#333',
     borderWidth: 2,
     borderColor: '#4ECDC4',
+  },
+  ageDisplay: {
+    fontSize: 20,
+    color: '#4ECDC4',
+    fontWeight: 'bold',
+    marginTop: 8,
+    textAlign: 'center',
   },
   genderContainer: {
     flexDirection: 'row',
