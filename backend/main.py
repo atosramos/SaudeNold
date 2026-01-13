@@ -4,6 +4,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
+from sqlalchemy import Float
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -1443,7 +1444,7 @@ def get_purchase_stats(request: Request, api_key: str = Depends(verify_api_key))
         # Receita total (apenas compras completadas)
         from sqlalchemy import func
         total_revenue_result = db.query(
-            func.sum(func.cast(models.Purchase.amount, db.Float))
+            func.sum(func.cast(models.Purchase.amount, Float))
         ).filter(
             models.Purchase.status == 'completed'
         ).scalar()
@@ -1453,7 +1454,7 @@ def get_purchase_stats(request: Request, api_key: str = Depends(verify_api_key))
         revenue_by_type = {}
         for license_type in ['1_month', '6_months', '1_year']:
             revenue_result = db.query(
-                func.sum(func.cast(models.Purchase.amount, db.Float))
+                func.sum(func.cast(models.Purchase.amount, Float))
             ).filter(
                 models.Purchase.license_type == license_type,
                 models.Purchase.status == 'completed'
@@ -1609,14 +1610,14 @@ def get_dashboard(request: Request, api_key: str = Depends(verify_api_key)):
         # Estatísticas de compras
         total_purchases = db.query(models.Purchase).count()
         total_revenue_result = db.query(
-            func.sum(func.cast(models.Purchase.amount, db.Float))
+            func.sum(func.cast(models.Purchase.amount, Float))
         ).filter(
             models.Purchase.status == 'completed'
         ).scalar()
         revenue_by_type = {}
         for license_type in ['1_month', '6_months', '1_year']:
             revenue_result = db.query(
-                func.sum(func.cast(models.Purchase.amount, db.Float))
+                func.sum(func.cast(models.Purchase.amount, Float))
             ).filter(
                 models.Purchase.license_type == license_type,
                 models.Purchase.status == 'completed'
