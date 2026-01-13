@@ -4,7 +4,17 @@
  */
 
 import { Platform } from 'react-native';
-import * as RNIap from 'react-native-iap';
+
+// Importar react-native-iap apenas em plataformas nativas
+let RNIap = null;
+if (Platform.OS !== 'web') {
+  try {
+    RNIap = require('react-native-iap');
+  } catch (error) {
+    console.warn('react-native-iap não disponível:', error);
+  }
+}
+
 import { LICENSE_TYPES } from './proLicense';
 import { licensesAPI } from './api';
 
@@ -84,6 +94,10 @@ export const initializePurchases = async () => {
  * Finaliza conexão com Google Play (chamar quando app fechar)
  */
 export const endConnection = async () => {
+  if (Platform.OS === 'web' || !RNIap) {
+    return;
+  }
+  
   try {
     if (isInitialized) {
       await RNIap.endConnection();
@@ -99,7 +113,15 @@ export const endConnection = async () => {
  * Verifica se Google Play Billing está disponível
  */
 export const isGooglePayAvailable = async () => {
+  if (Platform.OS === 'web') {
+    return false;
+  }
+  
   if (Platform.OS !== 'android') {
+    return false;
+  }
+  
+  if (!RNIap) {
     return false;
   }
   
@@ -340,6 +362,10 @@ const processPurchaseWithServer = async (purchase, licenseType) => {
  * Verifica compras pendentes e as processa
  */
 export const checkPendingPurchases = async () => {
+  if (Platform.OS === 'web' || !RNIap) {
+    return { success: false, error: 'Não disponível na web' };
+  }
+  
   try {
     if (Platform.OS !== 'android' || !isInitialized) {
       return { success: false, error: 'Serviço não inicializado' };
