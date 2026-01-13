@@ -615,7 +615,8 @@ export default function EditMedication() {
           <Text style={styles.saveButtonText}>Salvar Alterações</Text>
         </TouchableOpacity>
       </View>
-    </ScrollView>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
