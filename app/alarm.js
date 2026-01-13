@@ -45,9 +45,59 @@ export default function AlarmScreen() {
 
   useEffect(() => {
     if (medication) {
-      startAlarm();
+      checkIfAlreadyTaken();
     }
   }, [medication]);
+  
+  // Verificar se já foi tomado hoje antes de tocar alarme
+  const checkIfAlreadyTaken = async () => {
+    try {
+      const now = new Date();
+      const today = now.toISOString().split('T')[0];
+      let schedule = params.schedule || medication?.schedule;
+      if (!schedule && medication?.schedules && medication.schedules.length > 0) {
+        schedule = medication.schedules[0];
+      }
+      
+      if (schedule) {
+        const logKey = `medication_log_${medication.id}_${today}_${schedule}`;
+        const log = await AsyncStorage.getItem(logKey);
+        
+        if (log) {
+          const logData = JSON.parse(log);
+          if (logData.status === 'taken') {
+            console.log('Medicamento já foi tomado hoje neste horário. Não tocando alarme.');
+            router.back();
+            return;
+          }
+        }
+        
+        // Verificar também no array de logs do dia
+        const dailyLogsKey = `medication_logs_${today}`;
+        const dailyLogs = await AsyncStorage.getItem(dailyLogsKey);
+        if (dailyLogs) {
+          const logs = JSON.parse(dailyLogs);
+          const found = logs.find(l => 
+            l.medicationId === medication.id && 
+            l.schedule === schedule && 
+            l.status === 'taken'
+          );
+          if (found) {
+            console.log('Medicamento já foi tomado hoje neste horário. Não tocando alarme.');
+            router.back();
+            return;
+          }
+        }
+      }
+      
+      // Se não foi tomado, tocar alarme
+      startAlarm();
+    } catch (error) {
+      console.error('Erro ao verificar se já foi tomado:', error);
+      // Em caso de erro, tocar alarme mesmo assim
+      startAlarm();
+    }
+  };
 
   const loadMedication = async () => {
     try {
