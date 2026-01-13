@@ -118,6 +118,20 @@ class Purchase(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
 
+class LicenseValidationLog(Base):
+    __tablename__ = "license_validation_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    license_key = Column(String(45), index=True)  # Chave validada (pode ser parcial para privacidade)
+    device_id = Column(String(255), index=True)  # ID do dispositivo
+    ip_address = Column(String(45), index=True)  # IP de origem
+    user_agent = Column(String(500))  # User agent do cliente
+    validation_result = Column(String(20), nullable=False)  # valid, invalid, expired, revoked
+    error_message = Column(Text)  # Mensagem de erro se houver
+    is_suspicious = Column(Boolean, default=False, index=True)  # Flag para tentativas suspeitas
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
 
 
 

@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 from typing import List, Optional
 from datetime import datetime
 
@@ -155,6 +155,25 @@ class ExamTimelineData(BaseModel):
 class LicenseValidateRequest(BaseModel):
     key: str
     device_id: Optional[str] = None
+    
+    class Config:
+        # Validação adicional
+        min_anystr_length = 1
+        max_anystr_length = 255
+    
+    @validator('key')
+    def validate_key_format(cls, v):
+        if not v or len(v.strip()) == 0:
+            raise ValueError('Chave de licença não pode estar vazia')
+        if len(v) > 100:  # Permitir chaves com espaços/hífens que serão normalizadas
+            raise ValueError('Chave de licença muito longa')
+        return v.strip().upper()
+    
+    @validator('device_id')
+    def validate_device_id(cls, v):
+        if v and len(v) > 255:
+            raise ValueError('ID do dispositivo muito longo')
+        return v.strip() if v else None
 
 
 class LicenseValidateResponse(BaseModel):
@@ -169,6 +188,19 @@ class LicenseGenerateRequest(BaseModel):
     license_type: str  # 1_month, 6_months, 1_year
     user_id: Optional[str] = None
     purchase_id: Optional[str] = None
+    
+    @validator('license_type')
+    def validate_license_type(cls, v):
+        allowed_types = ['1_month', '6_months', '1_year']
+        if v not in allowed_types:
+            raise ValueError(f'Tipo de licença deve ser um de: {", ".join(allowed_types)}')
+        return v
+    
+    @validator('user_id', 'purchase_id')
+    def validate_ids(cls, v):
+        if v and len(v) > 255:
+            raise ValueError('ID muito longo (máximo 255 caracteres)')
+        return v.strip() if v else None
 
 
 class LicenseGenerateResponse(BaseModel):
@@ -193,4 +225,15 @@ class GooglePayWebhookRequest(BaseModel):
     user_id: Optional[str] = None
     amount: str
     currency: str = "BRL"
+
+
+class LicenseRevokeRequest(BaseModel):
+    license_key: str
+    reason: Optional[str] = None
+
+
+class LicenseRevokeResponse(BaseModel):
+    success: bool
+    message: Optional[str] = None
+    error: Optional[str] = None
 

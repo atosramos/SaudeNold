@@ -693,43 +693,182 @@ def get_parameter_timeline(
 
 # ========== LICENÇAS PRO ==========
 
+# Funções auxiliares de segurança
+def check_suspicious_activity(db: Session, ip_address: str, license_key: str, time_window_minutes: int = 15) -> bool:
+    """Verifica se há atividade suspeita (muitas tentativas falhas)"""
+    cutoff_time = dt.now() - timedelta(minutes=time_window_minutes)
+    
+    # Contar tentativas inválidas nos últimos 15 minutos
+    failed_attempts = db.query(models.LicenseValidationLog).filter(
+        models.LicenseValidationLog.ip_address == ip_address,
+        models.LicenseValidationLog.validation_result == 'invalid',
+        models.LicenseValidationLog.created_at >= cutoff_time
+    ).count()
+    
+    # Se mais de 5 tentativas falhas em 15 minutos, é suspeito
+    return failed_attempts >= 5
+
+
+def check_device_limit(db: Session, license_key: str, max_devices: int = 3) -> tuple[bool, int]:
+    """Verifica se a licença já atingiu o limite de dispositivos"""
+    license = db.query(models.License).filter(
+        models.License.license_key == license_key
+    ).first()
+    
+    if not license:
+        return True, 0  # Licença não existe, pode ativar
+    
+    # Buscar todas as licenças ativas com esta chave
+    active_licenses = db.query(models.License).filter(
+        models.License.license_key == license_key,
+        models.License.device_id.isnot(None),
+        models.License.is_active == True
+    ).all()
+    
+    # Contar dispositivos únicos
+    unique_devices = set(lic.device_id for lic in active_licenses if lic.device_id)
+    device_count = len(unique_devices)
+    
+    return device_count < max_devices, device_count
+
+
+def log_validation_attempt(
+    db: Session,
+    license_key: str,
+    device_id: Optional[str],
+    ip_address: str,
+    user_agent: str,
+    validation_result: str,
+    error_message: Optional[str] = None,
+    is_suspicious: bool = False
+):
+    """Registra tentativa de validação no log"""
+    # Mascarar parte da chave para privacidade (mostrar apenas primeiros 10 caracteres)
+    masked_key = license_key[:10] + "..." if len(license_key) > 10 else license_key
+    
+    log_entry = models.LicenseValidationLog(
+        license_key=masked_key,
+        device_id=device_id,
+        ip_address=ip_address,
+        user_agent=user_agent[:500] if user_agent else None,  # Limitar tamanho
+        validation_result=validation_result,
+        error_message=error_message,
+        is_suspicious=is_suspicious
+    )
+    
+    db.add(log_entry)
+    try:
+        db.commit()
+    except Exception as e:
+        security_logger.error(f"Erro ao salvar log de validação: {str(e)}")
+        db.rollback()
+
+
 @app.post("/api/validate-license", response_model=schemas.LicenseValidateResponse)
-@limiter.limit("10/minute")
+@limiter.limit("10/15minute")  # 10 tentativas a cada 15 minutos
 def validate_license(
     request: Request,
     license_data: schemas.LicenseValidateRequest,
     api_key: str = Depends(verify_api_key)
 ):
-    """Valida uma chave de licença PRO"""
-    security_logger.info(f"Validação de licença solicitada de {get_remote_address(request)}")
+    """Valida uma chave de licença PRO com medidas de segurança"""
+    ip_address = get_remote_address(request)
+    user_agent = request.headers.get("user-agent", "Unknown")
+    
+    security_logger.info(f"Validação de licença solicitada de {ip_address}")
     
     db = next(get_db())
     
+    # Normalizar chave (remover espaços e hífens, converter para maiúsculas)
+    normalized_key = license_data.key.upper().replace(' ', '').replace('-', '')
+    
+    # Validar formato básico
+    if len(normalized_key) != 45 or not normalized_key.startswith('PRO'):
+        log_validation_attempt(
+            db, normalized_key, license_data.device_id, ip_address, user_agent,
+            'invalid', 'Formato de chave inválido'
+        )
+        return schemas.LicenseValidateResponse(
+            valid=False,
+            error='Formato de chave inválido'
+        )
+    
+    # Verificar atividade suspeita
+    is_suspicious = check_suspicious_activity(db, ip_address, normalized_key)
+    
     try:
-        # Validar chave usando o gerador
-        validation_result = validate_license_key(license_data.key)
+        # Validar chave usando o gerador (HMAC-SHA256)
+        validation_result = validate_license_key(normalized_key)
         
         if not validation_result.get('valid'):
+            log_validation_attempt(
+                db, normalized_key, license_data.device_id, ip_address, user_agent,
+                'invalid', validation_result.get('error', 'Chave inválida'), is_suspicious
+            )
+            
+            if is_suspicious:
+                security_logger.warning(f"Tentativa suspeita de validação de {ip_address} - múltiplas tentativas falhas")
+            
             return schemas.LicenseValidateResponse(
                 valid=False,
                 error=validation_result.get('error', 'Chave inválida')
             )
         
-        # Verificar se a chave já foi usada
+        # Verificar se a chave já foi registrada
         existing_license = db.query(models.License).filter(
-            models.License.license_key == license_data.key.upper().replace(' ', '').replace('-', '')
+            models.License.license_key == normalized_key
         ).first()
         
         if existing_license:
-            # Verificar se ainda está ativa
+            # Verificar se foi revogada
+            if not existing_license.is_active:
+                log_validation_attempt(
+                    db, normalized_key, license_data.device_id, ip_address, user_agent,
+                    'revoked', 'Licença revogada'
+                )
+                return schemas.LicenseValidateResponse(
+                    valid=False,
+                    error='Licença revogada'
+                )
+            
+            # Verificar se expirou
             expiration = existing_license.expiration_date
             from datetime import timezone
             now = dt.now(timezone.utc) if expiration.tzinfo else dt.now()
             if expiration < now:
+                log_validation_attempt(
+                    db, normalized_key, license_data.device_id, ip_address, user_agent,
+                    'expired', 'Licença expirada'
+                )
                 return schemas.LicenseValidateResponse(
                     valid=False,
                     error='Licença expirada'
                 )
+            
+            # Verificar limite de dispositivos se device_id foi fornecido
+            if license_data.device_id:
+                can_add_device, device_count = check_device_limit(db, normalized_key)
+                
+                # Verificar se este dispositivo já está associado
+                device_license = db.query(models.License).filter(
+                    models.License.license_key == normalized_key,
+                    models.License.device_id == license_data.device_id
+                ).first()
+                
+                if not device_license and not can_add_device:
+                    log_validation_attempt(
+                        db, normalized_key, license_data.device_id, ip_address, user_agent,
+                        'invalid', f'Limite de dispositivos atingido ({device_count}/{3})'
+                    )
+                    return schemas.LicenseValidateResponse(
+                        valid=False,
+                        error=f'Limite de dispositivos atingido (máximo {3} dispositivos por licença)'
+                    )
+            
+            log_validation_attempt(
+                db, normalized_key, license_data.device_id, ip_address, user_agent,
+                'valid', None, is_suspicious
+            )
             
             return schemas.LicenseValidateResponse(
                 valid=True,
@@ -739,6 +878,11 @@ def validate_license(
             )
         
         # Chave válida mas ainda não registrada
+        log_validation_attempt(
+            db, normalized_key, license_data.device_id, ip_address, user_agent,
+            'valid', None, is_suspicious
+        )
+        
         return schemas.LicenseValidateResponse(
             valid=True,
             license_type=validation_result['license_type'],
@@ -748,6 +892,10 @@ def validate_license(
         
     except Exception as e:
         security_logger.error(f"Erro ao validar licença: {str(e)}")
+        log_validation_attempt(
+            db, normalized_key, license_data.device_id, ip_address, user_agent,
+            'error', f'Erro interno: {str(e)}', is_suspicious
+        )
         return schemas.LicenseValidateResponse(
             valid=False,
             error=f'Erro ao validar licença: {str(e)}'
@@ -802,6 +950,63 @@ def generate_license(
         return schemas.LicenseGenerateResponse(
             success=False,
             error=f'Erro ao gerar licença: {str(e)}'
+        )
+
+
+@app.post("/api/revoke-license", response_model=schemas.LicenseRevokeResponse)
+@limiter.limit("5/minute")
+def revoke_license(
+    request: Request,
+    revoke_data: schemas.LicenseRevokeRequest,
+    api_key: str = Depends(verify_api_key)
+):
+    """Revoga uma licença PRO (apenas para administradores)"""
+    ip_address = get_remote_address(request)
+    security_logger.warning(f"Tentativa de revogação de licença de {ip_address}")
+    
+    db = next(get_db())
+    
+    try:
+        # Normalizar chave
+        normalized_key = revoke_data.license_key.upper().replace(' ', '').replace('-', '')
+        
+        # Buscar licença
+        license = db.query(models.License).filter(
+            models.License.license_key == normalized_key
+        ).first()
+        
+        if not license:
+            return schemas.LicenseRevokeResponse(
+                success=False,
+                error="Licença não encontrada"
+            )
+        
+        if not license.is_active:
+            return schemas.LicenseRevokeResponse(
+                success=False,
+                error="Licença já está revogada"
+            )
+        
+        # Revogar licença
+        license.is_active = False
+        license.updated_at = dt.now()
+        
+        safe_db_commit(db)
+        
+        security_logger.warning(
+            f"Licença {normalized_key[:10]}... revogada. Motivo: {revoke_data.reason or 'Não informado'}"
+        )
+        
+        return schemas.LicenseRevokeResponse(
+            success=True,
+            message=f"Licença revogada com sucesso. Motivo: {revoke_data.reason or 'Não informado'}"
+        )
+        
+    except Exception as e:
+        security_logger.error(f"Erro ao revogar licença: {str(e)}")
+        return schemas.LicenseRevokeResponse(
+            success=False,
+            error=f'Erro ao revogar licença: {str(e)}'
         )
 
 
