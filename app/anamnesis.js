@@ -31,18 +31,26 @@ export default function Anamnesis() {
   
   // Calcular idade a partir da data de nascimento
   const calculateAge = (date) => {
-    if (!date) return '';
-    const today = new Date();
-    const birth = new Date(date);
-    let age = today.getFullYear() - birth.getFullYear();
-    const monthDiff = today.getMonth() - birth.getMonth();
-    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
-      age--;
+    if (!date) return null;
+    try {
+      const today = new Date();
+      const birth = new Date(date);
+      // Verificar se a data é válida
+      if (isNaN(birth.getTime())) return null;
+      
+      let age = today.getFullYear() - birth.getFullYear();
+      const monthDiff = today.getMonth() - birth.getMonth();
+      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+        age--;
+      }
+      return age >= 0 ? age : null;
+    } catch (error) {
+      console.error('Erro ao calcular idade:', error);
+      return null;
     }
-    return age;
   };
   
-  const age = birthDate ? calculateAge(birthDate) : '';
+  const age = birthDate ? calculateAge(birthDate) : null;
   // Tipo sanguíneo
   const [bloodType, setBloodType] = useState('');
   // Alergias
@@ -397,8 +405,20 @@ export default function Anamnesis() {
       <View style={styles.form}>
         {/* Dados Pessoais */}
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Dados Pessoais</Text>
-          {editing ? (
+          <TouchableOpacity 
+            style={styles.sectionHeaderButton}
+            onPress={() => toggleSection('personalData')}
+          >
+            <View style={styles.sectionHeaderContent}>
+              <Ionicons 
+                name={expandedSections.personalData ? "chevron-down" : "chevron-forward"} 
+                size={24} 
+                color="#4ECDC4" 
+              />
+              <Text style={styles.label}>Dados Pessoais</Text>
+            </View>
+          </TouchableOpacity>
+          {expandedSections.personalData && editing ? (
             <View style={styles.personalDataContainer}>
               <View style={styles.personalDataRow}>
                 <Text style={styles.personalDataLabel}>Data de Nascimento:</Text>
@@ -425,7 +445,7 @@ export default function Anamnesis() {
                     }}
                   />
                 )}
-                {age && (
+                {age !== null && age !== undefined && (
                   <Text style={styles.ageDisplay}>
                     Idade: {age} {age === 1 ? 'ano' : 'anos'}
                   </Text>
@@ -457,7 +477,7 @@ export default function Anamnesis() {
           ) : expandedSections.personalData ? (
             <View style={styles.displayValue}>
               <Text style={styles.displayText}>
-                {birthDate ? `Data de Nascimento: ${formatDate(birthDate.toISOString())} (${age} ${age === 1 ? 'ano' : 'anos'})` : 'Data de nascimento não informada'} | {gender || 'Sexo não informado'}
+                {birthDate ? `Data de Nascimento: ${formatDate(birthDate.toISOString())}${age !== null && age !== undefined ? ` (${age} ${age === 1 ? 'ano' : 'anos'})` : ''}` : 'Data de nascimento não informada'} | {gender || 'Sexo não informado'}
               </Text>
             </View>
           ) : null}
