@@ -19,7 +19,7 @@ import schemas
 from ocr_service import perform_ocr
 from data_extraction import extract_data_from_ocr_text
 from license_generator import generate_license_key, validate_license_key, LICENSE_DURATIONS
-from datetime import datetime as dt, timedelta
+from datetime import datetime as dt, timedelta, timezone
 from alert_service import alert_service, AlertType
 
 # Carregar variáveis de ambiente do .env
@@ -863,7 +863,6 @@ def validate_license(
             
             # Verificar se expirou
             expiration = existing_license.expiration_date
-            from datetime import timezone
             now = dt.now(timezone.utc) if expiration.tzinfo else dt.now()
             if expiration < now:
                 log_validation_attempt(
@@ -1503,7 +1502,6 @@ def get_dashboard(request: Request, api_key: str = Depends(verify_api_key)):
     
     try:
         # Estatísticas de licenças
-        from datetime import timezone
         now = dt.now(timezone.utc)
         total_licenses = db.query(models.License).count()
         active_licenses = db.query(models.License).filter(
@@ -1656,6 +1654,8 @@ def get_dashboard(request: Request, api_key: str = Depends(verify_api_key)):
             last_updated=now
         )
     except Exception as e:
-        security_logger.error(f"Erro ao obter dashboard: {str(e)}")
+        import traceback
+        error_trace = traceback.format_exc()
+        security_logger.error(f"Erro ao obter dashboard: {str(e)}\n{error_trace}")
         raise HTTPException(status_code=500, detail=f"Erro ao obter dashboard: {str(e)}")
 
