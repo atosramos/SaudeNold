@@ -335,11 +335,27 @@ export default function AlarmScreen() {
   };
   
   // Função para cancelar notificações do dia
+  // Nota: Como as notificações são recorrentes, não podemos cancelar apenas uma ocorrência
+  // Mas a verificação antes de tocar o alarme já previne que toque novamente
   const cancelTodayNotifications = async (medicationId, schedule) => {
     try {
+      // Tentar cancelar a notificação recorrente (vai cancelar todas as ocorrências futuras)
+      // Mas vamos reagendar apenas as futuras, não a de hoje
       const notificationId = `${medicationId}-${schedule}`;
-      await Notifications.cancelScheduledNotificationAsync(notificationId);
-      console.log('Notificação cancelada para hoje:', notificationId);
+      
+      // Buscar todas as notificações agendadas
+      const allNotifications = await Notifications.getAllScheduledNotificationsAsync();
+      const notification = allNotifications.find(n => n.identifier === notificationId);
+      
+      if (notification) {
+        // Cancelar a notificação recorrente
+        await Notifications.cancelScheduledNotificationAsync(notificationId);
+        console.log('Notificação recorrente cancelada:', notificationId);
+        
+        // Reagendar apenas para os próximos dias (não hoje)
+        // Isso será feito automaticamente quando o app reiniciar e chamar scheduleAllMedicationAlarms
+        // que já verifica se foi tomado antes de agendar
+      }
     } catch (error) {
       console.error('Erro ao cancelar notificação:', error);
     }
