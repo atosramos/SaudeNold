@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, TextInput, Alert } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, TextInput, Alert, KeyboardAvoidingView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useState, useCallback } from 'react';
@@ -25,8 +25,33 @@ const commonConditions = [
 export default function Anamnesis() {
   const router = useRouter();
   // Dados pessoais
-  const [age, setAge] = useState('');
+  const [birthDate, setBirthDate] = useState(null);
+  const [showBirthDatePicker, setShowBirthDatePicker] = useState(false);
   const [gender, setGender] = useState('');
+  const [isPregnant, setIsPregnant] = useState(null);
+  
+  // Calcular idade a partir da data de nascimento
+  const calculateAge = (date) => {
+    if (!date) return null;
+    try {
+      const today = new Date();
+      const birth = new Date(date);
+      // Verificar se a data é válida
+      if (isNaN(birth.getTime())) return null;
+      
+      let age = today.getFullYear() - birth.getFullYear();
+      const monthDiff = today.getMonth() - birth.getMonth();
+      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+        age--;
+      }
+      return age >= 0 ? age : null;
+    } catch (error) {
+      console.error('Erro ao calcular idade:', error);
+      return null;
+    }
+  };
+  
+  const age = birthDate ? calculateAge(birthDate) : null;
   // Tipo sanguíneo
   const [bloodType, setBloodType] = useState('');
   // Alergias
@@ -49,7 +74,7 @@ export default function Anamnesis() {
   const [showFamilyHistoryForm, setShowFamilyHistoryForm] = useState(false);
   // Medicamentos em uso
   const [currentMedications, setCurrentMedications] = useState([]);
-  const [newCurrentMedication, setNewCurrentMedication] = useState('');
+  const [medicationsList, setMedicationsList] = useState([]); // Lista completa de medicamentos para buscar IDs
   // Revisão de sistemas
   const [systemReview, setSystemReview] = useState({
     cardiovascular: '',
@@ -64,6 +89,28 @@ export default function Anamnesis() {
   // Observações gerais
   const [observations, setObservations] = useState('');
   const [editing, setEditing] = useState(true);
+  
+  // Estados para accordion (seções expansíveis)
+  const [expandedSections, setExpandedSections] = useState({
+    personalData: true,
+    bloodType: false,
+    allergies: false,
+    surgeries: false,
+    conditions: false,
+    habits: false,
+    familyHistory: false,
+    medications: false,
+    systemReview: false,
+    observations: false,
+  });
+  
+  // Função para alternar expansão de seção
+  const toggleSection = (section) => {
+    setExpandedSections(prev => ({
+      ...prev,
+      [section]: !prev[section]
+    }));
+  };
 
   // Estados para nova cirurgia
   const [newSurgery, setNewSurgery] = useState({
@@ -73,6 +120,15 @@ export default function Anamnesis() {
   });
   const [showSurgeryDatePicker, setShowSurgeryDatePicker] = useState(false);
   const [showNewSurgeryForm, setShowNewSurgeryForm] = useState(false);
+  
+  // Estados para dropdowns de hábitos
+  const [showSmokingDropdown, setShowSmokingDropdown] = useState(false);
+  const [showAlcoholDropdown, setShowAlcoholDropdown] = useState(false);
+  const [showPhysicalActivityDropdown, setShowPhysicalActivityDropdown] = useState(false);
+  
+  const smokingOptions = ['Não fuma', 'Ex-fumante', 'Fumante'];
+  const alcoholOptions = ['Não bebe', 'Socialmente', 'Regularmente'];
+  const physicalActivityOptions = ['Sedentário', 'Leve', 'Moderada', 'Intensa'];
 
   useFocusEffect(
     useCallback(() => {
@@ -83,10 +139,21 @@ export default function Anamnesis() {
   const loadAnamnesis = async () => {
     try {
       const stored = await AsyncStorage.getItem('anamnesis');
+      let savedMedications = [];
+      
       if (stored) {
         const data = JSON.parse(stored);
-        setAge(data.age || '');
+        // Suportar tanto data de nascimento quanto idade (para compatibilidade)
+        if (data.birthDate) {
+          setBirthDate(new Date(data.birthDate));
+        } else if (data.age) {
+          // Se tiver apenas idade, estimar data de nascimento (aproximada)
+          const today = new Date();
+          const estimatedYear = today.getFullYear() - parseInt(data.age) || 0;
+          setBirthDate(new Date(estimatedYear, today.getMonth(), today.getDate()));
+        }
         setGender(data.gender || '');
+        setIsPregnant(data.isPregnant !== undefined ? data.isPregnant : null);
         setBloodType(data.bloodType || '');
         setAllergies(data.allergies || []);
         setSurgeries(data.surgeries || []);
@@ -96,7 +163,7 @@ export default function Anamnesis() {
         setAlcohol(data.alcohol || '');
         setPhysicalActivity(data.physicalActivity || '');
         setFamilyHistory(data.familyHistory || []);
-        setCurrentMedications(data.currentMedications || []);
+        savedMedications = data.currentMedications || [];
         setSystemReview(data.systemReview || {
           cardiovascular: '',
           respiratory: '',
@@ -109,6 +176,42 @@ export default function Anamnesis() {
         });
         setObservations(data.observations || '');
       }
+
+      // Carregar medicamentos de "Meus Medicamentos" e sincronizar
+      try {
+        const medicationsStored = await AsyncStorage.getItem('medications');
+        if (medicationsStored) {
+          const medications = JSON.parse(medicationsStored);
+          setMedicationsList(medications); // Salvar lista completa para buscar IDs
+          
+          // Converter medicamentos para formato de string (nome + dosagem)
+          const medicationsFromList = medications.map(med => {
+            const name = med.name || '';
+            const dosage = med.dosage || '';
+            return dosage ? `${name} ${dosage}`.trim() : name;
+          }).filter(med => med); // Remove strings vazias
+
+          // Combinar medicamentos salvos na anamnese com os da lista de medicamentos
+          // Evitar duplicatas
+          const allMedications = [...savedMedications];
+          medicationsFromList.forEach(med => {
+            if (!allMedications.includes(med)) {
+              allMedications.push(med);
+            }
+          });
+
+          setCurrentMedications(allMedications);
+        } else {
+          // Se não há medicamentos na lista, usar apenas os salvos na anamnese
+          setCurrentMedications(savedMedications);
+          setMedicationsList([]);
+        }
+      } catch (error) {
+        console.error('Erro ao carregar medicamentos:', error);
+        // Em caso de erro, usar apenas os medicamentos salvos na anamnese
+        setCurrentMedications(savedMedications);
+        setMedicationsList([]);
+      }
     } catch (error) {
       console.error('Erro ao carregar anamnese:', error);
     }
@@ -117,8 +220,10 @@ export default function Anamnesis() {
   const saveAnamnesis = async () => {
     try {
       const anamnesisData = {
-        age,
+        birthDate: birthDate ? birthDate.toISOString() : null,
+        age: age !== null && age !== undefined ? age : null, // Manter idade calculada para compatibilidade
         gender,
+        isPregnant: gender === 'Feminino' ? isPregnant : null,
         bloodType,
         allergies,
         surgeries,
@@ -249,23 +354,28 @@ export default function Anamnesis() {
     setFamilyHistory(familyHistory.filter(h => h !== history));
   };
 
-  const addCurrentMedication = () => {
-    if (!newCurrentMedication.trim()) {
-      Alert.alert('Erro', 'Por favor, digite o nome do medicamento');
-      return;
-    }
-
-    if (currentMedications.includes(newCurrentMedication.trim())) {
-      Alert.alert('Aviso', 'Este medicamento já está cadastrado');
-      return;
-    }
-
-    setCurrentMedications([...currentMedications, newCurrentMedication.trim()]);
-    setNewCurrentMedication('');
+  // Buscar ID do medicamento pelo nome
+  const findMedicationId = (medicationName) => {
+    const med = medicationsList.find(m => {
+      const name = m.name || '';
+      const dosage = m.dosage || '';
+      const fullName = dosage ? `${name} ${dosage}`.trim() : name;
+      return fullName === medicationName || name === medicationName;
+    });
+    return med?.id;
   };
-
-  const removeCurrentMedication = (medication) => {
-    setCurrentMedications(currentMedications.filter(m => m !== medication));
+  
+  // Navegar para detalhes do medicamento
+  const openMedicationDetails = (medicationName) => {
+    const medicationId = findMedicationId(medicationName);
+    if (medicationId) {
+      router.push({
+        pathname: '/medications/[id]',
+        params: { id: medicationId.toString() }
+      });
+    } else {
+      Alert.alert('Aviso', 'Medicamento não encontrado na lista de "Meus Medicamentos"');
+    }
   };
 
   const formatDate = (dateString) => {
@@ -274,7 +384,17 @@ export default function Anamnesis() {
   };
 
   return (
-    <ScrollView style={styles.container}>
+    <KeyboardAvoidingView 
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+    >
+      <ScrollView 
+        style={styles.container}
+        contentContainerStyle={{ paddingBottom: 100 }}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={true}
+      >
       <View style={styles.header}>
         <TouchableOpacity 
           style={styles.backButton}
@@ -288,32 +408,118 @@ export default function Anamnesis() {
       <View style={styles.form}>
         {/* Dados Pessoais */}
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Dados Pessoais</Text>
-          {editing ? (
+          <TouchableOpacity 
+            style={styles.sectionHeaderButton}
+            onPress={() => toggleSection('personalData')}
+          >
+            <View style={styles.sectionHeaderContent}>
+              <Ionicons 
+                name={expandedSections.personalData ? "chevron-down" : "chevron-forward"} 
+                size={24} 
+                color="#4ECDC4" 
+              />
+              <Text style={styles.label}>Dados Pessoais</Text>
+            </View>
+          </TouchableOpacity>
+          {expandedSections.personalData && editing ? (
             <View style={styles.personalDataContainer}>
               <View style={styles.personalDataRow}>
-                <Text style={styles.personalDataLabel}>Idade:</Text>
-                <TextInput
-                  style={styles.personalDataInput}
-                  value={age}
-                  onChangeText={setAge}
-                  placeholder="Ex: 75"
-                  placeholderTextColor="#999"
-                  keyboardType="numeric"
-                  maxLength={3}
-                />
+                <Text style={styles.personalDataLabel}>Data de Nascimento:</Text>
+                <TouchableOpacity
+                  style={styles.dateButton}
+                  onPress={() => setShowBirthDatePicker(true)}
+                >
+                  <Ionicons name="calendar-outline" size={24} color="#4ECDC4" />
+                  <Text style={styles.dateButtonText}>
+                    {birthDate ? formatDate(birthDate.toISOString()) : 'Selecione a data'}
+                  </Text>
+                </TouchableOpacity>
+                {showBirthDatePicker && (
+                  <DateTimePicker
+                    value={birthDate || new Date()}
+                    mode="date"
+                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                    maximumDate={new Date()}
+                    onChange={(event, selectedDate) => {
+                      setShowBirthDatePicker(false);
+                      if (selectedDate) {
+                        setBirthDate(selectedDate);
+                      }
+                    }}
+                  />
+                )}
+                {age !== null && age !== undefined && (
+                  <Text style={styles.ageDisplay}>
+                    Idade: {age} {age === 1 ? 'ano' : 'anos'}
+                  </Text>
+                )}
               </View>
+              {/* Mostrar status de gestação se for feminino */}
+              {gender === 'Feminino' && isPregnant !== null && (
+                <View style={styles.pregnancyStatusContainer}>
+                  <Ionicons 
+                    name={isPregnant ? "checkmark-circle" : "close-circle"} 
+                    size={24} 
+                    color={isPregnant ? "#2ECC71" : "#E74C3C"} 
+                  />
+                  <Text style={styles.pregnancyStatusText}>
+                    {isPregnant ? 'Em período de gestação' : 'Não está em período de gestação'}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      Alert.alert(
+                        'Alterar Status',
+                        'Você está em período de gestação?',
+                        [
+                          {
+                            text: 'Não',
+                            onPress: () => setIsPregnant(false),
+                          },
+                          {
+                            text: 'Sim',
+                            onPress: () => setIsPregnant(true),
+                          },
+                        ]
+                      );
+                    }}
+                  >
+                    <Ionicons name="create-outline" size={20} color="#4ECDC4" />
+                  </TouchableOpacity>
+                </View>
+              )}
               <View style={styles.personalDataRow}>
                 <Text style={styles.personalDataLabel}>Sexo:</Text>
                 <View style={styles.genderContainer}>
-                  {['Masculino', 'Feminino', 'Outro'].map((g) => (
+                  {['Masculino', 'Feminino'].map((g) => (
                     <TouchableOpacity
                       key={g}
                       style={[
                         styles.genderButton,
                         gender === g && styles.genderButtonActive
                       ]}
-                      onPress={() => setGender(g)}
+                      onPress={() => {
+                        setGender(g);
+                        // Se mudou para Feminino e ainda não foi perguntado, perguntar sobre gestação
+                        if (g === 'Feminino' && isPregnant === null) {
+                          Alert.alert(
+                            'Informação Importante',
+                            'Você está em período de gestação?',
+                            [
+                              {
+                                text: 'Não',
+                                onPress: () => setIsPregnant(false),
+                              },
+                              {
+                                text: 'Sim',
+                                onPress: () => setIsPregnant(true),
+                              },
+                            ]
+                          );
+                        } else if (g === 'Masculino') {
+                          // Se mudou para Masculino, limpar informação de gestação
+                          setIsPregnant(null);
+                        }
+                      }}
                     >
                       <Text style={[
                         styles.genderText,
@@ -326,19 +532,34 @@ export default function Anamnesis() {
                 </View>
               </View>
             </View>
-          ) : (
+          ) : expandedSections.personalData ? (
             <View style={styles.displayValue}>
               <Text style={styles.displayText}>
-                {age ? `Idade: ${age} anos` : 'Idade não informada'} | {gender || 'Sexo não informado'}
+                {birthDate ? `Data de Nascimento: ${formatDate(birthDate.toISOString())}${age !== null && age !== undefined ? ` (${age} ${age === 1 ? 'ano' : 'anos'})` : ''}` : 'Data de nascimento não informada'} | {gender || 'Sexo não informado'}
+                {gender === 'Feminino' && isPregnant !== null && (
+                  ` | ${isPregnant ? 'Grávida' : 'Não grávida'}`
+                )}
               </Text>
             </View>
-          )}
+          ) : null}
         </View>
 
         {/* Tipo Sanguíneo */}
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Tipo Sanguíneo *</Text>
-          {editing ? (
+          <TouchableOpacity 
+            style={styles.sectionHeaderButton}
+            onPress={() => toggleSection('bloodType')}
+          >
+            <View style={styles.sectionHeaderContent}>
+              <Ionicons 
+                name={expandedSections.bloodType ? "chevron-down" : "chevron-forward"} 
+                size={24} 
+                color="#4ECDC4" 
+              />
+              <Text style={styles.label}>Tipo Sanguíneo *</Text>
+            </View>
+          </TouchableOpacity>
+          {expandedSections.bloodType && editing ? (
             <View style={styles.bloodTypeContainer}>
               {bloodTypes.map((type) => (
                 <TouchableOpacity
@@ -358,17 +579,29 @@ export default function Anamnesis() {
                 </TouchableOpacity>
               ))}
             </View>
-          ) : (
+          ) : expandedSections.bloodType ? (
             <View style={styles.displayValue}>
               <Text style={styles.displayText}>{bloodType || 'Não informado'}</Text>
             </View>
-          )}
+          ) : null}
         </View>
 
         {/* Alergias */}
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Alergias Conhecidas</Text>
-          {editing && (
+          <TouchableOpacity 
+            style={styles.sectionHeaderButton}
+            onPress={() => toggleSection('allergies')}
+          >
+            <View style={styles.sectionHeaderContent}>
+              <Ionicons 
+                name={expandedSections.allergies ? "chevron-down" : "chevron-forward"} 
+                size={24} 
+                color="#4ECDC4" 
+              />
+              <Text style={styles.label}>Alergias Conhecidas</Text>
+            </View>
+          </TouchableOpacity>
+          {expandedSections.allergies && editing && (
             <View style={styles.addAllergyContainer}>
               <TextInput
                 style={styles.addAllergyInput}
@@ -386,7 +619,7 @@ export default function Anamnesis() {
               </TouchableOpacity>
             </View>
           )}
-          {allergies.length > 0 ? (
+          {expandedSections.allergies && allergies.length > 0 ? (
             <View style={styles.listContainer}>
               {allergies.map((allergy, index) => (
                 <View key={index} style={styles.listItem}>
@@ -399,15 +632,27 @@ export default function Anamnesis() {
                 </View>
               ))}
             </View>
-          ) : (
+          ) : expandedSections.allergies ? (
             <Text style={styles.emptyText}>Nenhuma alergia cadastrada</Text>
-          )}
+          ) : null}
         </View>
 
         {/* Cirurgias */}
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Cirurgias Realizadas</Text>
-          {editing && (
+          <TouchableOpacity 
+            style={styles.sectionHeaderButton}
+            onPress={() => toggleSection('surgeries')}
+          >
+            <View style={styles.sectionHeaderContent}>
+              <Ionicons 
+                name={expandedSections.surgeries ? "chevron-down" : "chevron-forward"} 
+                size={24} 
+                color="#4ECDC4" 
+              />
+              <Text style={styles.label}>Cirurgias Realizadas</Text>
+            </View>
+          </TouchableOpacity>
+          {expandedSections.surgeries && editing && (
             <>
               {!showNewSurgeryForm ? (
                 <TouchableOpacity
@@ -478,7 +723,7 @@ export default function Anamnesis() {
               )}
             </>
           )}
-          {surgeries.length > 0 ? (
+          {expandedSections.surgeries && surgeries.length > 0 ? (
             <View style={styles.listContainer}>
               {surgeries.map((surgery) => (
                 <View key={surgery.id} style={styles.surgeryItem}>
@@ -499,15 +744,27 @@ export default function Anamnesis() {
                 </View>
               ))}
             </View>
-          ) : (
+          ) : expandedSections.surgeries ? (
             <Text style={styles.emptyText}>Nenhuma cirurgia cadastrada</Text>
-          )}
+          ) : null}
         </View>
 
         {/* Condições Médicas */}
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Condições Médicas / Observações</Text>
-          {editing ? (
+          <TouchableOpacity 
+            style={styles.sectionHeaderButton}
+            onPress={() => toggleSection('conditions')}
+          >
+            <View style={styles.sectionHeaderContent}>
+              <Ionicons 
+                name={expandedSections.conditions ? "chevron-down" : "chevron-forward"} 
+                size={24} 
+                color="#4ECDC4" 
+              />
+              <Text style={styles.label}>Condições Médicas / Observações</Text>
+            </View>
+          </TouchableOpacity>
+          {expandedSections.conditions && editing ? (
             <>
               <View style={styles.conditionsContainer}>
                 {commonConditions.map((condition) => (
@@ -625,75 +882,155 @@ export default function Anamnesis() {
           {editing ? (
             <>
               <View style={styles.habitsContainer}>
+                {/* Tabagismo Dropdown */}
                 <View style={styles.habitItem}>
                   <Text style={styles.habitLabel}>Tabagismo:</Text>
-                  <View style={styles.habitOptions}>
-                    {['Não fuma', 'Ex-fumante', 'Fumante'].map((option) => (
-                      <TouchableOpacity
-                        key={option}
-                        style={[
-                          styles.habitButton,
-                          smoking === option && styles.habitButtonActive
-                        ]}
-                        onPress={() => setSmoking(option)}
-                      >
-                        <Text style={[
-                          styles.habitText,
-                          smoking === option && styles.habitTextActive
-                        ]}>
-                          {option}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
+                  <TouchableOpacity
+                    style={styles.dropdownButton}
+                    onPress={() => {
+                      setShowSmokingDropdown(!showSmokingDropdown);
+                      setShowAlcoholDropdown(false);
+                      setShowPhysicalActivityDropdown(false);
+                    }}
+                  >
+                    <Text style={styles.dropdownButtonText}>
+                      {smoking || 'Selecione uma opção'}
+                    </Text>
+                    <Ionicons 
+                      name={showSmokingDropdown ? "chevron-up" : "chevron-down"} 
+                      size={20} 
+                      color="#4ECDC4" 
+                    />
+                  </TouchableOpacity>
+                  {showSmokingDropdown && (
+                    <View style={styles.dropdownOptions}>
+                      {smokingOptions.map((option) => (
+                        <TouchableOpacity
+                          key={option}
+                          style={[
+                            styles.dropdownOption,
+                            smoking === option && styles.dropdownOptionSelected
+                          ]}
+                          onPress={() => {
+                            setSmoking(option);
+                            setShowSmokingDropdown(false);
+                          }}
+                        >
+                          <Text style={[
+                            styles.dropdownOptionText,
+                            smoking === option && styles.dropdownOptionTextSelected
+                          ]}>
+                            {option}
+                          </Text>
+                          {smoking === option && (
+                            <Ionicons name="checkmark" size={20} color="#4ECDC4" />
+                          )}
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
                 </View>
+                
+                {/* Álcool Dropdown */}
                 <View style={styles.habitItem}>
                   <Text style={styles.habitLabel}>Álcool:</Text>
-                  <View style={styles.habitOptions}>
-                    {['Não bebe', 'Socialmente', 'Regularmente'].map((option) => (
-                      <TouchableOpacity
-                        key={option}
-                        style={[
-                          styles.habitButton,
-                          alcohol === option && styles.habitButtonActive
-                        ]}
-                        onPress={() => setAlcohol(option)}
-                      >
-                        <Text style={[
-                          styles.habitText,
-                          alcohol === option && styles.habitTextActive
-                        ]}>
-                          {option}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
+                  <TouchableOpacity
+                    style={styles.dropdownButton}
+                    onPress={() => {
+                      setShowAlcoholDropdown(!showAlcoholDropdown);
+                      setShowSmokingDropdown(false);
+                      setShowPhysicalActivityDropdown(false);
+                    }}
+                  >
+                    <Text style={styles.dropdownButtonText}>
+                      {alcohol || 'Selecione uma opção'}
+                    </Text>
+                    <Ionicons 
+                      name={showAlcoholDropdown ? "chevron-up" : "chevron-down"} 
+                      size={20} 
+                      color="#4ECDC4" 
+                    />
+                  </TouchableOpacity>
+                  {showAlcoholDropdown && (
+                    <View style={styles.dropdownOptions}>
+                      {alcoholOptions.map((option) => (
+                        <TouchableOpacity
+                          key={option}
+                          style={[
+                            styles.dropdownOption,
+                            alcohol === option && styles.dropdownOptionSelected
+                          ]}
+                          onPress={() => {
+                            setAlcohol(option);
+                            setShowAlcoholDropdown(false);
+                          }}
+                        >
+                          <Text style={[
+                            styles.dropdownOptionText,
+                            alcohol === option && styles.dropdownOptionTextSelected
+                          ]}>
+                            {option}
+                          </Text>
+                          {alcohol === option && (
+                            <Ionicons name="checkmark" size={20} color="#4ECDC4" />
+                          )}
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
                 </View>
+                
+                {/* Atividade Física Dropdown */}
                 <View style={styles.habitItem}>
                   <Text style={styles.habitLabel}>Atividade Física:</Text>
-                  <View style={styles.habitOptions}>
-                    {['Sedentário', 'Leve', 'Moderada', 'Intensa'].map((option) => (
-                      <TouchableOpacity
-                        key={option}
-                        style={[
-                          styles.habitButton,
-                          physicalActivity === option && styles.habitButtonActive
-                        ]}
-                        onPress={() => setPhysicalActivity(option)}
-                      >
-                        <Text style={[
-                          styles.habitText,
-                          physicalActivity === option && styles.habitTextActive
-                        ]}>
-                          {option}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
+                  <TouchableOpacity
+                    style={styles.dropdownButton}
+                    onPress={() => {
+                      setShowPhysicalActivityDropdown(!showPhysicalActivityDropdown);
+                      setShowSmokingDropdown(false);
+                      setShowAlcoholDropdown(false);
+                    }}
+                  >
+                    <Text style={styles.dropdownButtonText}>
+                      {physicalActivity || 'Selecione uma opção'}
+                    </Text>
+                    <Ionicons 
+                      name={showPhysicalActivityDropdown ? "chevron-up" : "chevron-down"} 
+                      size={20} 
+                      color="#4ECDC4" 
+                    />
+                  </TouchableOpacity>
+                  {showPhysicalActivityDropdown && (
+                    <View style={styles.dropdownOptions}>
+                      {physicalActivityOptions.map((option) => (
+                        <TouchableOpacity
+                          key={option}
+                          style={[
+                            styles.dropdownOption,
+                            physicalActivity === option && styles.dropdownOptionSelected
+                          ]}
+                          onPress={() => {
+                            setPhysicalActivity(option);
+                            setShowPhysicalActivityDropdown(false);
+                          }}
+                        >
+                          <Text style={[
+                            styles.dropdownOptionText,
+                            physicalActivity === option && styles.dropdownOptionTextSelected
+                          ]}>
+                            {option}
+                          </Text>
+                          {physicalActivity === option && (
+                            <Ionicons name="checkmark" size={20} color="#4ECDC4" />
+                          )}
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
                 </View>
               </View>
             </>
-          ) : (
+          ) : expandedSections.habits ? (
             <View style={styles.displayValue}>
               <Text style={styles.displayText}>
                 {smoking ? `Tabagismo: ${smoking}` : 'Tabagismo não informado'} | {' '}
@@ -701,13 +1038,25 @@ export default function Anamnesis() {
                 {physicalActivity ? `Atividade Física: ${physicalActivity}` : 'Atividade física não informada'}
               </Text>
             </View>
-          )}
+          ) : null}
         </View>
 
         {/* Antecedentes Familiares */}
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Antecedentes Familiares</Text>
-          {editing && (
+          <TouchableOpacity 
+            style={styles.sectionHeaderButton}
+            onPress={() => toggleSection('familyHistory')}
+          >
+            <View style={styles.sectionHeaderContent}>
+              <Ionicons 
+                name={expandedSections.familyHistory ? "chevron-down" : "chevron-forward"} 
+                size={24} 
+                color="#4ECDC4" 
+              />
+              <Text style={styles.label}>Antecedentes Familiares</Text>
+            </View>
+          </TouchableOpacity>
+          {expandedSections.familyHistory && editing && (
             <>
               {!showFamilyHistoryForm ? (
                 <TouchableOpacity
@@ -747,7 +1096,7 @@ export default function Anamnesis() {
               )}
             </>
           )}
-          {familyHistory.length > 0 ? (
+          {expandedSections.familyHistory && familyHistory.length > 0 ? (
             <View style={styles.listContainer}>
               {familyHistory.map((history, index) => (
                 <View key={index} style={styles.listItem}>
@@ -760,54 +1109,76 @@ export default function Anamnesis() {
                 </View>
               ))}
             </View>
-          ) : (
+          ) : expandedSections.familyHistory ? (
             <Text style={styles.emptyText}>Nenhum histórico familiar cadastrado</Text>
-          )}
+          ) : null}
         </View>
 
         {/* Medicamentos em Uso */}
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Medicamentos em Uso</Text>
-          {editing && (
-            <View style={styles.addAllergyContainer}>
-              <TextInput
-                style={styles.addAllergyInput}
-                value={newCurrentMedication}
-                onChangeText={setNewCurrentMedication}
-                placeholder="Ex: Losartana 50mg, Metformina 850mg"
-                placeholderTextColor="#999"
-                onSubmitEditing={addCurrentMedication}
+          <TouchableOpacity 
+            style={styles.sectionHeaderButton}
+            onPress={() => toggleSection('medications')}
+          >
+            <View style={styles.sectionHeaderContent}>
+              <Ionicons 
+                name={expandedSections.medications ? "chevron-down" : "chevron-forward"} 
+                size={24} 
+                color="#4ECDC4" 
               />
-              <TouchableOpacity
-                style={styles.addButton}
-                onPress={addCurrentMedication}
-              >
-                <Ionicons name="add-circle" size={32} color="#4ECDC4" />
-              </TouchableOpacity>
+              <Text style={styles.label}>Medicamentos em Uso</Text>
             </View>
-          )}
-          {currentMedications.length > 0 ? (
-            <View style={styles.listContainer}>
-              {currentMedications.map((medication, index) => (
-                <View key={index} style={styles.listItem}>
-                  <Text style={styles.listItemText}>{medication}</Text>
-                  {editing && (
-                    <TouchableOpacity onPress={() => removeCurrentMedication(medication)}>
-                      <Ionicons name="close-circle" size={24} color="#FF6B6B" />
+          </TouchableOpacity>
+          {expandedSections.medications && (
+            <>
+              <Text style={styles.infoText}>
+                Os medicamentos cadastrados em "Meus Medicamentos" são sincronizados automaticamente aqui.
+              </Text>
+              {editing && (
+                <TouchableOpacity
+                  style={styles.addMedicationButton}
+                  onPress={() => router.push('/medications')}
+                >
+                  <Ionicons name="add-circle" size={28} color="#4ECDC4" />
+                  <Text style={styles.addMedicationButtonText}>Adicionar Medicamento</Text>
+                </TouchableOpacity>
+              )}
+              {currentMedications.length > 0 ? (
+                <View style={styles.listContainer}>
+                  {currentMedications.map((medication, index) => (
+                    <TouchableOpacity 
+                      key={index} 
+                      style={styles.listItem}
+                      onPress={() => openMedicationDetails(medication)}
+                    >
+                      <Text style={styles.listItemText}>{medication}</Text>
+                      <Ionicons name="chevron-forward" size={20} color="#4ECDC4" />
                     </TouchableOpacity>
-                  )}
+                  ))}
                 </View>
-              ))}
-            </View>
-          ) : (
-            <Text style={styles.emptyText}>Nenhum medicamento cadastrado</Text>
+              ) : (
+                <Text style={styles.emptyText}>Nenhum medicamento cadastrado</Text>
+              )}
+            </>
           )}
         </View>
 
         {/* Revisão de Sistemas */}
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Revisão de Sistemas</Text>
-          {editing ? (
+          <TouchableOpacity 
+            style={styles.sectionHeaderButton}
+            onPress={() => toggleSection('systemReview')}
+          >
+            <View style={styles.sectionHeaderContent}>
+              <Ionicons 
+                name={expandedSections.systemReview ? "chevron-down" : "chevron-forward"} 
+                size={24} 
+                color="#4ECDC4" 
+              />
+              <Text style={styles.label}>Revisão de Sistemas</Text>
+            </View>
+          </TouchableOpacity>
+          {expandedSections.systemReview && editing ? (
             <View style={styles.systemReviewContainer}>
               {[
                 { key: 'cardiovascular', label: 'Cardiovascular', placeholder: 'Ex: Palpitações, dor no peito' },
@@ -832,7 +1203,7 @@ export default function Anamnesis() {
                 </View>
               ))}
             </View>
-          ) : (
+          ) : expandedSections.systemReview ? (
             <View style={styles.listContainer}>
               {Object.entries(systemReview).map(([key, value]) => {
                 if (!value) return null;
@@ -860,13 +1231,25 @@ export default function Anamnesis() {
                 <Text style={styles.emptyText}>Nenhuma informação registrada</Text>
               )}
             </View>
-          )}
+          ) : null}
         </View>
 
         {/* Observações Gerais */}
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Observações Gerais</Text>
-          {editing ? (
+          <TouchableOpacity 
+            style={styles.sectionHeaderButton}
+            onPress={() => toggleSection('observations')}
+          >
+            <View style={styles.sectionHeaderContent}>
+              <Ionicons 
+                name={expandedSections.observations ? "chevron-down" : "chevron-forward"} 
+                size={24} 
+                color="#4ECDC4" 
+              />
+              <Text style={styles.label}>Observações Gerais</Text>
+            </View>
+          </TouchableOpacity>
+          {expandedSections.observations && editing ? (
             <TextInput
               style={[styles.input, styles.textArea]}
               value={observations}
@@ -876,13 +1259,13 @@ export default function Anamnesis() {
               multiline
               numberOfLines={6}
             />
-          ) : (
+          ) : expandedSections.observations ? (
             <View style={styles.displayValue}>
               <Text style={styles.displayText}>
                 {observations || 'Nenhuma observação cadastrada'}
               </Text>
             </View>
-          )}
+          ) : null}
         </View>
 
         {editing && (
@@ -905,7 +1288,8 @@ export default function Anamnesis() {
           </View>
         )}
       </View>
-    </ScrollView>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -938,13 +1322,26 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   inputGroup: {
-    marginBottom: 32,
+    marginBottom: 16,
+  },
+  sectionHeaderButton: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 2,
+    borderColor: '#4ECDC4',
+  },
+  sectionHeaderContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   label: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#333',
-    marginBottom: 12,
+    marginLeft: 8,
+    flex: 1,
   },
   input: {
     backgroundColor: '#fff',
@@ -1015,6 +1412,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 8,
   },
+  addMedicationButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 2,
+    borderColor: '#4ECDC4',
+    gap: 8,
+  },
+  addMedicationButtonText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#4ECDC4',
+  },
   listContainer: {
     backgroundColor: '#fff',
     borderRadius: 12,
@@ -1041,6 +1455,13 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     textAlign: 'center',
     padding: 20,
+  },
+  infoText: {
+    fontSize: 18,
+    color: '#4ECDC4',
+    fontStyle: 'italic',
+    marginBottom: 12,
+    paddingHorizontal: 4,
   },
   addSurgeryButton: {
     flexDirection: 'row',
@@ -1280,6 +1701,28 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#4ECDC4',
   },
+  ageDisplay: {
+    fontSize: 20,
+    color: '#4ECDC4',
+    fontWeight: 'bold',
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  pregnancyStatusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E8F8F5',
+    padding: 12,
+    borderRadius: 12,
+    marginTop: 12,
+    gap: 8,
+  },
+  pregnancyStatusText: {
+    fontSize: 18,
+    color: '#333',
+    flex: 1,
+    fontWeight: '600',
+  },
   genderContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1321,30 +1764,48 @@ const styles = StyleSheet.create({
     color: '#333',
     marginBottom: 12,
   },
-  habitOptions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  habitButton: {
+  dropdownButton: {
     backgroundColor: '#fff',
     borderRadius: 12,
     padding: 16,
     borderWidth: 2,
     borderColor: '#4ECDC4',
-    minWidth: 120,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  habitButtonActive: {
-    backgroundColor: '#4ECDC4',
+  dropdownButtonText: {
+    fontSize: 18,
+    color: '#333',
+    flex: 1,
   },
-  habitText: {
-    fontSize: 20,
-    fontWeight: 'bold',
+  dropdownOptions: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    marginTop: 8,
+    borderWidth: 2,
+    borderColor: '#e0e0e0',
+    overflow: 'hidden',
+  },
+  dropdownOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  dropdownOptionSelected: {
+    backgroundColor: '#E8F8F5',
+  },
+  dropdownOptionText: {
+    fontSize: 18,
+    color: '#333',
+    flex: 1,
+  },
+  dropdownOptionTextSelected: {
     color: '#4ECDC4',
-  },
-  habitTextActive: {
-    color: '#fff',
+    fontWeight: 'bold',
   },
   familyHistoryForm: {
     backgroundColor: '#f9f9f9',

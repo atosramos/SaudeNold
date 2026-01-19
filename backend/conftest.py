@@ -22,6 +22,8 @@ test_db_file.close()
 # Configurar DATABASE_URL para testes
 os.environ["DATABASE_URL"] = f"sqlite:///{test_db_path}"
 os.environ["TESTING"] = "1"
+# Configurar LICENSE_SECRET_KEY para testes (chave de teste)
+os.environ["LICENSE_SECRET_KEY"] = "test-secret-key-for-license-generation-12345678901234567890"
 
 from database import Base
 import models

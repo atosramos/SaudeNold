@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View, TouchableOpacity, Modal, Image } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, Modal, Image, ScrollView, SafeAreaView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useEffect, useRef } from 'react';
 import { Audio } from 'expo-av';
@@ -45,9 +45,59 @@ export default function AlarmScreen() {
 
   useEffect(() => {
     if (medication) {
-      startAlarm();
+      checkIfAlreadyTaken();
     }
   }, [medication]);
+  
+  // Verificar se já foi tomado hoje antes de tocar alarme
+  const checkIfAlreadyTaken = async () => {
+    try {
+      const now = new Date();
+      const today = now.toISOString().split('T')[0];
+      let schedule = params.schedule || medication?.schedule;
+      if (!schedule && medication?.schedules && medication.schedules.length > 0) {
+        schedule = medication.schedules[0];
+      }
+      
+      if (schedule) {
+        const logKey = `medication_log_${medication.id}_${today}_${schedule}`;
+        const log = await AsyncStorage.getItem(logKey);
+        
+        if (log) {
+          const logData = JSON.parse(log);
+          if (logData.status === 'taken') {
+            console.log('Medicamento já foi tomado hoje neste horário. Não tocando alarme.');
+            router.back();
+            return;
+          }
+        }
+        
+        // Verificar também no array de logs do dia
+        const dailyLogsKey = `medication_logs_${today}`;
+        const dailyLogs = await AsyncStorage.getItem(dailyLogsKey);
+        if (dailyLogs) {
+          const logs = JSON.parse(dailyLogs);
+          const found = logs.find(l => 
+            l.medicationId === medication.id && 
+            l.schedule === schedule && 
+            l.status === 'taken'
+          );
+          if (found) {
+            console.log('Medicamento já foi tomado hoje neste horário. Não tocando alarme.');
+            router.back();
+            return;
+          }
+        }
+      }
+      
+      // Se não foi tomado, tocar alarme
+      startAlarm();
+    } catch (error) {
+      console.error('Erro ao verificar se já foi tomado:', error);
+      // Em caso de erro, tocar alarme mesmo assim
+      startAlarm();
+    }
+  };
 
   const loadMedication = async () => {
     try {
@@ -227,18 +277,87 @@ export default function AlarmScreen() {
 
   const markMedicationAsTaken = async () => {
     try {
+      const now = new Date();
+      const today = now.toISOString().split('T')[0]; // YYYY-MM-DD
+      
+      // Obter schedule da notificação ou do medicamento
+      let schedule = params.schedule || medication?.schedule;
+      if (!schedule && medication?.schedules && medication.schedules.length > 0) {
+        // Se não tem schedule específico, usar o primeiro horário
+        schedule = medication.schedules[0];
+      }
+      
+      if (!schedule) {
+        console.warn('Schedule não encontrado, usando horário atual aproximado');
+        const hours = now.getHours().toString().padStart(2, '0');
+        const minutes = now.getMinutes().toString().padStart(2, '0');
+        schedule = `${hours}:${minutes}`;
+      }
+      
+      // Salvar log de medicamento tomado
+      const logKey = `medication_log_${medication.id}_${today}_${schedule}`;
+      const logData = {
+        medicationId: medication.id,
+        medicationName: medication.name,
+        schedule: schedule,
+        date: today,
+        takenAt: now.toISOString(),
+        status: 'taken'
+      };
+      await AsyncStorage.setItem(logKey, JSON.stringify(logData));
+      
+      // Salvar no array de logs do dia
+      const dailyLogsKey = `medication_logs_${today}`;
+      const dailyLogs = await AsyncStorage.getItem(dailyLogsKey);
+      let logs = dailyLogs ? JSON.parse(dailyLogs) : [];
+      logs.push(logData);
+      await AsyncStorage.setItem(dailyLogsKey, JSON.stringify(logs));
+      
+      // Atualizar lastTaken no medicamento
       const stored = await AsyncStorage.getItem('medications');
       if (stored) {
         const medications = JSON.parse(stored);
         const updatedMedications = medications.map(m => 
           m.id === medication.id 
-            ? { ...m, lastTaken: new Date().toISOString() }
+            ? { ...m, lastTaken: now.toISOString() }
             : m
         );
         await AsyncStorage.setItem('medications', JSON.stringify(updatedMedications));
       }
+      
+      // Cancelar notificações do dia para este horário
+      await cancelTodayNotifications(medication.id, schedule);
+      
+      console.log('Medicamento marcado como tomado:', logData);
     } catch (error) {
       console.error('Erro ao marcar medicamento como tomado:', error);
+    }
+  };
+  
+  // Função para cancelar notificações do dia
+  // Nota: Como as notificações são recorrentes, não podemos cancelar apenas uma ocorrência
+  // Mas a verificação antes de tocar o alarme já previne que toque novamente
+  const cancelTodayNotifications = async (medicationId, schedule) => {
+    try {
+      // Tentar cancelar a notificação recorrente (vai cancelar todas as ocorrências futuras)
+      // Mas vamos reagendar apenas as futuras, não a de hoje
+      const notificationId = `${medicationId}-${schedule}`;
+      
+      // Buscar todas as notificações agendadas
+      const allNotifications = await Notifications.getAllScheduledNotificationsAsync();
+      const notification = allNotifications.find(n => n.identifier === notificationId);
+      
+      if (notification) {
+        // Cancelar a notificação recorrente
+        await Notifications.cancelScheduledNotificationAsync(notificationId);
+        console.log('Notificação recorrente cancelada:', notificationId);
+        
+        // Reagendar apenas para os próximos dias (não hoje)
+        // Isso será feito automaticamente quando o app reiniciar e chamar scheduleAllMedicationAlarms
+        // que já verifica se foi tomado antes de agendar
+      }
+    } catch (error) {
+      console.error('Erro ao cancelar notificação:', error);
     }
   };
 
@@ -422,66 +541,81 @@ export default function AlarmScreen() {
         transparent={false}
         onRequestClose={handleStop}
       >
-        <View style={styles.container}>
-          <View style={styles.alarmContent}>
-            <View style={styles.iconContainer}>
-              <Ionicons name="medical" size={120} color="#FF6B6B" />
-            </View>
-            
-            <Text style={styles.title}>Hora do Medicamento!</Text>
-            
-            {medication.image && (
-              <Image source={{ uri: medication.image }} style={styles.medicationImage} />
-            )}
-            
-            <Text style={styles.medicationName}>{medication.name}</Text>
-            
-            {medication.dosage && (
-              <Text style={styles.dosage}>Dosagem: {medication.dosage}</Text>
-            )}
-            
-            {isPaused && (
-              <View style={styles.pauseIndicator}>
-                <Text style={styles.pauseText}>Alarme pausado</Text>
-                <Text style={styles.pauseSubtext}>
-                  {snoozeTimeoutRef.current ? 'Retomará em 15 minutos' : 'Retomará em 5 minutos'}
-                </Text>
+        <SafeAreaView style={styles.container}>
+          <ScrollView 
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+            bounces={false}
+          >
+            <View style={styles.alarmContent}>
+              <View style={styles.iconContainer}>
+                <Ionicons name="medical" size={80} color="#FF6B6B" />
               </View>
-            )}
-            
-            <View style={styles.buttonsContainer}>
-              <TouchableOpacity
-                style={[styles.button, styles.takeButton]}
-                onPress={handleTakeMedication}
-              >
-                <Ionicons name="checkmark-circle" size={40} color="#fff" />
-                <Text style={styles.buttonText}>Tomei</Text>
-              </TouchableOpacity>
               
-              <TouchableOpacity
-                style={[styles.button, styles.snoozeButton]}
-                onPress={handleSnooze}
-              >
-                <Ionicons name="time" size={40} color="#fff" />
-                <Text style={styles.buttonText}>Soneca 15min</Text>
-              </TouchableOpacity>
+              <Text style={styles.title}>Hora do Medicamento!</Text>
               
-              <TouchableOpacity
-                style={[styles.button, styles.pauseButton]}
-                onPress={handlePause}
-              >
-                <Ionicons 
-                  name={isPaused ? "play" : "pause"} 
-                  size={40} 
-                  color="#fff" 
-                />
-                <Text style={styles.buttonText}>
-                  {isPaused ? "Retomar" : "Pausar"}
-                </Text>
-              </TouchableOpacity>
+              {medication.image && (
+                <Image source={{ uri: medication.image }} style={styles.medicationImage} />
+              )}
+              
+              <Text style={styles.medicationName}>{medication.name}</Text>
+              
+              {medication.dosage && (
+                <Text style={styles.dosage}>Dosagem: {medication.dosage}</Text>
+              )}
+              
+              {(params.schedule || medication?.schedule || (medication?.schedules && medication.schedules.length > 0)) && (
+                <View style={styles.scheduleContainer}>
+                  <Ionicons name="time-outline" size={20} color="#FF6B6B" />
+                  <Text style={styles.scheduleText}>
+                    Horário programado: {params.schedule || medication?.schedule || medication?.schedules?.[0]}
+                  </Text>
+                </View>
+              )}
+              
+              {isPaused && (
+                <View style={styles.pauseIndicator}>
+                  <Text style={styles.pauseText}>Alarme pausado</Text>
+                  <Text style={styles.pauseSubtext}>
+                    {snoozeTimeoutRef.current ? 'Retomará em 15 minutos' : 'Retomará em 5 minutos'}
+                  </Text>
+                </View>
+              )}
+              
+              <View style={styles.buttonsContainer}>
+                <TouchableOpacity
+                  style={[styles.button, styles.takeButton]}
+                  onPress={handleTakeMedication}
+                >
+                  <Ionicons name="checkmark-circle" size={32} color="#fff" />
+                  <Text style={styles.buttonText}>Tomei</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  style={[styles.button, styles.snoozeButton]}
+                  onPress={handleSnooze}
+                >
+                  <Ionicons name="time" size={32} color="#fff" />
+                  <Text style={styles.buttonText}>Soneca 15min</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  style={[styles.button, styles.pauseButton]}
+                  onPress={handlePause}
+                >
+                  <Ionicons 
+                    name={isPaused ? "play" : "pause"} 
+                    size={32} 
+                    color="#fff" 
+                  />
+                  <Text style={styles.buttonText}>
+                    {isPaused ? "Retomar" : "Pausar"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
-        </View>
+          </ScrollView>
+        </SafeAreaView>
       </Modal>
       <ModalComponent />
     </>
@@ -492,84 +626,111 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#FF6B6B',
+  },
+  scrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingVertical: 20,
+    paddingHorizontal: 20,
   },
   alarmContent: {
     alignItems: 'center',
-    padding: 40,
     width: '100%',
+    maxWidth: '100%',
   },
   iconContainer: {
-    marginBottom: 30,
+    marginBottom: 20,
     backgroundColor: '#fff',
-    borderRadius: 100,
-    padding: 20,
+    borderRadius: 60,
+    padding: 15,
+    width: 120,
+    height: 120,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   title: {
-    fontSize: 42,
+    fontSize: 32,
     fontWeight: 'bold',
     color: '#fff',
-    marginBottom: 30,
+    marginBottom: 20,
     textAlign: 'center',
   },
   medicationImage: {
-    width: 200,
-    height: 200,
-    borderRadius: 20,
-    marginBottom: 20,
-    borderWidth: 4,
+    width: 150,
+    height: 150,
+    borderRadius: 16,
+    marginBottom: 16,
+    borderWidth: 3,
     borderColor: '#fff',
   },
   medicationName: {
-    fontSize: 36,
+    fontSize: 28,
     fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  dosage: {
+    fontSize: 22,
     color: '#fff',
     marginBottom: 16,
     textAlign: 'center',
   },
-  dosage: {
-    fontSize: 28,
+  scheduleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    marginBottom: 24,
+  },
+  scheduleText: {
+    fontSize: 18,
     color: '#fff',
-    marginBottom: 40,
+    fontWeight: '600',
+    marginLeft: 8,
     textAlign: 'center',
   },
   pauseIndicator: {
     backgroundColor: 'rgba(255, 255, 255, 0.3)',
-    padding: 20,
-    borderRadius: 16,
-    marginBottom: 30,
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 20,
+    width: '100%',
   },
   pauseText: {
-    fontSize: 24,
+    fontSize: 20,
     color: '#fff',
     fontWeight: 'bold',
     textAlign: 'center',
   },
   pauseSubtext: {
-    fontSize: 20,
+    fontSize: 16,
     color: '#fff',
     textAlign: 'center',
-    marginTop: 8,
+    marginTop: 6,
   },
   buttonsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 16,
     width: '100%',
-    justifyContent: 'center',
-    paddingHorizontal: 20,
+    justifyContent: 'space-between',
+    gap: 12,
+    marginTop: 10,
   },
   button: {
     flex: 1,
-    minWidth: 140,
+    minWidth: '30%',
     backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 24,
+    borderRadius: 16,
+    padding: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 100,
-    maxWidth: 180,
+    minHeight: 90,
+    maxWidth: '48%',
   },
   takeButton: {
     backgroundColor: '#4ECDC4',
@@ -579,12 +740,16 @@ const styles = StyleSheet.create({
   },
   pauseButton: {
     backgroundColor: '#95E1D3',
+    width: '100%',
+    maxWidth: '100%',
+    marginTop: 8,
   },
   buttonText: {
-    fontSize: 28,
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#fff',
-    marginTop: 12,
+    marginTop: 8,
+    textAlign: 'center',
   },
 });
 

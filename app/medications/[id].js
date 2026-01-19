@@ -125,9 +125,11 @@ const styles = StyleSheet.create({
     marginRight: 16,
   },
   title: {
-    fontSize: 32,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#333',
+    flex: 1,
+    flexWrap: 'wrap',
   },
   content: {
     padding: 24,

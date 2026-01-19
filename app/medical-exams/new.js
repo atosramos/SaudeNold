@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Image, ActivityIndicator, Alert, TextInput, Modal, Platform } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Image, ActivityIndicator, Alert, TextInput, Modal, Platform, KeyboardAvoidingView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState, useRef } from 'react';
@@ -12,6 +12,7 @@ import { extractDataWithLLMFallback, extractDataWithGeminiDirect } from '../../s
 import { useCustomAlert } from '../../hooks/useCustomAlert';
 import { isProFeatureAvailable } from '../../services/proLicense';
 import PdfViewer from '../../components/PdfViewer';
+import { trackProFeatureUsage } from '../../services/analytics';
 
 export default function NewMedicalExam() {
   const router = useRouter();
@@ -636,8 +637,18 @@ export default function NewMedicalExam() {
 
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
+    <KeyboardAvoidingView 
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+    >
+      <ScrollView 
+        style={styles.container}
+        contentContainerStyle={{ paddingBottom: 100 }}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={true}
+      >
+        <View style={styles.header}>
         <TouchableOpacity 
           style={styles.backButton}
           onPress={() => router.back()}
@@ -817,7 +828,8 @@ export default function NewMedicalExam() {
       </View>
 
       <AlertComponent />
-    </ScrollView>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 

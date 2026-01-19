@@ -1,5 +1,5 @@
 // Stub para web - react-native-pdf não funciona no web
-import { View, Text } from 'react-native';
+import { View, Text } from 'react-native-web';
 
 export default function PdfViewer({ source, onLoadComplete, onPageChanged, onError, style }) {
   return (

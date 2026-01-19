@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, TextInput, Image, ActivityIndicator, Alert, Platform } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, TextInput, Image, ActivityIndicator, Alert, Platform, KeyboardAvoidingView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
@@ -8,6 +8,7 @@ import { saveTrackingRecord, createTrackingRecord, TRACKING_TYPES } from '../../
 import { extractTrackingDataFromImage, convertExtractedDataToRecords } from '../../services/dailyTrackingOCR';
 import { useCustomAlert } from '../../hooks/useCustomAlert';
 import { isProFeatureAvailable } from '../../services/proLicense';
+import { trackProFeatureUsage } from '../../services/analytics';
 
 const TYPE_LABELS = {
   [TRACKING_TYPES.BLOOD_PRESSURE]: 'Pressão Arterial',
@@ -152,6 +153,9 @@ export default function NewDailyTracking() {
       
       const extractedData = await extractTrackingDataFromImage(image, GEMINI_API_KEY);
       
+      // Rastrear uso de feature PRO
+      trackProFeatureUsage('gemini_daily_tracking_extraction');
+      
       if (!extractedData) {
         showAlert('Erro', 'Não foi possível extrair dados da imagem. Tente novamente ou digite manualmente.', 'error');
         setProcessing(false);
@@ -267,7 +271,12 @@ export default function NewDailyTracking() {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
+      <ScrollView 
+        style={styles.content} 
+        contentContainerStyle={[styles.contentContainer, { paddingBottom: 100 }]}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={true}
+      >
         {/* Tipo de registro */}
         <View style={styles.section}>
           <Text style={styles.label}>Tipo de Dado</Text>

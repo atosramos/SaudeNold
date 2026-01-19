@@ -128,6 +128,40 @@ export const requestNotificationPermissions = async () => {
 };
 
 /**
+ * Verifica se medicamento já foi tomado hoje no horário específico
+ */
+const isMedicationAlreadyTaken = async (medicationId, schedule) => {
+  try {
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const logKey = `medication_log_${medicationId}_${today}_${schedule}`;
+    const log = await AsyncStorage.getItem(logKey);
+    
+    if (log) {
+      const logData = JSON.parse(log);
+      return logData.status === 'taken';
+    }
+    
+    // Verificar também no array de logs do dia
+    const dailyLogsKey = `medication_logs_${today}`;
+    const dailyLogs = await AsyncStorage.getItem(dailyLogsKey);
+    if (dailyLogs) {
+      const logs = JSON.parse(dailyLogs);
+      const found = logs.find(l => 
+        l.medicationId === medicationId && 
+        l.schedule === schedule && 
+        l.status === 'taken'
+      );
+      return !!found;
+    }
+    
+    return false;
+  } catch (error) {
+    console.error('Erro ao verificar se medicamento foi tomado:', error);
+    return false;
+  }
+};
+
+/**
  * Agenda alarmes para um medicamento
  */
 export const scheduleMedicationAlarms = async (medication) => {
@@ -155,8 +189,25 @@ export const scheduleMedicationAlarms = async (medication) => {
     
     // Para cada horário do medicamento
     for (const schedule of medication.schedules) {
+      // Verificar se já foi tomado hoje neste horário
+      const alreadyTaken = await isMedicationAlreadyTaken(medication.id, schedule);
+      if (alreadyTaken) {
+        const skipLog = `Medicamento ${medication.name} já foi tomado hoje às ${schedule}. Pulando agendamento.`;
+        console.log(`⏭️ ${skipLog}`);
+        await addDebugLog(skipLog, 'info');
+        continue; // Pular este horário
+      }
       const [hours, minutes] = schedule.split(':').map(Number);
-      const scheduleLog = `Agendando para ${schedule} (${hours}:${minutes})`;
+      
+      // Validar horário
+      if (isNaN(hours) || isNaN(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+        const errorMsg = `Horário inválido: ${schedule}. Deve estar no formato HH:MM (0-23:0-59)`;
+        console.error(`❌ ${errorMsg}`);
+        await addDebugLog(errorMsg, 'error');
+        continue;
+      }
+      
+      const scheduleLog = `Agendando para ${schedule} (${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')})`;
       console.log(`⏰ ${scheduleLog}`);
       await addDebugLog(scheduleLog, 'info');
       
@@ -195,18 +246,18 @@ export const scheduleMedicationAlarms = async (medication) => {
             },
             trigger: Platform.OS === 'android'
               ? {
-                  // Para Android Studio, incluir channelId no trigger
+                  // Para Android, usar formato específico para garantir precisão
                   channelId: 'medication-alarm',
-                  weekday: expoWeekday, // Expo usa 1-7 (Segunda a Domingo)
-                  hour: hours,
-                  minute: minutes,
+                  weekday: parseInt(expoWeekday, 10), // Expo usa 1-7 (Segunda a Domingo)
+                  hour: parseInt(hours, 10), // Garantir que é inteiro
+                  minute: parseInt(minutes, 10), // Garantir que é inteiro
                   repeats: true,
                 }
               : {
                   // Para iOS, formato padrão
-                  weekday: expoWeekday,
-                  hour: hours,
-                  minute: minutes,
+                  weekday: parseInt(expoWeekday, 10),
+                  hour: parseInt(hours, 10),
+                  minute: parseInt(minutes, 10),
                   repeats: true,
                 },
           });
@@ -223,13 +274,14 @@ export const scheduleMedicationAlarms = async (medication) => {
         console.log(`📌 ${dailyLog}`);
         await addDebugLog(dailyLog, 'info');
         
-        // IMPORTANTE: Notificações recorrentes com hour/minute só disparam no próximo dia
-        // se o horário já passou hoje. Isso é comportamento normal do sistema.
+        // Calcular quando a primeira notificação deve disparar
         const now = new Date();
         const scheduledTime = new Date();
-        scheduledTime.setHours(hours, minutes, 0, 0);
+        scheduledTime.setHours(parseInt(hours, 10), parseInt(minutes, 10), 0, 0);
         
+        // Se o horário já passou hoje, agendar para amanhã
         if (scheduledTime <= now) {
+          scheduledTime.setDate(scheduledTime.getDate() + 1);
           const warningMsg = `Horário ${hours}:${minutes} já passou hoje. A notificação vai tocar AMANHÃ às ${hours}:${minutes}`;
           console.log(`⚠️ ${warningMsg}`);
           await addDebugLog(warningMsg, 'warning');
@@ -239,38 +291,92 @@ export const scheduleMedicationAlarms = async (medication) => {
           await addDebugLog(successMsg, 'success');
         }
         
-        const scheduledId = await Notifications.scheduleNotificationAsync({
-          identifier: notificationId,
-          content: {
-            title: 'Hora do Medicamento! 💊',
-            body: `${medication.name}${medication.dosage ? ' - ' + medication.dosage : ''}${medication.fasting ? ' (Em jejum)' : ''}`,
-            data: {
-              medicationId: medication.id,
-              medicationName: medication.name,
-              dosage: medication.dosage || '',
-              schedule: schedule,
-              type: 'medication_alarm',
-              fasting: medication.fasting || false,
-            },
-            sound: 'default', // Usar som padrão do sistema (mais confiável)
-            priority: Notifications.AndroidNotificationPriority.MAX,
-            ...(Platform.OS === 'android' && { channelId: 'medication-alarm' }),
-          },
-          trigger: Platform.OS === 'android'
-            ? {
-                // Para Android Studio, incluir channelId no trigger
-                channelId: 'medication-alarm',
-                hour: hours,
-                minute: minutes,
-                repeats: true,
-              }
-            : {
-                // Para iOS, formato padrão
-                hour: hours,
-                minute: minutes,
-                repeats: true,
+        // Para Android, usar trigger de data específica para a primeira notificação
+        // e depois usar notificação recorrente diária
+        if (Platform.OS === 'android') {
+          // Calcular segundos até o horário programado
+          const secondsUntilTrigger = Math.max(0, Math.floor((scheduledTime.getTime() - now.getTime()) / 1000));
+          
+          // Agendar primeira notificação para o horário exato
+          const firstNotificationId = `${notificationId}-first`;
+          const firstScheduledId = await Notifications.scheduleNotificationAsync({
+            identifier: firstNotificationId,
+            content: {
+              title: 'Hora do Medicamento! 💊',
+              body: `${medication.name}${medication.dosage ? ' - ' + medication.dosage : ''}${medication.fasting ? ' (Em jejum)' : ''}`,
+              data: {
+                medicationId: medication.id,
+                medicationName: medication.name,
+                dosage: medication.dosage || '',
+                schedule: schedule,
+                type: 'medication_alarm',
+                fasting: medication.fasting || false,
               },
-        });
+              sound: 'default',
+              priority: Notifications.AndroidNotificationPriority.MAX,
+              channelId: 'medication-alarm',
+            },
+            trigger: {
+              channelId: 'medication-alarm',
+              type: 'timeInterval',
+              seconds: secondsUntilTrigger,
+              repeats: false,
+            },
+          });
+          notificationIds.push(firstScheduledId);
+          
+          // Agendar notificação recorrente diária (começando amanhã)
+          const recurringScheduledId = await Notifications.scheduleNotificationAsync({
+            identifier: notificationId,
+            content: {
+              title: 'Hora do Medicamento! 💊',
+              body: `${medication.name}${medication.dosage ? ' - ' + medication.dosage : ''}${medication.fasting ? ' (Em jejum)' : ''}`,
+              data: {
+                medicationId: medication.id,
+                medicationName: medication.name,
+                dosage: medication.dosage || '',
+                schedule: schedule,
+                type: 'medication_alarm',
+                fasting: medication.fasting || false,
+              },
+              sound: 'default',
+              priority: Notifications.AndroidNotificationPriority.MAX,
+              channelId: 'medication-alarm',
+            },
+            trigger: {
+              channelId: 'medication-alarm',
+              hour: parseInt(hours, 10),
+              minute: parseInt(minutes, 10),
+              repeats: true,
+            },
+          });
+          notificationIds.push(recurringScheduledId);
+        } else {
+          // Para iOS, usar formato padrão
+          const scheduledId = await Notifications.scheduleNotificationAsync({
+            identifier: notificationId,
+            content: {
+              title: 'Hora do Medicamento! 💊',
+              body: `${medication.name}${medication.dosage ? ' - ' + medication.dosage : ''}${medication.fasting ? ' (Em jejum)' : ''}`,
+              data: {
+                medicationId: medication.id,
+                medicationName: medication.name,
+                dosage: medication.dosage || '',
+                schedule: schedule,
+                type: 'medication_alarm',
+                fasting: medication.fasting || false,
+              },
+              sound: 'default',
+              priority: Notifications.AndroidNotificationPriority.MAX,
+            },
+            trigger: {
+              hour: parseInt(hours, 10),
+              minute: parseInt(minutes, 10),
+              repeats: true,
+            },
+          });
+          notificationIds.push(scheduledId);
+        }
         
         const dailySuccessLog = `Notificação diária agendada com sucesso! ID: ${scheduledId}`;
         console.log(`✅ ${dailySuccessLog}`);

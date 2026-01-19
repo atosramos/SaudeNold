@@ -6,11 +6,29 @@ import { rescheduleAllAlarms } from '../services/alarm';
 import * as Notifications from 'expo-notifications';
 import { Audio } from 'expo-av';
 import * as Speech from 'expo-speech';
+import { initGoogleAnalytics, initLogRocket } from '../services/analytics';
 
 export default function RootLayout() {
   const router = useRouter();
   const notificationListener = useRef();
   const responseListener = useRef();
+
+  // Inicializar analytics
+  useEffect(() => {
+    try {
+      // Inicializar Google Analytics (se disponivel)
+      initGoogleAnalytics();
+    } catch (error) {
+      console.error('Erro ao inicializar Google Analytics:', error);
+    }
+    
+    try {
+      // Inicializar LogRocket (se disponivel)
+      initLogRocket();
+    } catch (error) {
+      console.error('Erro ao inicializar LogRocket:', error);
+    }
+  }, []);
 
   useEffect(() => {
     // Sincronizar ao abrir o app
@@ -71,10 +89,12 @@ export default function RootLayout() {
           pathname: '/alarm',
           params: {
             medicationId: notification.request.content.data.medicationId,
+            schedule: notification.request.content.data.schedule || '', // Passar schedule
             medication: JSON.stringify({
               id: notification.request.content.data.medicationId,
               name: medicationName,
               dosage: dosage,
+              schedule: notification.request.content.data.schedule || '',
             })
           }
         });

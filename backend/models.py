@@ -86,6 +86,52 @@ class ExamDataPoint(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class License(Base):
+    __tablename__ = "licenses"
+
+    id = Column(Integer, primary_key=True, index=True)
+    license_key = Column(String(45), unique=True, nullable=False, index=True)
+    license_type = Column(String(20), nullable=False)  # 1_month, 6_months, 1_year
+    user_id = Column(String(255), index=True)  # ID do usuário (opcional)
+    device_id = Column(String(255), index=True)  # ID do dispositivo
+    purchase_id = Column(String(255), index=True)  # ID da compra (Google Pay)
+    activated_at = Column(DateTime(timezone=True), nullable=False)
+    expiration_date = Column(DateTime(timezone=True), nullable=False, index=True)
+    is_active = Column(Boolean, default=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class Purchase(Base):
+    __tablename__ = "purchases"
+
+    id = Column(Integer, primary_key=True, index=True)
+    purchase_id = Column(String(255), unique=True, nullable=False, index=True)  # ID da compra do Google Pay
+    user_id = Column(String(255), index=True)
+    license_type = Column(String(20), nullable=False)  # 1_month, 6_months, 1_year
+    amount = Column(String, nullable=False)  # Valor pago
+    currency = Column(String(3), default="BRL")
+    status = Column(String(20), nullable=False, index=True)  # pending, completed, failed, refunded
+    google_pay_transaction_id = Column(String(255))
+    license_key = Column(String(45))  # Chave gerada após confirmação
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class LicenseValidationLog(Base):
+    __tablename__ = "license_validation_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    license_key = Column(String(45), index=True)  # Chave validada (pode ser parcial para privacidade)
+    device_id = Column(String(255), index=True)  # ID do dispositivo
+    ip_address = Column(String(45), index=True)  # IP de origem
+    user_agent = Column(String(500))  # User agent do cliente
+    validation_result = Column(String(20), nullable=False)  # valid, invalid, expired, revoked
+    error_message = Column(Text)  # Mensagem de erro se houver
+    is_suspicious = Column(Boolean, default=False, index=True)  # Flag para tentativas suspeitas
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
 
 
 

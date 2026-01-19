@@ -1,5 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { trackLicenseActivation, trackLicenseValidation, trackError } from './analytics';
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
+import api from './api';
 
 const LICENSE_STORAGE_KEY = 'pro_license';
 const LICENSE_INFO_KEY = 'pro_license_info';
@@ -133,22 +136,22 @@ export const validateLicenseKey = async (key) => {
     }
     
     // Tentar validar no servidor primeiro (se disponível)
-    const SERVER_URL = process.env.EXPO_PUBLIC_API_URL || 'https://api.saudenold.com';
-    
     try {
-      const response = await fetch(`${SERVER_URL}/api/validate-license`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ key: normalizedKey }),
+      // Obter device ID (se disponível)
+      const deviceId = Constants.deviceId || Constants.installationId || null;
+      
+      const response = await api.post('/api/validate-license', {
+        key: normalizedKey,
+        device_id: deviceId,
       });
       
-      if (response.ok) {
-        const result = await response.json();
-        if (result.valid) {
-          return result;
-        }
+      if (response.data && response.data.valid) {
+        return response.data;
+      } else if (response.data && response.data.error) {
+        return {
+          valid: false,
+          error: response.data.error,
+        };
       }
     } catch (serverError) {
       // Servidor não disponível, continuar com validação local
@@ -211,6 +214,7 @@ export const activateLicense = async (key) => {
     const validation = await validateLicenseKey(key);
     
     if (!validation.valid) {
+      trackLicenseValidation(false, validation.error || 'Chave invalida');
       return {
         success: false,
         error: validation.error,
@@ -238,12 +242,18 @@ export const activateLicense = async (key) => {
     
     await AsyncStorage.setItem(LICENSE_INFO_KEY, JSON.stringify(licenseInfo));
     
+    // Rastrear ativacao
+    const deviceId = await getDeviceId();
+    trackLicenseActivation(validation.licenseType, deviceId);
+    trackLicenseValidation(true);
+    
     return {
       success: true,
       licenseInfo,
     };
   } catch (error) {
     console.error('Erro ao ativar licença:', error);
+    trackError('Erro ao ativar licenca', { error: error.message });
     return {
       success: false,
       error: 'Erro ao ativar licença: ' + error.message,
