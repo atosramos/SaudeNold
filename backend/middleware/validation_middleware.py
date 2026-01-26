@@ -6,6 +6,7 @@ from fastapi import Request, HTTPException, status
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 import logging
+import json
 
 import sys
 import os
@@ -48,7 +49,6 @@ class ValidationMiddleware(BaseHTTPMiddleware):
         
         if body:
             try:
-                import json
                 payload = json.loads(body.decode('utf-8'))
                 
                 # Validar tamanho do payload
@@ -64,8 +64,7 @@ class ValidationMiddleware(BaseHTTPMiddleware):
                 sanitized_payload = sanitize_input(payload)
                 
                 # Substituir body com payload sanitizado
-                import json as json_module
-                sanitized_body = json_module.dumps(sanitized_payload).encode('utf-8')
+                sanitized_body = json.dumps(sanitized_payload).encode('utf-8')
                 
                 # Criar novo request com body sanitizado
                 async def receive():
