@@ -564,3 +564,423 @@ class TestDeleteFamilyProfile:
         )
         
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+class TestFamilyLinks:
+    """Testes para endpoints de links entre perfis"""
+    
+    def _get_valid_csrf_token(self, client, token, csrf_token):
+        """Obtém um token CSRF válido"""
+        try:
+            csrf_response = client.get(
+                "/api/csrf-token",
+                headers={"Authorization": f"Bearer {token}"}
+            )
+            if csrf_response.status_code == 200:
+                return csrf_response.json().get("csrf_token", csrf_token)
+        except:
+            pass
+        return csrf_token
+    
+    def test_list_family_links(self, client, api_key, db_session, test_user, test_profile):
+        """Testa listar links da família"""
+        from auth import create_access_token
+        token = create_access_token({
+            "sub": str(test_user.id),
+            "email": test_user.email
+        })
+        
+        response = client.get(
+            "/api/family/links",
+            headers={
+                "Authorization": f"Bearer {token}"
+            }
+        )
+        
+        assert response.status_code == status.HTTP_200_OK
+        links = response.json()
+        assert isinstance(links, list)
+    
+    def test_create_family_link_success(self, client, api_key, csrf_token, db_session, test_user, test_profile):
+        """Testa criar link entre perfis com sucesso"""
+        family = db_session.query(Family).filter(Family.id == test_profile.family_id).first()
+        
+        test_user.account_type = "family_admin"
+        db_session.commit()
+        
+        # Criar segundo perfil
+        profile2 = FamilyProfile(
+            family_id=family.id,
+            name="Perfil 2",
+            account_type="adult_member",
+            created_by=test_user.id
+        )
+        db_session.add(profile2)
+        db_session.commit()
+        db_session.refresh(profile2)
+        
+        from auth import create_access_token
+        token = create_access_token({
+            "sub": str(test_user.id),
+            "email": test_user.email
+        })
+        
+        # Obter token CSRF válido
+        try:
+            csrf_response = client.get(
+                "/api/csrf-token",
+                headers={"Authorization": f"Bearer {token}"}
+            )
+            if csrf_response.status_code == 200:
+                valid_csrf = csrf_response.json().get("csrf_token", csrf_token)
+            else:
+                valid_csrf = csrf_token
+        except:
+            valid_csrf = csrf_token
+        
+        link_data = {
+            "target_profile_id": profile2.id
+        }
+        
+        response = client.post(
+            "/api/family/links",
+            json=link_data,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-CSRF-Token": valid_csrf,
+                "X-Profile-Id": str(test_profile.id)
+            }
+        )
+        
+        assert response.status_code == status.HTTP_200_OK
+        link = response.json()
+        assert link.get("source_profile_id") == test_profile.id
+        assert link.get("target_profile_id") == profile2.id
+        assert link.get("status") == "pending"
+    
+    def test_create_family_link_requires_admin(self, client, api_key, csrf_token, db_session, test_user, test_profile):
+        """Testa que apenas admin pode criar links"""
+        family = db_session.query(Family).filter(Family.id == test_profile.family_id).first()
+        
+        test_user.account_type = "adult_member"  # NÃO é admin
+        db_session.commit()
+        
+        profile2 = FamilyProfile(
+            family_id=family.id,
+            name="Perfil 2",
+            account_type="adult_member",
+            created_by=test_user.id
+        )
+        db_session.add(profile2)
+        db_session.commit()
+        db_session.refresh(profile2)
+        
+        from auth import create_access_token
+        token = create_access_token({
+            "sub": str(test_user.id),
+            "email": test_user.email
+        })
+        
+        # Obter token CSRF válido
+        try:
+            csrf_response = client.get(
+                "/api/csrf-token",
+                headers={"Authorization": f"Bearer {token}"}
+            )
+            if csrf_response.status_code == 200:
+                valid_csrf = csrf_response.json().get("csrf_token", csrf_token)
+            else:
+                valid_csrf = csrf_token
+        except:
+            valid_csrf = csrf_token
+        
+        link_data = {
+            "target_profile_id": profile2.id
+        }
+        
+        response = client.post(
+            "/api/family/links",
+            json=link_data,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-CSRF-Token": valid_csrf,
+                "X-Profile-Id": str(test_profile.id)
+            }
+        )
+        
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+    
+    def test_accept_family_link_success(self, client, api_key, csrf_token, db_session, test_user, test_profile):
+        """Testa aceitar link com sucesso"""
+        family = db_session.query(Family).filter(Family.id == test_profile.family_id).first()
+        
+        # Criar segundo perfil
+        profile2 = FamilyProfile(
+            family_id=family.id,
+            name="Perfil 2",
+            account_type="adult_member",
+            created_by=test_user.id
+        )
+        db_session.add(profile2)
+        db_session.commit()
+        db_session.refresh(profile2)
+        
+        # Criar link pendente
+        from models import FamilyProfileLink
+        link = FamilyProfileLink(
+            family_id=family.id,
+            source_profile_id=test_profile.id,
+            target_profile_id=profile2.id,
+            status="pending"
+        )
+        db_session.add(link)
+        db_session.commit()
+        db_session.refresh(link)
+        
+        from auth import create_access_token
+        token = create_access_token({
+            "sub": str(test_user.id),
+            "email": test_user.email
+        })
+        
+        valid_csrf = self._get_valid_csrf_token(client, token, csrf_token)
+        
+        response = client.post(
+            f"/api/family/links/{link.id}/accept",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-CSRF-Token": valid_csrf,
+                "X-Profile-Id": str(profile2.id)  # Perfil alvo aceita
+            }
+        )
+        
+        assert response.status_code == status.HTTP_200_OK
+        result = response.json()
+        assert result.get("status") == "accepted"
+        assert result.get("approved_at") is not None
+    
+    def test_accept_family_link_not_found(self, client, api_key, csrf_token, db_session, test_user, test_profile):
+        """Testa aceitar link inexistente"""
+        from auth import create_access_token
+        token = create_access_token({
+            "sub": str(test_user.id),
+            "email": test_user.email
+        })
+        
+        valid_csrf = self._get_valid_csrf_token(client, token, csrf_token)
+        
+        response = client.post(
+            "/api/family/links/99999/accept",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-CSRF-Token": valid_csrf,
+                "X-Profile-Id": str(test_profile.id)
+            }
+        )
+        
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestFamilyDataShares:
+    """Testes para endpoints de compartilhamento de dados"""
+    
+    def _get_valid_csrf_token(self, client, token, csrf_token):
+        """Obtém um token CSRF válido"""
+        try:
+            csrf_response = client.get(
+                "/api/csrf-token",
+                headers={"Authorization": f"Bearer {token}"}
+            )
+            if csrf_response.status_code == 200:
+                return csrf_response.json().get("csrf_token", csrf_token)
+        except:
+            pass
+        return csrf_token
+    
+    def test_list_family_data_shares(self, client, api_key, db_session, test_user, test_profile):
+        """Testa listar compartilhamentos de dados"""
+        from auth import create_access_token
+        token = create_access_token({
+            "sub": str(test_user.id),
+            "email": test_user.email
+        })
+        
+        response = client.get(
+            "/api/family/data-shares",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Profile-Id": str(test_profile.id)
+            }
+        )
+        
+        assert response.status_code == status.HTTP_200_OK
+        shares = response.json()
+        assert isinstance(shares, list)
+    
+    def test_create_family_data_share_success(self, client, api_key, csrf_token, db_session, test_user, test_profile):
+        """Testa criar compartilhamento de dados com sucesso"""
+        family = db_session.query(Family).filter(Family.id == test_profile.family_id).first()
+        
+        test_user.account_type = "family_admin"
+        db_session.commit()
+        
+        # Criar segundo perfil
+        profile2 = FamilyProfile(
+            family_id=family.id,
+            name="Perfil 2",
+            account_type="adult_member",
+            created_by=test_user.id
+        )
+        db_session.add(profile2)
+        db_session.commit()
+        db_session.refresh(profile2)
+        
+        from auth import create_access_token
+        token = create_access_token({
+            "sub": str(test_user.id),
+            "email": test_user.email
+        })
+        
+        valid_csrf = self._get_valid_csrf_token(client, token, csrf_token)
+        
+        share_data = {
+            "to_profile_id": profile2.id,
+            "permissions": {"can_view": True, "can_edit": False}
+        }
+        
+        response = client.post(
+            "/api/family/data-shares",
+            json=share_data,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-CSRF-Token": valid_csrf,
+                "X-Profile-Id": str(test_profile.id)
+            }
+        )
+        
+        assert response.status_code == status.HTTP_200_OK
+        share = response.json()
+        assert share.get("from_profile_id") == test_profile.id
+        assert share.get("to_profile_id") == profile2.id
+        assert share.get("permissions") == {"can_view": True, "can_edit": False}
+    
+    def test_create_family_data_share_requires_admin(self, client, api_key, csrf_token, db_session, test_user, test_profile):
+        """Testa que apenas admin pode criar compartilhamentos"""
+        family = db_session.query(Family).filter(Family.id == test_profile.family_id).first()
+        
+        test_user.account_type = "adult_member"  # NÃO é admin
+        db_session.commit()
+        
+        profile2 = FamilyProfile(
+            family_id=family.id,
+            name="Perfil 2",
+            account_type="adult_member",
+            created_by=test_user.id
+        )
+        db_session.add(profile2)
+        db_session.commit()
+        db_session.refresh(profile2)
+        
+        from auth import create_access_token
+        token = create_access_token({
+            "sub": str(test_user.id),
+            "email": test_user.email
+        })
+        
+        valid_csrf = self._get_valid_csrf_token(client, token, csrf_token)
+        
+        share_data = {
+            "to_profile_id": profile2.id,
+            "permissions": {"can_view": True}
+        }
+        
+        response = client.post(
+            "/api/family/data-shares",
+            json=share_data,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-CSRF-Token": valid_csrf,
+                "X-Profile-Id": str(test_profile.id)
+            }
+        )
+        
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+    
+    def test_revoke_family_data_share_success(self, client, api_key, csrf_token, db_session, test_user, test_profile):
+        """Testa revogar compartilhamento com sucesso"""
+        family = db_session.query(Family).filter(Family.id == test_profile.family_id).first()
+        
+        test_user.account_type = "family_admin"
+        db_session.commit()
+        
+        # Criar segundo perfil
+        profile2 = FamilyProfile(
+            family_id=family.id,
+            name="Perfil 2",
+            account_type="adult_member",
+            created_by=test_user.id
+        )
+        db_session.add(profile2)
+        db_session.commit()
+        db_session.refresh(profile2)
+        
+        # Criar compartilhamento
+        from models import FamilyDataShare
+        share = FamilyDataShare(
+            family_id=family.id,
+            from_profile_id=test_profile.id,
+            to_profile_id=profile2.id,
+            permissions={"can_view": True}
+        )
+        db_session.add(share)
+        db_session.commit()
+        db_session.refresh(share)
+        
+        from auth import create_access_token
+        token = create_access_token({
+            "sub": str(test_user.id),
+            "email": test_user.email
+        })
+        
+        valid_csrf = self._get_valid_csrf_token(client, token, csrf_token)
+        
+        response = client.delete(
+            f"/api/family/data-shares/{share.id}",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-CSRF-Token": valid_csrf,
+                "X-Profile-Id": str(test_profile.id)
+            }
+        )
+        
+        assert response.status_code == status.HTTP_200_OK
+        result = response.json()
+        assert result.get("success") is True
+        
+        # Verificar que compartilhamento foi revogado
+        db_session.refresh(share)
+        assert share.revoked_at is not None
+    
+    def test_revoke_family_data_share_not_found(self, client, api_key, csrf_token, db_session, test_user, test_profile):
+        """Testa revogar compartilhamento inexistente"""
+        test_user.account_type = "family_admin"
+        db_session.commit()
+        
+        from auth import create_access_token
+        token = create_access_token({
+            "sub": str(test_user.id),
+            "email": test_user.email
+        })
+        
+        valid_csrf = self._get_valid_csrf_token(client, token, csrf_token)
+        
+        response = client.delete(
+            "/api/family/data-shares/99999",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-CSRF-Token": valid_csrf,
+                "X-Profile-Id": str(test_profile.id)
+            }
+        )
+        
+        assert response.status_code == status.HTTP_404_NOT_FOUND
