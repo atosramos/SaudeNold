@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getProfileItem, setProfileItem } from './profileStorageManager';
 
 const STORAGE_KEY = 'dailyTracking';
 
@@ -32,7 +32,7 @@ export const createTrackingRecord = (type, value, unit = null, date = null, note
 // Salvar registro
 export const saveTrackingRecord = async (record) => {
   try {
-    const stored = await AsyncStorage.getItem(STORAGE_KEY);
+    const stored = await getProfileItem(STORAGE_KEY);
     const records = stored ? JSON.parse(stored) : [];
     
     // Se já existe (edição), atualizar; senão, adicionar
@@ -49,7 +49,7 @@ export const saveTrackingRecord = async (record) => {
     // Ordenar por data (mais recente primeiro)
     records.sort((a, b) => new Date(b.date) - new Date(a.date));
     
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+    await setProfileItem(STORAGE_KEY, JSON.stringify(records));
     return { success: true, record: existingIndex >= 0 ? records[existingIndex] : record };
   } catch (error) {
     console.error('Erro ao salvar registro de acompanhamento:', error);
@@ -60,16 +60,32 @@ export const saveTrackingRecord = async (record) => {
 // Buscar todos os registros
 export const getAllTrackingRecords = async (type = null) => {
   try {
-    const stored = await AsyncStorage.getItem(STORAGE_KEY);
+    const stored = await getProfileItem(STORAGE_KEY);
     if (!stored) return [];
     
     const records = JSON.parse(stored);
     
-    if (type) {
-      return records.filter(r => r.type === type);
+    // Validar que records é um array
+    if (!Array.isArray(records)) {
+      console.warn('Registros não são um array, retornando array vazio');
+      return [];
     }
     
-    return records;
+    // Filtrar registros inválidos
+    const validRecords = records.filter(r => 
+      r && 
+      typeof r === 'object' && 
+      r.id && 
+      r.type && 
+      r.value !== undefined && 
+      r.value !== null
+    );
+    
+    if (type) {
+      return validRecords.filter(r => r.type === type);
+    }
+    
+    return validRecords;
   } catch (error) {
     console.error('Erro ao buscar registros de acompanhamento:', error);
     return [];
@@ -90,7 +106,7 @@ export const getTrackingRecordById = async (id) => {
 // Deletar registro
 export const deleteTrackingRecord = async (id) => {
   try {
-    const stored = await AsyncStorage.getItem(STORAGE_KEY);
+    const stored = await getProfileItem(STORAGE_KEY);
     if (!stored) return { success: false, error: 'Nenhum registro encontrado' };
     
     const records = JSON.parse(stored);
@@ -100,7 +116,7 @@ export const deleteTrackingRecord = async (id) => {
       return { success: false, error: 'Registro não encontrado' };
     }
     
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+    await setProfileItem(STORAGE_KEY, JSON.stringify(filtered));
     return { success: true };
   } catch (error) {
     console.error('Erro ao deletar registro:', error);

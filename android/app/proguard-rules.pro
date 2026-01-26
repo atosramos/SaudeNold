@@ -11,4 +11,9 @@
 -keep class com.swmansion.reanimated.** { *; }
 -keep class com.facebook.react.turbomodule.** { *; }
 
+# react-native-biometrics
+-keep class com.rnbiometrics.** { *; }
+-keep class androidx.biometric.** { *; }
+-dontwarn androidx.biometric.**
+
 # Add any project specific keep options here:

@@ -4,6 +4,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { useState, useCallback } from 'react';
 import { getAllTrackingRecords, deleteTrackingRecord, TRACKING_TYPES } from '../services/dailyTracking';
 import { useCustomModal } from '../hooks/useCustomModal';
+import { useTheme } from '../contexts/ThemeContext';
 
 const TYPE_LABELS = {
   [TRACKING_TYPES.BLOOD_PRESSURE]: 'Pressão Arterial',
@@ -41,41 +42,76 @@ const TYPE_COLORS = {
 export default function DailyTracking() {
   const router = useRouter();
   const { showModal, ModalComponent } = useCustomModal();
+  const themeContext = useTheme();
+  const colors = themeContext?.colors || {
+    background: '#f5f5f5',
+    surface: '#ffffff',
+    text: '#333333',
+    textSecondary: '#666666',
+    textTertiary: '#999999',
+    border: '#e0e0e0',
+    primary: '#4ECDC4',
+  };
   const [records, setRecords] = useState([]);
   const [selectedType, setSelectedType] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const loadRecords = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const allRecords = await getAllTrackingRecords(selectedType);
+      // Filtrar registros inválidos para evitar crashes
+      const validRecords = (allRecords || []).filter(record => 
+        record && 
+        typeof record === 'object' &&
+        record.id && 
+        record.type && 
+        record.value !== undefined && 
+        record.value !== null
+      );
+      setRecords(validRecords);
+    } catch (error) {
+      console.error('Erro ao carregar registros:', error);
+      setRecords([]); // Garantir que records seja sempre um array
+      Alert.alert('Erro', 'Não foi possível carregar os registros');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [selectedType]);
 
   useFocusEffect(
     useCallback(() => {
       loadRecords();
-    }, [])
+    }, [loadRecords])
   );
 
-  const loadRecords = async () => {
-    try {
-      const allRecords = await getAllTrackingRecords(selectedType);
-      setRecords(allRecords);
-    } catch (error) {
-      console.error('Erro ao carregar registros:', error);
-      Alert.alert('Erro', 'Não foi possível carregar os registros');
-    }
-  };
-
   const handleDelete = (record) => {
+    if (!record || !record.id) {
+      Alert.alert('Erro', 'Registro inválido');
+      return;
+    }
+
+    const typeLabel = TYPE_LABELS[record.type] || 'este registro';
     Alert.alert(
       'Confirmar Exclusão',
-      `Deseja realmente excluir este registro de ${TYPE_LABELS[record.type]}?`,
+      `Deseja realmente excluir este registro de ${typeLabel}?`,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
           text: 'Excluir',
           style: 'destructive',
           onPress: async () => {
-            const result = await deleteTrackingRecord(record.id);
-            if (result.success) {
-              loadRecords();
-              Alert.alert('Sucesso', 'Registro excluído com sucesso');
-            } else {
-              Alert.alert('Erro', result.error || 'Não foi possível excluir o registro');
+            try {
+              const result = await deleteTrackingRecord(record.id);
+              if (result.success) {
+                loadRecords();
+                Alert.alert('Sucesso', 'Registro excluído com sucesso');
+              } else {
+                Alert.alert('Erro', result.error || 'Não foi possível excluir o registro');
+              }
+            } catch (error) {
+              console.error('Erro ao excluir registro:', error);
+              Alert.alert('Erro', 'Não foi possível excluir o registro');
             }
           },
         },
@@ -84,32 +120,60 @@ export default function DailyTracking() {
   };
 
   const formatDateTime = (dateString) => {
-    const date = new Date(dateString);
-    return date.toLocaleString('pt-BR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    try {
+      if (!dateString) return 'Data não disponível';
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return 'Data inválida';
+      return date.toLocaleString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch (error) {
+      console.error('Erro ao formatar data:', error);
+      return 'Data inválida';
+    }
   };
 
   const renderRecord = ({ item }) => {
+    // Validação de segurança para evitar crashes
+    if (!item || !item.id) {
+      console.warn('Item inválido no renderRecord:', item);
+      return null;
+    }
+
     const typeLabel = TYPE_LABELS[item.type] || 'Desconhecido';
     const typeIcon = TYPE_ICONS[item.type] || 'ellipse';
     const typeColor = TYPE_COLORS[item.type] || '#95A5A6';
+    const itemValue = item.value || 'N/A';
+    const itemUnit = item.unit || '';
+    const itemDate = item.date || new Date().toISOString();
 
     return (
       <TouchableOpacity
-        style={[styles.recordCard, { borderLeftColor: typeColor }]}
-        onPress={() => router.push(`/daily-tracking/${item.id}`)}
+        style={[styles.recordCard, { backgroundColor: colors.surface, borderLeftColor: typeColor }]}
+        onPress={() => {
+          if (item.id) {
+            router.push(`/daily-tracking/${item.id}`);
+          }
+        }}
         onLongPress={() => {
           Alert.alert(
             'Ações',
             'Escolha uma ação:',
             [
-              { text: 'Ver Gráfico', onPress: () => router.push(`/daily-tracking/chart?type=${item.type}`) },
-              { text: 'Editar', onPress: () => router.push(`/daily-tracking/${item.id}/edit`) },
+              { text: 'Ver Gráfico', onPress: () => {
+                if (item.type) {
+                  router.push(`/daily-tracking/chart?type=${item.type}`);
+                }
+              }},
+              { text: 'Editar', onPress: () => {
+                if (item.id) {
+                  router.push(`/daily-tracking/${item.id}/edit`);
+                }
+              }},
               { text: 'Excluir', style: 'destructive', onPress: () => handleDelete(item) },
               { text: 'Cancelar', style: 'cancel' },
             ]
@@ -121,15 +185,15 @@ export default function DailyTracking() {
             <Ionicons name={typeIcon} size={24} color={typeColor} />
           </View>
           <View style={styles.recordInfo}>
-            <Text style={styles.recordType}>{typeLabel}</Text>
-            <Text style={styles.recordValue}>
-              {item.value} {item.unit || ''}
+            <Text style={[styles.recordType, { color: colors.text }]}>{typeLabel}</Text>
+            <Text style={[styles.recordValue, { color: colors.text }]}>
+              {itemValue} {itemUnit}
             </Text>
-            <Text style={styles.recordDate}>{formatDateTime(item.date)}</Text>
+            <Text style={[styles.recordDate, { color: colors.textSecondary }]}>{formatDateTime(itemDate)}</Text>
           </View>
         </View>
         {item.notes && (
-          <Text style={styles.recordNotes} numberOfLines={2}>
+          <Text style={[styles.recordNotes, { color: colors.textSecondary }]} numberOfLines={2}>
             {item.notes}
           </Text>
         )}
@@ -138,69 +202,91 @@ export default function DailyTracking() {
   };
 
   const renderTypeFilter = () => {
-    const types = Object.values(TRACKING_TYPES);
-    
-    return (
-      <ScrollView 
-        horizontal 
-        showsHorizontalScrollIndicator={false}
-        style={styles.filterContainer}
-        contentContainerStyle={styles.filterContent}
-      >
-        <TouchableOpacity
-          style={[styles.filterChip, !selectedType && styles.filterChipActive]}
-          onPress={() => {
-            setSelectedType(null);
-            loadRecords();
-          }}
+    try {
+      if (!TRACKING_TYPES) {
+        console.warn('TRACKING_TYPES não está definido');
+        return null;
+      }
+
+      const types = Object.values(TRACKING_TYPES);
+      if (!Array.isArray(types) || types.length === 0) {
+        console.warn('TRACKING_TYPES não retornou um array válido');
+        return null;
+      }
+      
+      return (
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          style={[styles.filterContainer, { borderBottomColor: colors.border }]}
+          contentContainerStyle={styles.filterContent}
         >
-          <Text style={[styles.filterText, !selectedType && styles.filterTextActive]}>
-            Todos
-          </Text>
-        </TouchableOpacity>
-        {types.map((type) => (
           <TouchableOpacity
-            key={type}
-            style={[
-              styles.filterChip,
-              selectedType === type && styles.filterChipActive,
-              { borderColor: TYPE_COLORS[type] },
-              selectedType === type && { backgroundColor: TYPE_COLORS[type] + '20' },
-            ]}
+            style={[styles.filterChip, { backgroundColor: colors.surface, borderColor: colors.border || '#e0e0e0' }, !selectedType && styles.filterChipActive]}
             onPress={() => {
-              setSelectedType(type);
+              setSelectedType(null);
               loadRecords();
             }}
           >
-            <Ionicons 
-              name={TYPE_ICONS[type]} 
-              size={16} 
-              color={selectedType === type ? TYPE_COLORS[type] : '#666'} 
-              style={styles.filterIcon}
-            />
-            <Text style={[
-              styles.filterText,
-              selectedType === type && styles.filterTextActive,
-              selectedType === type && { color: TYPE_COLORS[type] },
-            ]}>
-              {TYPE_LABELS[type]}
+            <Text style={[styles.filterText, { color: colors.text }, !selectedType && styles.filterTextActive]}>
+              Todos
             </Text>
           </TouchableOpacity>
-        ))}
-      </ScrollView>
-    );
+          {types.map((type) => {
+            if (!type) return null;
+            const typeColor = TYPE_COLORS[type] || '#95A5A6';
+            const typeIcon = TYPE_ICONS[type] || 'ellipse';
+            const typeLabel = TYPE_LABELS[type] || 'Desconhecido';
+            
+            return (
+              <TouchableOpacity
+                key={type}
+                style={[
+                  styles.filterChip,
+                  { backgroundColor: colors.surface, borderColor: typeColor },
+                  selectedType === type && styles.filterChipActive,
+                  selectedType === type && { backgroundColor: typeColor + '20' },
+                ]}
+                onPress={() => {
+                  setSelectedType(type);
+                  loadRecords();
+                }}
+              >
+                <Ionicons 
+                  name={typeIcon} 
+                  size={16} 
+                  color={selectedType === type ? typeColor : (colors.textSecondary || '#666666')} 
+                  style={styles.filterIcon}
+                />
+                <Text style={[
+                  styles.filterText,
+                  { color: colors.text },
+                  selectedType === type && styles.filterTextActive,
+                  selectedType === type && { color: typeColor },
+                ]}>
+                  {typeLabel}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      );
+    } catch (error) {
+      console.error('Erro ao renderizar filtro de tipos:', error);
+      return null;
+    }
   };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { backgroundColor: colors.surface }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#333" />
+          <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.title}>Acompanhamento Diário</Text>
+        <Text style={[styles.title, { color: colors.text }]}>Acompanhamento Diário</Text>
         <TouchableOpacity 
           onPress={() => router.push('/daily-tracking/new')}
-          style={styles.addButton}
+          style={[styles.addButton, { backgroundColor: colors.primary }]}
         >
           <Ionicons name="add" size={28} color="#fff" />
         </TouchableOpacity>
@@ -208,15 +294,19 @@ export default function DailyTracking() {
 
       {renderTypeFilter()}
 
-      {records.length === 0 ? (
+      {isLoading ? (
         <View style={styles.emptyContainer}>
-          <Ionicons name="stats-chart-outline" size={80} color="#ccc" />
-          <Text style={styles.emptyText}>Nenhum registro encontrado</Text>
-          <Text style={styles.emptySubtext}>
+          <Text style={[styles.emptyText, { color: colors.textSecondary }]}>Carregando...</Text>
+        </View>
+      ) : !records || records.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="stats-chart-outline" size={80} color={colors.textTertiary} />
+          <Text style={[styles.emptyText, { color: colors.textSecondary }]}>Nenhum registro encontrado</Text>
+          <Text style={[styles.emptySubtext, { color: colors.textSecondary }]}>
             Toque no botão + para adicionar um novo registro
           </Text>
           <TouchableOpacity
-            style={styles.emptyButton}
+            style={[styles.emptyButton, { backgroundColor: colors.primary }]}
             onPress={() => router.push('/daily-tracking/new')}
           >
             <Ionicons name="add-circle" size={24} color="#fff" />
@@ -227,10 +317,21 @@ export default function DailyTracking() {
         <FlatList
           data={records}
           renderItem={renderRecord}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item, index) => {
+            if (item && item.id) {
+              return String(item.id);
+            }
+            return `record-${index}`;
+          }}
           contentContainerStyle={styles.listContent}
           refreshing={false}
           onRefresh={loadRecords}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Ionicons name="stats-chart-outline" size={80} color={colors.textTertiary} />
+              <Text style={[styles.emptyText, { color: colors.textSecondary }]}>Nenhum registro encontrado</Text>
+            </View>
+          }
         />
       )}
 
@@ -242,16 +343,13 @@ export default function DailyTracking() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: 16,
-    backgroundColor: '#fff',
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
   },
   backButton: {
     padding: 8,
@@ -259,7 +357,6 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#333',
     flex: 1,
     marginLeft: 8,
   },
@@ -267,14 +364,11 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#4ECDC4',
     alignItems: 'center',
     justifyContent: 'center',
   },
   filterContainer: {
-    backgroundColor: '#fff',
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
   },
   filterContent: {
     paddingHorizontal: 16,
@@ -287,20 +381,16 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#e0e0e0',
     marginRight: 8,
-    backgroundColor: '#f5f5f5',
   },
   filterChipActive: {
-    backgroundColor: '#4ECDC4',
-    borderColor: '#4ECDC4',
+    // backgroundColor aplicado inline
   },
   filterIcon: {
     marginRight: 6,
   },
   filterText: {
     fontSize: 14,
-    color: '#666',
     fontWeight: '500',
   },
   filterTextActive: {
@@ -311,7 +401,6 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   recordCard: {
-    backgroundColor: '#fff',
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
@@ -340,22 +429,18 @@ const styles = StyleSheet.create({
   recordType: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#333',
     marginBottom: 4,
   },
   recordValue: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#4ECDC4',
     marginBottom: 4,
   },
   recordDate: {
     fontSize: 12,
-    color: '#999',
   },
   recordNotes: {
     fontSize: 14,
-    color: '#666',
     marginTop: 8,
     fontStyle: 'italic',
   },
@@ -368,20 +453,17 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#999',
     marginTop: 16,
     marginBottom: 8,
   },
   emptySubtext: {
     fontSize: 16,
-    color: '#ccc',
     textAlign: 'center',
     marginBottom: 24,
   },
   emptyButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#4ECDC4',
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 24,

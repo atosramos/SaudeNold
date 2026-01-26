@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { getTrackingRecordById, saveTrackingRecord, createTrackingRecord, TRACKING_TYPES } from '../../../services/dailyTracking';
 import { useCustomAlert } from '../../../hooks/useCustomAlert';
+import VoiceTextInput from '../../../components/VoiceTextInput';
 
 const TYPE_LABELS = {
   [TRACKING_TYPES.BLOOD_PRESSURE]: 'Pressão Arterial',
@@ -166,12 +167,13 @@ export default function EditDailyTracking() {
         <View style={styles.section}>
           <Text style={styles.label}>Valor</Text>
           <View style={styles.valueRow}>
-            <TextInput
-              style={styles.valueInput}
+            <VoiceTextInput
               value={value}
               onChangeText={setValue}
               placeholder="Ex: 120/80, 36.5, 72..."
               keyboardType="numeric"
+              containerStyle={styles.valueInput}
+              inputStyle={styles.valueInputText}
             />
             <TextInput
               style={styles.unitInput}
@@ -197,13 +199,15 @@ export default function EditDailyTracking() {
         {/* Observações */}
         <View style={styles.section}>
           <Text style={styles.label}>Observações (opcional)</Text>
-          <TextInput
-            style={styles.notesInput}
+          <VoiceTextInput
             value={notes}
             onChangeText={setNotes}
             placeholder="Adicione observações sobre este registro..."
+            placeholderTextColor="#999"
             multiline
             numberOfLines={4}
+            containerStyle={styles.notesInput}
+            inputStyle={styles.notesInputText}
           />
         </View>
 
@@ -332,6 +336,11 @@ const styles = StyleSheet.create({
     borderColor: '#e0e0e0',
     marginRight: 8,
   },
+  valueInputText: {
+    flex: 1,
+    fontSize: 16,
+    color: '#333',
+  },
   unitInput: {
     width: 100,
     backgroundColor: '#fff',
@@ -363,6 +372,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e0e0e0',
     minHeight: 100,
+    textAlignVertical: 'top',
+  },
+  notesInputText: {
+    flex: 1,
+    fontSize: 16,
+    color: '#333',
     textAlignVertical: 'top',
   },
   saveButton: {

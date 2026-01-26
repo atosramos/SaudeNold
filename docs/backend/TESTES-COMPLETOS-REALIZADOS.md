@@ -40,7 +40,7 @@
 ### Problema 1: API Key Vazia ✅ RESOLVIDO
 - **Problema:** API Key estava vazia no secret do Kubernetes
 - **Solução:** Gerada nova API Key e atualizada no secret
-- **API Key:** `JDZYc50zDSlsvev8ZzOJXXowHg_iqNJW8fKx49YgcLo`
+- **API Key:** `<API_KEY>`
 - **Status:** ✅ Configurado e testado
 
 ### Problema 2: app.json com localhost ✅ RESOLVIDO

@@ -93,9 +93,25 @@ Sempre use o servidor seguro fornecido ou configure um servidor web adequado (ng
 - Bloqueio de arquivos sensíveis
 - HTTPS em produção
 
-## Teste de Segurança
+## ⚠️ Verificação de Segurança
 
-Para verificar que está funcionando:
+### Script de Verificação Automática
+
+Use o script de verificação para detectar servidores inseguros:
+
+```powershell
+.\scripts\security\verificar-servidor-seguro.ps1
+```
+
+Este script:
+- Detecta se há servidor rodando na porta 8080
+- Verifica se o servidor lista diretórios (vulnerabilidade crítica)
+- Testa se arquivos sensíveis (`.env`) estão acessíveis
+- Fornece instruções para parar servidores inseguros
+
+### Teste Manual de Segurança
+
+Para verificar manualmente que está funcionando:
 
 ```powershell
 # Deve retornar 403 (Acesso negado)
@@ -108,6 +124,40 @@ Invoke-WebRequest -Uri "http://localhost:8080/.git" -ErrorAction SilentlyContinu
 Invoke-WebRequest -Uri "http://localhost:8080/analytics-dashboard.html"
 ```
 
+### Detectando Servidor Inseguro
+
+Se você ver uma página HTML com "Directory listing for /" ao acessar `http://localhost:8080/`, isso significa que há um servidor **INSEGURO** rodando que expõe todos os arquivos do projeto!
+
+**Ação imediata necessária:**
+1. Identificar processos Python na porta 8080:
+   ```powershell
+   netstat -ano | findstr ":8080"
+   ```
+2. Parar os processos inseguros:
+   ```powershell
+   Stop-Process -Id <PID> -Force
+   ```
+3. Usar apenas o servidor seguro:
+   ```powershell
+   .\scripts\utils\serve-dashboard-secure.ps1
+   ```
+
+## 🚨 Problema Encontrado e Corrigido
+
+**Data:** 2024 (verificação atual)
+
+**Problema:** Servidor HTTP simples do Python (`python -m http.server 8080`) estava rodando e expondo TODOS os arquivos do projeto, incluindo:
+- Arquivo `.env` com credenciais
+- Repositório Git completo (`.git/`)
+- Código-fonte completo
+- Configurações sensíveis
+
+**Correção:**
+- Servidores inseguros foram identificados e parados
+- Script de verificação criado para detectar futuras ocorrências
+- Documentação atualizada com alertas de segurança
+
 ## Status
 
 ✅ **CORRIGIDO** - Servidor seguro implementado e documentado
+✅ **VERIFICAÇÃO** - Script de detecção de servidores inseguros criado

@@ -146,7 +146,6 @@ def main():
     print("TESTES DE ENDPOINTS DE LICENÇAS PRO")
     print("=" * 60)
     print(f"\nAPI URL: {API_URL}")
-    print(f"API Key: {API_KEY[:20]}..." if len(API_KEY) > 20 else f"API Key: {API_KEY}")
     
     try:
         # Teste de saúde

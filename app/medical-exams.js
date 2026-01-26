@@ -2,26 +2,26 @@ import { StyleSheet, Text, View, TouchableOpacity, ScrollView, FlatList, Activit
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useState, useCallback } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getProfileItem, setProfileItem } from '../services/profileStorageManager';
 import { useCustomModal } from '../hooks/useCustomModal';
+import { useTheme } from '../contexts/ThemeContext';
+import { useProfileChange } from '../hooks/useProfileChange';
 
 export default function MedicalExams() {
   const router = useRouter();
+  const { colors } = useTheme();
   const { showModal, ModalComponent } = useCustomModal();
   const [exams, setExams] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useFocusEffect(
-    useCallback(() => {
-      loadExams();
-    }, [])
-  );
-
   const loadExams = async () => {
     setLoading(true);
     try {
+      // #region agent log
+      console.log('[MedicalExams] loadExams chamado');
+      // #endregion
       // Carregar apenas dados locais (sem tentar backend)
-      const stored = await AsyncStorage.getItem('medicalExams');
+      const stored = await getProfileItem('medicalExams');
       if (stored) {
         const parsedExams = JSON.parse(stored);
         // Ordenar por data de criação (mais recentes primeiro)
@@ -30,8 +30,14 @@ export default function MedicalExams() {
           const dateB = new Date(b.created_at || 0);
           return dateB - dateA;
         });
+        // #region agent log
+        console.log('[MedicalExams] Exames carregados:', parsedExams.length);
+        // #endregion
         setExams(parsedExams);
       } else {
+        // #region agent log
+        console.log('[MedicalExams] Nenhum exame encontrado');
+        // #endregion
         setExams([]);
       }
     } catch (error) {
@@ -41,6 +47,21 @@ export default function MedicalExams() {
       setLoading(false);
     }
   };
+
+  useFocusEffect(
+    useCallback(() => {
+      loadExams();
+    }, [])
+  );
+
+  // CRÍTICO: Recarregar quando o perfil muda
+  useProfileChange(() => {
+    // #region agent log
+    console.log('[MedicalExams] Perfil mudou - recarregando exames');
+    // #endregion
+    loadExams();
+  });
+
 
   const deleteExam = async (id) => {
     showModal(
@@ -56,7 +77,7 @@ export default function MedicalExams() {
             try {
               // Atualizar localmente
               const updated = exams.filter(e => e.id !== id);
-              await AsyncStorage.setItem('medicalExams', JSON.stringify(updated));
+              await setProfileItem('medicalExams', JSON.stringify(updated));
               setExams(updated);
             } catch (error) {
               console.error('Erro ao excluir exame:', error);
@@ -119,7 +140,7 @@ export default function MedicalExams() {
   const renderExam = ({ item }) => {
     return (
       <TouchableOpacity 
-        style={styles.examCard}
+        style={[styles.examCard, { backgroundColor: colors.surface, borderLeftColor: '#9B59B6' }]}
         onPress={() => router.push({
           pathname: '/medical-exams/[id]',
           params: { id: item.id, exam: JSON.stringify(item) }
@@ -127,14 +148,14 @@ export default function MedicalExams() {
       >
         <View style={styles.examHeader}>
           <View style={styles.examHeaderText}>
-            <Text style={styles.examType}>{getCleanExamType(item.exam_type)}</Text>
+            <Text style={[styles.examType, { color: colors.text }]}>{getCleanExamType(item.exam_type)}</Text>
             {item.exam_date && (
-              <Text style={styles.examDate}>
+              <Text style={[styles.examDate, { color: colors.textSecondary }]}>
                 {new Date(item.exam_date).toLocaleDateString('pt-BR')}
               </Text>
             )}
             {!item.exam_date && item.created_at && (
-              <Text style={styles.examDate}>
+              <Text style={[styles.examDate, { color: colors.textSecondary }]}>
                 {new Date(item.created_at).toLocaleDateString('pt-BR')}
               </Text>
             )}
@@ -146,7 +167,7 @@ export default function MedicalExams() {
         
         {item.extracted_data && item.extracted_data.parameters && item.extracted_data.parameters.length > 0 && (
           <View style={styles.parametersPreview}>
-            <Text style={styles.parametersLabel}>
+            <Text style={[styles.parametersLabel, { color: colors.textSecondary }]}>
               {item.extracted_data.parameters.length} parâmetro(s) extraído(s)
             </Text>
           </View>
@@ -163,8 +184,8 @@ export default function MedicalExams() {
               });
             }}
           >
-            <Ionicons name="eye-outline" size={24} color="#4ECDC4" />
-            <Text style={styles.viewButtonText}>Ver Detalhes</Text>
+            <Ionicons name="eye-outline" size={24} color={colors.primary} />
+            <Text style={[styles.viewButtonText, { color: colors.primary }]}>Ver Detalhes</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.deleteButton}
@@ -173,7 +194,7 @@ export default function MedicalExams() {
               deleteExam(item.id);
             }}
           >
-            <Ionicons name="trash-outline" size={24} color="#FF6B6B" />
+            <Ionicons name="trash-outline" size={24} color={colors.error} />
           </TouchableOpacity>
         </View>
       </TouchableOpacity>
@@ -182,30 +203,30 @@ export default function MedicalExams() {
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#4ECDC4" />
-        <Text style={styles.loadingText}>Carregando exames...</Text>
+      <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Carregando exames...</Text>
       </View>
     );
   }
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
+    <ScrollView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { backgroundColor: colors.surface }]}>
         <TouchableOpacity 
           style={styles.backButton}
           onPress={() => router.back()}
         >
-          <Ionicons name="arrow-back" size={32} color="#4ECDC4" />
+          <Ionicons name="arrow-back" size={32} color={colors.primary} />
         </TouchableOpacity>
-        <Text style={styles.title}>Exames Médicos</Text>
+        <Text style={[styles.title, { color: colors.text }]}>Exames Médicos</Text>
       </View>
 
       {exams.length === 0 ? (
         <View style={styles.emptyContainer}>
-          <Ionicons name="document-text-outline" size={80} color="#ccc" />
-          <Text style={styles.emptyText}>Nenhum exame cadastrado</Text>
-          <Text style={styles.emptySubtext}>Toque no botão + para adicionar</Text>
+          <Ionicons name="document-text-outline" size={80} color={colors.textTertiary} />
+          <Text style={[styles.emptyText, { color: colors.textSecondary }]}>Nenhum exame cadastrado</Text>
+          <Text style={[styles.emptySubtext, { color: colors.textSecondary }]}>Toque no botão + para adicionar</Text>
         </View>
       ) : (
         <FlatList
@@ -218,7 +239,7 @@ export default function MedicalExams() {
       )}
 
       <TouchableOpacity 
-        style={styles.addButton}
+        style={[styles.addButton, { backgroundColor: colors.primary }]}
         onPress={() => router.push('/medical-exams/new')}
       >
         <Ionicons name="add" size={40} color="#fff" />
@@ -287,12 +308,10 @@ const styles = StyleSheet.create({
   examType: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#333',
     marginBottom: 8,
   },
   examDate: {
     fontSize: 22,
-    color: '#666',
   },
   statusBadge: {
     paddingHorizontal: 12,
@@ -308,12 +327,10 @@ const styles = StyleSheet.create({
   parametersPreview: {
     marginBottom: 16,
     padding: 12,
-    backgroundColor: '#f0f0f0',
     borderRadius: 8,
   },
   parametersLabel: {
     fontSize: 20,
-    color: '#666',
   },
   examActions: {
     flexDirection: 'row',
@@ -327,7 +344,6 @@ const styles = StyleSheet.create({
   },
   viewButtonText: {
     fontSize: 20,
-    color: '#4ECDC4',
     marginLeft: 8,
     fontWeight: 'bold',
   },
@@ -344,18 +360,15 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#999',
     marginTop: 24,
     textAlign: 'center',
   },
   emptySubtext: {
     fontSize: 22,
-    color: '#999',
     marginTop: 12,
     textAlign: 'center',
   },
   addButton: {
-    backgroundColor: '#9B59B6',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',

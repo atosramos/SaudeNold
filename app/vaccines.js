@@ -1,10 +1,14 @@
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, TextInput, Modal, Alert, Platform, KeyboardAvoidingView } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Modal, Alert, Platform, KeyboardAvoidingView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
+import { useProfileChange } from '../hooks/useProfileChange';
 import { useState, useCallback } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getProfileItem, setProfileItem } from '../services/profileStorageManager';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { scheduleVaccineAlarms, calculateNextVaccineDate, cancelVaccineAlarms } from '../services/alarm';
+import VoiceTextInput from '../components/VoiceTextInput';
+import { useProfileAuthGuard } from '../hooks/useProfileAuthGuard';
+import { useTheme } from '../contexts/ThemeContext';
 
 // Calendário Nacional de Vacinação - Criança (0 a 9 anos, 11 meses e 29 dias)
 // Fonte: https://www.gov.br/saude/pt-br/vacinacao/calendario
@@ -100,6 +104,10 @@ const VACCINE_STATUS = {
 
 export default function Vaccines() {
   const router = useRouter();
+  const { colors } = useTheme();
+  // Usar sensitive: false para não redirecionar automaticamente
+  // A tela de vacinas pode funcionar sem perfil ativo (mostra mensagem se necessário)
+  useProfileAuthGuard({ sensitive: false });
   const [customVaccines, setCustomVaccines] = useState([]);
   const [vaccineRecords, setVaccineRecords] = useState({}); // Registros das vacinas do calendário
   const [showAddModal, setShowAddModal] = useState(false);
@@ -184,10 +192,21 @@ export default function Vaccines() {
       loadVaccineRecords();
     }, [])
   );
+
+  // CRÍTICO: Recarregar quando o perfil muda
+  useProfileChange(() => {
+    // #region agent log
+    console.log('[Vaccines] Perfil mudou - recarregando vacinas');
+    // #endregion
+    loadAnamnesis();
+    loadCustomVaccines();
+    loadVaccineRecords();
+  });
+
   
   const loadAnamnesis = async () => {
     try {
-      const stored = await AsyncStorage.getItem('anamnesis');
+      const stored = await getProfileItem('anamnesis');
       if (stored) {
         const data = JSON.parse(stored);
         setAnamnesisData(data);
@@ -232,11 +251,11 @@ export default function Vaccines() {
   
   const savePregnancyStatus = async (pregnant) => {
     try {
-      const stored = await AsyncStorage.getItem('anamnesis');
+      const stored = await getProfileItem('anamnesis');
       if (stored) {
         const data = JSON.parse(stored);
         data.isPregnant = pregnant;
-        await AsyncStorage.setItem('anamnesis', JSON.stringify(data));
+        await setProfileItem('anamnesis', JSON.stringify(data));
         setAnamnesisData(data);
       }
     } catch (error) {
@@ -246,7 +265,7 @@ export default function Vaccines() {
 
   const loadCustomVaccines = async () => {
     try {
-      const stored = await AsyncStorage.getItem('customVaccines');
+      const stored = await getProfileItem('customVaccines');
       if (stored) {
         const vaccines = JSON.parse(stored);
         vaccines.sort((a, b) => {
@@ -263,7 +282,7 @@ export default function Vaccines() {
 
   const loadVaccineRecords = async () => {
     try {
-      const stored = await AsyncStorage.getItem('vaccineRecords');
+      const stored = await getProfileItem('vaccineRecords');
       if (stored) {
         setVaccineRecords(JSON.parse(stored));
       }
@@ -274,7 +293,7 @@ export default function Vaccines() {
 
   const saveVaccineRecords = async (records) => {
     try {
-      await AsyncStorage.setItem('vaccineRecords', JSON.stringify(records));
+      await setProfileItem('vaccineRecords', JSON.stringify(records));
       setVaccineRecords(records);
     } catch (error) {
       console.error('Erro ao salvar registros de vacinas:', error);
@@ -284,7 +303,7 @@ export default function Vaccines() {
 
   const saveCustomVaccines = async (vaccines) => {
     try {
-      await AsyncStorage.setItem('customVaccines', JSON.stringify(vaccines));
+      await setProfileItem('customVaccines', JSON.stringify(vaccines));
       setCustomVaccines(vaccines);
     } catch (error) {
       console.error('Erro ao salvar vacinas customizadas:', error);
@@ -566,6 +585,7 @@ export default function Vaccines() {
           key={vaccine.id}
           style={[
             styles.vaccineCard, 
+            { backgroundColor: colors.surface },
             record && styles.vaccineCardWithRecord,
             nextDateColor && { borderLeftColor: nextDateColor }
           ]}
@@ -575,7 +595,7 @@ export default function Vaccines() {
           <View style={styles.vaccineHeader}>
             <View style={styles.vaccineInfo}>
               <View style={styles.vaccineTitleRow}>
-                <Text style={styles.vaccineName}>{vaccine.vaccine || vaccine.name}</Text>
+                <Text style={[styles.vaccineName, { color: colors.text }]}>{vaccine.vaccine || vaccine.name}</Text>
                 {statusInfo && (
                   <View style={[styles.statusBadge, { backgroundColor: statusInfo.color }]}>
                     <Ionicons name={statusInfo.icon} size={14} color="#fff" />
@@ -583,21 +603,21 @@ export default function Vaccines() {
                   </View>
                 )}
               </View>
-              {vaccine.age && <Text style={styles.vaccineAge}>Idade: {vaccine.age}</Text>}
-              {record?.dose && <Text style={styles.vaccineDose}>Dose: {record.dose}</Text>}
-              {!record?.dose && vaccine.dose && <Text style={styles.vaccineDose}>Dose: {vaccine.dose}</Text>}
+              {vaccine.age && <Text style={[styles.vaccineAge, { color: colors.textSecondary }]}>Idade: {vaccine.age}</Text>}
+              {record?.dose && <Text style={[styles.vaccineDose, { color: colors.textSecondary }]}>Dose: {record.dose}</Text>}
+              {!record?.dose && vaccine.dose && <Text style={[styles.vaccineDose, { color: colors.textSecondary }]}>Dose: {vaccine.dose}</Text>}
               {record?.scheduledDate && (
                 <View style={styles.dateRow}>
-                  <Ionicons name="calendar-outline" size={16} color="#F39C12" />
-                  <Text style={styles.vaccineDate}>
+                  <Ionicons name="calendar-outline" size={16} color={colors.warning} />
+                  <Text style={[styles.vaccineDate, { color: colors.warning }]}>
                     Agendada para: {formatDateTime(record.scheduledDate)}
                   </Text>
                 </View>
               )}
               {record?.appliedDate && (
                 <View style={styles.dateRow}>
-                  <Ionicons name="checkmark-circle" size={16} color="#2ECC71" />
-                  <Text style={styles.vaccineDateApplied}>Aplicada em: {formatDate(record.appliedDate)}</Text>
+                  <Ionicons name="checkmark-circle" size={16} color={colors.success} />
+                  <Text style={[styles.vaccineDateApplied, { color: colors.success }]}>Aplicada em: {formatDate(record.appliedDate)}</Text>
                 </View>
               )}
               {nextDate && (
@@ -605,30 +625,30 @@ export default function Vaccines() {
                   <Ionicons 
                     name="alarm-outline" 
                     size={16} 
-                    color={nextDateColor || '#3498DB'} 
+                    color={nextDateColor || colors.primary} 
                   />
-                  <Text style={[styles.nextVaccineDate, nextDateColor && { color: nextDateColor, fontWeight: 'bold' }]}>
+                  <Text style={[styles.nextVaccineDate, { color: nextDateColor || colors.primary, fontWeight: 'bold' }]}>
                     Próxima dose: {formatDate(nextDate.toISOString())}
                     {nextDateColor === '#FF6B6B' && ' ⚠️ URGENTE'}
                   </Text>
                 </View>
               )}
             </View>
-            <Ionicons name="chevron-forward" size={24} color="#999" />
+            <Ionicons name="chevron-forward" size={24} color={colors.textTertiary} />
           </View>
           {vaccine.diseases && (
-            <Text style={styles.vaccineDiseases}>Protege contra: {vaccine.diseases}</Text>
+            <Text style={[styles.vaccineDiseases, { color: colors.textSecondary }]}>Protege contra: {vaccine.diseases}</Text>
           )}
           {vaccine.description && (
-            <Text style={styles.vaccineDiseases}>{vaccine.description}</Text>
+            <Text style={[styles.vaccineDiseases, { color: colors.textSecondary }]}>{vaccine.description}</Text>
           )}
           {vaccine.frequency && (
-            <Text style={styles.vaccineFrequency}>Frequência: {vaccine.frequency}</Text>
+            <Text style={[styles.vaccineFrequency, { color: colors.warning }]}>Frequência: {vaccine.frequency}</Text>
           )}
           {record && (
-            <View style={styles.tapHint}>
-              <Ionicons name="information-circle-outline" size={14} color="#3498DB" />
-              <Text style={styles.tapHintText}>Toque para ver/editar registro completo</Text>
+            <View style={[styles.tapHint, { borderTopColor: colors.border }]}>
+              <Ionicons name="information-circle-outline" size={14} color={colors.primary} />
+              <Text style={[styles.tapHintText, { color: colors.primary }]}>Toque para ver/editar registro completo</Text>
             </View>
           )}
         </TouchableOpacity>
@@ -640,11 +660,11 @@ export default function Vaccines() {
       const statusInfo = getStatusInfo(vaccine.status);
       
       return (
-        <View key={vaccine.id} style={[styles.vaccineCard, styles.customVaccineCard]}>
+        <View key={vaccine.id} style={[styles.vaccineCard, styles.customVaccineCard, { backgroundColor: colors.surface }]}>
           <View style={styles.vaccineHeader}>
             <View style={styles.vaccineInfo}>
               <View style={styles.vaccineTitleRow}>
-                <Text style={styles.vaccineName}>{vaccine.name}</Text>
+                <Text style={[styles.vaccineName, { color: colors.text }]}>{vaccine.name}</Text>
                 <View style={[styles.statusBadge, { backgroundColor: statusInfo.color }]}>
                   <Ionicons name={statusInfo.icon} size={14} color="#fff" />
                   <Text style={styles.statusBadgeText}>{statusInfo.label}</Text>
@@ -652,20 +672,20 @@ export default function Vaccines() {
               </View>
               
               {vaccine.dose && (
-                <Text style={styles.vaccineDose}>Dose: {vaccine.dose}</Text>
+                <Text style={[styles.vaccineDose, { color: colors.textSecondary }]}>Dose: {vaccine.dose}</Text>
               )}
               
               {vaccine.status === VACCINE_STATUS.SCHEDULED && vaccine.scheduledDate && (
                 <View style={styles.dateRow}>
-                  <Ionicons name="calendar-outline" size={16} color="#F39C12" />
-                  <Text style={styles.vaccineDate}>Agendada para: {formatDate(vaccine.scheduledDate)}</Text>
+                  <Ionicons name="calendar-outline" size={16} color={colors.warning} />
+                  <Text style={[styles.vaccineDate, { color: colors.warning }]}>Agendada para: {formatDate(vaccine.scheduledDate)}</Text>
                 </View>
               )}
               
               {vaccine.status === VACCINE_STATUS.APPLIED && vaccine.appliedDate && (
                 <View style={styles.dateRow}>
-                  <Ionicons name="checkmark-circle" size={16} color="#2ECC71" />
-                  <Text style={styles.vaccineDateApplied}>Aplicada em: {formatDate(vaccine.appliedDate)}</Text>
+                  <Ionicons name="checkmark-circle" size={16} color={colors.success} />
+                  <Text style={[styles.vaccineDateApplied, { color: colors.success }]}>Aplicada em: {formatDate(vaccine.appliedDate)}</Text>
                 </View>
               )}
             </View>
@@ -675,21 +695,21 @@ export default function Vaccines() {
                 onPress={() => openEditModal(vaccine)}
                 style={styles.editButton}
               >
-                <Ionicons name="create-outline" size={20} color="#3498DB" />
+                <Ionicons name="create-outline" size={20} color={colors.primary} />
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => handleDeleteVaccine(vaccine.id)}
                 style={styles.deleteButton}
               >
-                <Ionicons name="trash-outline" size={20} color="#FF6B6B" />
+                <Ionicons name="trash-outline" size={20} color={colors.error} />
               </TouchableOpacity>
             </View>
           </View>
           
           {vaccine.notes && (
-            <View style={styles.notesContainer}>
-              <Text style={styles.notesLabel}>Observações:</Text>
-              <Text style={styles.vaccineNotes}>{vaccine.notes}</Text>
+            <View style={[styles.notesContainer, { borderTopColor: colors.border }]}>
+              <Text style={[styles.notesLabel, { color: colors.textSecondary }]}>Observações:</Text>
+              <Text style={[styles.vaccineNotes, { color: colors.textSecondary }]}>{vaccine.notes}</Text>
             </View>
           )}
         </View>
@@ -698,22 +718,22 @@ export default function Vaccines() {
 
     // Fallback para vacinas sem ID (não deve acontecer)
     return (
-      <View key={`${vaccine.age}-${vaccine.vaccine}`} style={styles.vaccineCard}>
+      <View key={`${vaccine.age}-${vaccine.vaccine}`} style={[styles.vaccineCard, { backgroundColor: colors.surface }]}>
         <View style={styles.vaccineHeader}>
           <View style={styles.vaccineInfo}>
-            <Text style={styles.vaccineName}>{vaccine.vaccine || vaccine.name}</Text>
-            {vaccine.age && <Text style={styles.vaccineAge}>Idade: {vaccine.age}</Text>}
-            {vaccine.dose && <Text style={styles.vaccineDose}>Dose: {vaccine.dose}</Text>}
+            <Text style={[styles.vaccineName, { color: colors.text }]}>{vaccine.vaccine || vaccine.name}</Text>
+            {vaccine.age && <Text style={[styles.vaccineAge, { color: colors.textSecondary }]}>Idade: {vaccine.age}</Text>}
+            {vaccine.dose && <Text style={[styles.vaccineDose, { color: colors.textSecondary }]}>Dose: {vaccine.dose}</Text>}
           </View>
         </View>
         {vaccine.diseases && (
-          <Text style={styles.vaccineDiseases}>Protege contra: {vaccine.diseases}</Text>
+          <Text style={[styles.vaccineDiseases, { color: colors.textSecondary }]}>Protege contra: {vaccine.diseases}</Text>
         )}
         {vaccine.description && (
-          <Text style={styles.vaccineDiseases}>{vaccine.description}</Text>
+          <Text style={[styles.vaccineDiseases, { color: colors.textSecondary }]}>{vaccine.description}</Text>
         )}
         {vaccine.frequency && (
-          <Text style={styles.vaccineFrequency}>Frequência: {vaccine.frequency}</Text>
+          <Text style={[styles.vaccineFrequency, { color: colors.warning }]}>Frequência: {vaccine.frequency}</Text>
         )}
       </View>
     );
@@ -721,32 +741,32 @@ export default function Vaccines() {
 
   return (
     <KeyboardAvoidingView 
-      style={styles.container}
+      style={[styles.container, { backgroundColor: colors.background }]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
     >
       <ScrollView 
-        style={styles.container}
+        style={[styles.container, { backgroundColor: colors.background }]}
         contentContainerStyle={{ paddingBottom: 100 }}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={true}
       >
-      <View style={styles.header}>
+      <View style={[styles.header, { backgroundColor: colors.surface }]}>
         <TouchableOpacity 
           style={styles.backButton}
           onPress={() => router.back()}
         >
-          <Ionicons name="arrow-back" size={32} color="#2ECC71" />
+          <Ionicons name="arrow-back" size={32} color={colors.success} />
         </TouchableOpacity>
-        <Text style={styles.title}>Calendário de Vacinas</Text>
+        <Text style={[styles.title, { color: colors.text }]}>Calendário de Vacinas</Text>
       </View>
 
       <View style={styles.content}>
         {/* Informações do usuário */}
         {anamnesisData?.birthDate && (
-          <View style={styles.userInfoContainer}>
-            <Ionicons name="person-circle-outline" size={24} color="#2ECC71" />
-            <Text style={styles.userInfoText}>
+          <View style={[styles.userInfoContainer, { backgroundColor: colors.success + '20' }]}>
+            <Ionicons name="person-circle-outline" size={24} color={colors.success} />
+            <Text style={[styles.userInfoText, { color: colors.text }]}>
               Data de Nascimento: {new Date(anamnesisData.birthDate).toLocaleDateString('pt-BR')} 
               ({calculateAge(anamnesisData.birthDate)} {calculateAge(anamnesisData.birthDate) === 1 ? 'ano' : 'anos'})
             </Text>
@@ -755,13 +775,13 @@ export default function Vaccines() {
         
         {/* Perguntar sobre gestação se for mulher */}
         {anamnesisData?.gender === 'Feminino' && isPregnant === null && (
-          <View style={styles.pregnancyPrompt}>
-            <Text style={styles.pregnancyPromptText}>
+          <View style={[styles.pregnancyPrompt, { backgroundColor: colors.warning + '20' }]}>
+            <Text style={[styles.pregnancyPromptText, { color: colors.text }]}>
               Você está em período de gestação?
             </Text>
             <View style={styles.pregnancyButtons}>
               <TouchableOpacity
-                style={[styles.pregnancyButton, styles.pregnancyButtonYes]}
+                style={[styles.pregnancyButton, styles.pregnancyButtonYes, { backgroundColor: colors.success }]}
                 onPress={() => {
                   setIsPregnant(true);
                   savePregnancyStatus(true);
@@ -770,7 +790,7 @@ export default function Vaccines() {
                 <Text style={styles.pregnancyButtonText}>Sim</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.pregnancyButton, styles.pregnancyButtonNo]}
+                style={[styles.pregnancyButton, styles.pregnancyButtonNo, { backgroundColor: colors.error }]}
                 onPress={() => {
                   setIsPregnant(false);
                   savePregnancyStatus(false);
@@ -787,12 +807,12 @@ export default function Vaccines() {
           const calendars = getVaccineCalendars();
           if (calendars.length === 0) {
             return (
-              <View style={styles.section}>
+              <View style={[styles.section, { backgroundColor: colors.surface }]}>
                 <View style={styles.sectionHeader}>
-                  <Ionicons name="information-circle" size={28} color="#F39C12" />
-                  <Text style={styles.sectionTitle}>Informação Necessária</Text>
+                  <Ionicons name="information-circle" size={28} color={colors.warning} />
+                  <Text style={[styles.sectionTitle, { color: colors.text }]}>Informação Necessária</Text>
                 </View>
-                <Text style={styles.sectionDescription}>
+                <Text style={[styles.sectionDescription, { color: colors.textSecondary }]}>
                   Para mostrar o calendário de vacinação adequado, por favor preencha a data de nascimento na Ficha de Anamnese.
                 </Text>
               </View>
@@ -800,12 +820,12 @@ export default function Vaccines() {
           }
           
           return calendars.map((calendar, index) => (
-            <View key={index} style={styles.section}>
+            <View key={index} style={[styles.section, { backgroundColor: colors.surface }]}>
               <View style={styles.sectionHeader}>
-                <Ionicons name="shield-checkmark" size={28} color="#2ECC71" />
-                <Text style={styles.sectionTitle}>{calendar.title}</Text>
+                <Ionicons name="shield-checkmark" size={28} color={colors.success} />
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>{calendar.title}</Text>
               </View>
-              <Text style={styles.sectionDescription}>
+              <Text style={[styles.sectionDescription, { color: colors.textSecondary }]}>
                 Toque em uma vacina para registrar informações da carteira de vacinação.
               </Text>
               <View style={styles.vaccinesList}>
@@ -816,12 +836,12 @@ export default function Vaccines() {
         })()}
 
         {/* Vacinas Recomendadas */}
-        <View style={styles.section}>
+        <View style={[styles.section, { backgroundColor: colors.surface }]}>
           <View style={styles.sectionHeader}>
-            <Ionicons name="star" size={28} color="#F39C12" />
-            <Text style={styles.sectionTitle}>Outras Vacinas Recomendadas</Text>
+            <Ionicons name="star" size={28} color={colors.warning} />
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Outras Vacinas Recomendadas</Text>
           </View>
-          <Text style={styles.sectionDescription}>
+          <Text style={[styles.sectionDescription, { color: colors.textSecondary }]}>
             Toque em uma vacina para registrar informações da carteira de vacinação.
           </Text>
           <View style={styles.vaccinesList}>
@@ -830,14 +850,14 @@ export default function Vaccines() {
         </View>
 
         {/* Minhas Vacinas */}
-        <View style={styles.section}>
+        <View style={[styles.section, { backgroundColor: colors.surface }]}>
           <View style={styles.sectionHeader}>
-            <Ionicons name="add-circle" size={28} color="#3498DB" />
-            <Text style={styles.sectionTitle}>Minhas Vacinas</Text>
+            <Ionicons name="add-circle" size={28} color={colors.primary} />
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Minhas Vacinas</Text>
           </View>
           
           <TouchableOpacity 
-            style={styles.addButton}
+            style={[styles.addButton, { backgroundColor: colors.success }]}
             onPress={openAddModal}
           >
             <Ionicons name="add-circle" size={32} color="#fff" />
@@ -914,9 +934,9 @@ export default function Vaccines() {
         }}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
+          <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>
                 {editingCalendarVaccine 
                   ? `Registro: ${editingCalendarVaccine.vaccine || editingCalendarVaccine.name}`
                   : editingVaccine 
@@ -927,36 +947,41 @@ export default function Vaccines() {
                 resetForm();
                 setShowAddModal(false);
               }}>
-                <Ionicons name="close" size={32} color="#333" />
+                <Ionicons name="close" size={32} color={colors.text} />
               </TouchableOpacity>
             </View>
 
             <ScrollView style={styles.modalBody}>
               <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Nome da Vacina *</Text>
-                <TextInput
-                  style={[styles.input, editingCalendarVaccine && styles.inputDisabled]}
-                  placeholder="Ex: Gripe, Hepatite A, COVID-19, etc."
+                <Text style={[styles.inputLabel, { color: colors.text }]}>Nome da Vacina *</Text>
+                <VoiceTextInput
                   value={formData.name}
                   onChangeText={(text) => setFormData({ ...formData, name: text })}
+                  placeholder="Ex: Gripe, Hepatite A, COVID-19, etc."
+                  placeholderTextColor={colors.textTertiary}
                   editable={!editingCalendarVaccine}
+                  voiceEnabled={!editingCalendarVaccine}
+                  containerStyle={[styles.inputRow, { backgroundColor: colors.surface, borderColor: colors.border }, editingCalendarVaccine && styles.inputDisabled]}
+                  inputStyle={[styles.inputField, { color: colors.text }]}
                 />
               </View>
 
               <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Status *</Text>
+                <Text style={[styles.inputLabel, { color: colors.text }]}>Status *</Text>
                 <View style={styles.statusButtons}>
                   <TouchableOpacity
                     style={[
                       styles.statusButton,
+                      { backgroundColor: colors.surface, borderColor: colors.textTertiary },
                       formData.status === VACCINE_STATUS.PENDING && styles.statusButtonActive,
-                      { borderColor: '#95A5A6' }
+                      formData.status === VACCINE_STATUS.PENDING && { backgroundColor: colors.textTertiary }
                     ]}
                     onPress={() => setFormData({ ...formData, status: VACCINE_STATUS.PENDING })}
                   >
-                    <Ionicons name="time-outline" size={20} color={formData.status === VACCINE_STATUS.PENDING ? '#fff' : '#95A5A6'} />
+                    <Ionicons name="time-outline" size={20} color={formData.status === VACCINE_STATUS.PENDING ? '#fff' : colors.textTertiary} />
                     <Text style={[
                       styles.statusButtonText,
+                      { color: formData.status === VACCINE_STATUS.PENDING ? '#fff' : colors.text },
                       formData.status === VACCINE_STATUS.PENDING && styles.statusButtonTextActive
                     ]}>
                       Pendente
@@ -966,14 +991,16 @@ export default function Vaccines() {
                   <TouchableOpacity
                     style={[
                       styles.statusButton,
+                      { backgroundColor: colors.surface, borderColor: colors.warning },
                       formData.status === VACCINE_STATUS.SCHEDULED && styles.statusButtonActive,
-                      { borderColor: '#F39C12' }
+                      formData.status === VACCINE_STATUS.SCHEDULED && { backgroundColor: colors.warning }
                     ]}
                     onPress={() => setFormData({ ...formData, status: VACCINE_STATUS.SCHEDULED })}
                   >
-                    <Ionicons name="calendar-outline" size={20} color={formData.status === VACCINE_STATUS.SCHEDULED ? '#fff' : '#F39C12'} />
+                    <Ionicons name="calendar-outline" size={20} color={formData.status === VACCINE_STATUS.SCHEDULED ? '#fff' : colors.warning} />
                     <Text style={[
                       styles.statusButtonText,
+                      { color: formData.status === VACCINE_STATUS.SCHEDULED ? '#fff' : colors.text },
                       formData.status === VACCINE_STATUS.SCHEDULED && styles.statusButtonTextActive
                     ]}>
                       Agendada
@@ -983,14 +1010,16 @@ export default function Vaccines() {
                   <TouchableOpacity
                     style={[
                       styles.statusButton,
+                      { backgroundColor: colors.surface, borderColor: colors.success },
                       formData.status === VACCINE_STATUS.APPLIED && styles.statusButtonActive,
-                      { borderColor: '#2ECC71' }
+                      formData.status === VACCINE_STATUS.APPLIED && { backgroundColor: colors.success }
                     ]}
                     onPress={() => setFormData({ ...formData, status: VACCINE_STATUS.APPLIED })}
                   >
-                    <Ionicons name="checkmark-circle" size={20} color={formData.status === VACCINE_STATUS.APPLIED ? '#fff' : '#2ECC71'} />
+                    <Ionicons name="checkmark-circle" size={20} color={formData.status === VACCINE_STATUS.APPLIED ? '#fff' : colors.success} />
                     <Text style={[
                       styles.statusButtonText,
+                      { color: formData.status === VACCINE_STATUS.APPLIED ? '#fff' : colors.text },
                       formData.status === VACCINE_STATUS.APPLIED && styles.statusButtonTextActive
                     ]}>
                       Aplicada
@@ -1002,13 +1031,13 @@ export default function Vaccines() {
               {formData.status === VACCINE_STATUS.SCHEDULED && (
                 <>
                   <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Data de Agendamento *</Text>
+                    <Text style={[styles.inputLabel, { color: colors.text }]}>Data de Agendamento *</Text>
                     <TouchableOpacity
-                      style={styles.dateButton}
+                      style={[styles.dateButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
                       onPress={() => setShowScheduledDatePicker(true)}
                     >
-                      <Ionicons name="calendar-outline" size={20} color="#F39C12" />
-                      <Text style={styles.dateButtonText}>
+                      <Ionicons name="calendar-outline" size={20} color={colors.warning} />
+                      <Text style={[styles.dateButtonText, { color: colors.text }]}>
                         {formData.scheduledDate 
                           ? formatDate(formData.scheduledDate.toISOString())
                           : 'Selecione a data'}
@@ -1030,13 +1059,13 @@ export default function Vaccines() {
                     )}
                   </View>
                   <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Hora do Agendamento</Text>
+                    <Text style={[styles.inputLabel, { color: colors.text }]}>Hora do Agendamento</Text>
                     <TouchableOpacity
-                      style={styles.dateButton}
+                      style={[styles.dateButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
                       onPress={() => setShowScheduledTimePicker(true)}
                     >
-                      <Ionicons name="time-outline" size={20} color="#F39C12" />
-                      <Text style={styles.dateButtonText}>
+                      <Ionicons name="time-outline" size={20} color={colors.warning} />
+                      <Text style={[styles.dateButtonText, { color: colors.text }]}>
                         {formData.scheduledTime 
                           ? formData.scheduledTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
                           : 'Selecione a hora'}
@@ -1062,13 +1091,13 @@ export default function Vaccines() {
               {formData.status === VACCINE_STATUS.APPLIED && (
                 <>
                   <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Data de Aplicação *</Text>
+                    <Text style={[styles.inputLabel, { color: colors.text }]}>Data de Aplicação *</Text>
                     <TouchableOpacity
-                      style={styles.dateButton}
+                      style={[styles.dateButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
                       onPress={() => setShowAppliedDatePicker(true)}
                     >
-                      <Ionicons name="checkmark-circle" size={20} color="#2ECC71" />
-                      <Text style={styles.dateButtonText}>
+                      <Ionicons name="checkmark-circle" size={20} color={colors.success} />
+                      <Text style={[styles.dateButtonText, { color: colors.text }]}>
                         {formData.appliedDate 
                           ? formatDate(formData.appliedDate.toISOString())
                           : 'Selecione a data'}
@@ -1092,51 +1121,57 @@ export default function Vaccines() {
 
                   <View style={styles.inputGroup}>
                     <Text style={styles.inputLabel}>Lote da Vacina</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Ex: L123456"
+                    <VoiceTextInput
                       value={formData.lot}
                       onChangeText={(text) => setFormData({ ...formData, lot: text })}
+                      placeholder="Ex: L123456"
+                      containerStyle={styles.inputRow}
+                      inputStyle={styles.inputField}
                     />
                   </View>
 
                   <View style={styles.inputGroup}>
                     <Text style={styles.inputLabel}>Fabricante</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Ex: Butantan, Fiocruz, Pfizer, etc."
+                    <VoiceTextInput
                       value={formData.manufacturer}
                       onChangeText={(text) => setFormData({ ...formData, manufacturer: text })}
+                      placeholder="Ex: Butantan, Fiocruz, Pfizer, etc."
+                      containerStyle={styles.inputRow}
+                      inputStyle={styles.inputField}
                     />
                   </View>
 
                   <View style={styles.inputGroup}>
                     <Text style={styles.inputLabel}>Local de Aplicação</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Ex: Posto de Saúde Central, Clínica XYZ, etc."
+                    <VoiceTextInput
                       value={formData.location}
                       onChangeText={(text) => setFormData({ ...formData, location: text })}
+                      placeholder="Ex: Posto de Saúde Central, Clínica XYZ, etc."
+                      containerStyle={styles.inputRow}
+                      inputStyle={styles.inputField}
                     />
                   </View>
 
                   <View style={styles.inputGroup}>
                     <Text style={styles.inputLabel}>Profissional que Aplicou</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Ex: Dr. João Silva, Enf. Maria Santos"
+                    <VoiceTextInput
                       value={formData.professional}
                       onChangeText={(text) => setFormData({ ...formData, professional: text })}
+                      placeholder="Ex: Dr. João Silva, Enf. Maria Santos"
+                      containerStyle={styles.inputRow}
+                      inputStyle={styles.inputField}
                     />
                   </View>
 
                   <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Reações Adversas</Text>
-                    <TextInput
-                      style={[styles.input, styles.textArea]}
-                      placeholder="Descreva qualquer reação adversa observada (febre, dor no local, etc.)"
+                    <Text style={[styles.inputLabel, { color: colors.text }]}>Reações Adversas</Text>
+                    <VoiceTextInput
                       value={formData.adverseReactions}
                       onChangeText={(text) => setFormData({ ...formData, adverseReactions: text })}
+                      placeholder="Descreva qualquer reação adversa observada (febre, dor no local, etc.)"
+                      placeholderTextColor={colors.textTertiary}
+                      containerStyle={[styles.inputRow, { backgroundColor: colors.surface, borderColor: colors.border }]}
+                      inputStyle={[styles.inputField, styles.textArea, { color: colors.text }]}
                       multiline
                       numberOfLines={3}
                     />
@@ -1145,22 +1180,26 @@ export default function Vaccines() {
               )}
 
               <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Dose</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Ex: 1ª dose, 2ª dose, reforço, dose única"
+                <Text style={[styles.inputLabel, { color: colors.text }]}>Dose</Text>
+                <VoiceTextInput
                   value={formData.dose}
                   onChangeText={(text) => setFormData({ ...formData, dose: text })}
+                  placeholder="Ex: 1ª dose, 2ª dose, reforço, dose única"
+                  placeholderTextColor={colors.textTertiary}
+                  containerStyle={[styles.inputRow, { backgroundColor: colors.surface, borderColor: colors.border }]}
+                  inputStyle={[styles.inputField, { color: colors.text }]}
                 />
               </View>
 
               <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Observações</Text>
-                <TextInput
-                  style={[styles.input, styles.textArea]}
-                  placeholder="Informações adicionais sobre a vacina"
+                <Text style={[styles.inputLabel, { color: colors.text }]}>Observações</Text>
+                <VoiceTextInput
                   value={formData.notes}
                   onChangeText={(text) => setFormData({ ...formData, notes: text })}
+                  placeholder="Informações adicionais sobre a vacina"
+                  placeholderTextColor={colors.textTertiary}
+                  containerStyle={[styles.inputRow, { backgroundColor: colors.surface, borderColor: colors.border }]}
+                  inputStyle={[styles.inputField, styles.textArea, { color: colors.text }]}
                   multiline
                   numberOfLines={4}
                 />
@@ -1197,38 +1236,31 @@ export default function Vaccines() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
   },
   userInfoContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#E8F8F5',
     padding: 16,
     marginHorizontal: 16,
     marginTop: 16,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: '#2ECC71',
   },
   userInfoText: {
     fontSize: 18,
-    color: '#2ECC71',
     fontWeight: '600',
     marginLeft: 12,
     flex: 1,
   },
   pregnancyPrompt: {
-    backgroundColor: '#FFF9E6',
     padding: 16,
     marginHorizontal: 16,
     marginTop: 16,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: '#F39C12',
   },
   pregnancyPromptText: {
     fontSize: 18,
-    color: '#333',
     fontWeight: '600',
     marginBottom: 12,
     textAlign: 'center',
@@ -1261,9 +1293,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 16,
     paddingTop: Platform.OS === 'ios' ? 60 : Platform.OS === 'android' ? 40 : 16,
-    backgroundColor: '#fff',
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
   },
   backButton: {
     marginRight: 16,
@@ -1274,7 +1304,6 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#333',
   },
   content: {
     padding: 16,
@@ -1303,7 +1332,6 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   vaccineCard: {
-    backgroundColor: '#fff',
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
@@ -1340,7 +1368,6 @@ const styles = StyleSheet.create({
   vaccineName: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#333',
     flex: 1,
     marginRight: 8,
   },
@@ -1359,12 +1386,10 @@ const styles = StyleSheet.create({
   },
   vaccineAge: {
     fontSize: 14,
-    color: '#666',
     marginBottom: 2,
   },
   vaccineDose: {
     fontSize: 14,
-    color: '#666',
     marginBottom: 4,
   },
   dateRow: {
@@ -1375,28 +1400,23 @@ const styles = StyleSheet.create({
   },
   vaccineDate: {
     fontSize: 14,
-    color: '#F39C12',
     fontWeight: '600',
   },
   vaccineDateApplied: {
     fontSize: 14,
-    color: '#2ECC71',
     fontWeight: '600',
   },
   nextVaccineDate: {
     fontSize: 14,
-    color: '#3498DB',
     fontWeight: '600',
   },
   vaccineDiseases: {
     fontSize: 14,
-    color: '#666',
     marginTop: 8,
     lineHeight: 20,
   },
   vaccineFrequency: {
     fontSize: 14,
-    color: '#F39C12',
     fontWeight: '600',
     marginTop: 4,
   },
@@ -1406,12 +1426,10 @@ const styles = StyleSheet.create({
     marginTop: 8,
     paddingTop: 8,
     borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
     gap: 6,
   },
   tapHintText: {
     fontSize: 12,
-    color: '#3498DB',
     fontStyle: 'italic',
   },
   vaccineActions: {
@@ -1428,22 +1446,18 @@ const styles = StyleSheet.create({
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
   },
   notesLabel: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#666',
     marginBottom: 4,
   },
   vaccineNotes: {
     fontSize: 14,
-    color: '#666',
     fontStyle: 'italic',
     lineHeight: 20,
   },
   addButton: {
-    backgroundColor: '#2ECC71',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1551,6 +1565,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     backgroundColor: '#fff',
   },
+  inputRow: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    backgroundColor: '#fff',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  inputField: {
+    flex: 1,
+    fontSize: 16,
+    color: '#333',
+  },
   inputDisabled: {
     backgroundColor: '#f5f5f5',
     color: '#666',
@@ -1573,16 +1601,14 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 8,
     borderWidth: 2,
-    backgroundColor: '#fff',
     gap: 6,
   },
   statusButtonActive: {
-    backgroundColor: '#3498DB',
+    // backgroundColor aplicado inline
   },
   statusButtonText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#666',
   },
   statusButtonTextActive: {
     color: '#fff',
@@ -1591,21 +1617,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#ddd',
     borderRadius: 8,
     padding: 12,
-    backgroundColor: '#fff',
     gap: 8,
   },
   dateButtonText: {
     fontSize: 16,
-    color: '#333',
   },
   modalFooter: {
     flexDirection: 'row',
     padding: 20,
     borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
     gap: 12,
   },
   modalButton: {
@@ -1615,15 +1637,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   cancelButton: {
-    backgroundColor: '#f0f0f0',
+    // backgroundColor aplicado inline
   },
   cancelButtonText: {
-    color: '#666',
     fontSize: 16,
     fontWeight: '600',
   },
   saveButton: {
-    backgroundColor: '#2ECC71',
+    // backgroundColor aplicado inline
   },
   saveButtonText: {
     color: '#fff',

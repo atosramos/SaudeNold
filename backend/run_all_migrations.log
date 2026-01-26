@@ -1,0 +1,622 @@
+2026-01-26 17:13:52,221 - INFO - ============================================================
+2026-01-26 17:13:52,222 - INFO - INICIANDO PROCESSO DE MIGRAÇÃO COMPLETO
+2026-01-26 17:13:52,222 - INFO - ============================================================
+2026-01-26 17:13:52,238 - INFO - 
+[1/4] 1. Migração de Schema (Tabelas e Colunas)
+2026-01-26 17:13:52,238 - INFO - 
+============================================================
+2026-01-26 17:13:52,238 - INFO - 1. Migração de Schema (Tabelas e Colunas)
+2026-01-26 17:13:52,238 - INFO - ============================================================
+2026-01-26 17:13:54,115 - INFO - 
+============================================================
+RELATÃ“RIO DE MIGRAÃ‡ÃƒO
+============================================================
+Tabelas criadas: 0
+Colunas adicionadas: 0
+Registros atualizados: 0
+Erros: 0
+============================================================
+
+
+2026-01-26 17:13:54,116 - WARNING - 2026-01-26 17:13:53,884 - INFO - Iniciando migração para suporte a perfis familiares...
+2026-01-26 17:13:53,884 - INFO - Modo DRY RUN ativado
+2026-01-26 17:13:53,952 - INFO - Validando estado do banco antes da migração...
+2026-01-26 17:13:53,991 - INFO - Total de usuários: 13
+2026-01-26 17:13:53,996 - INFO - === MODO DRY RUN - Nenhuma alteração será feita ===
+2026-01-26 17:13:53,996 - INFO - [DRY RUN] Executaria: 
+    CREATE TABLE IF NOT EXISTS families (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) ...
+2026-01-26 17:13:53,996 - INFO - [DRY RUN] Executaria: 
+    CREATE TABLE IF NOT EXISTS family_profiles (
+        id SERIAL PRIMARY KEY,
+        family_id I...
+2026-01-26 17:13:53,996 - INFO - [DRY RUN] Executaria: 
+    CREATE TABLE IF NOT EXISTS family_caregivers (
+        id SERIAL PRIMARY KEY,
+        profile_i...
+2026-01-26 17:13:53,996 - INFO - [DRY RUN] Executaria: 
+    CREATE TABLE IF NOT EXISTS family_profile_links (
+        id SERIAL PRIMARY KEY,
+        family...
+2026-01-26 17:13:53,998 - INFO - [DRY RUN] Executaria: 
+    CREATE TABLE IF NOT EXISTS family_invites (
+        id SERIAL PRIMARY KEY,
+        family_id IN...
+2026-01-26 17:13:53,998 - INFO - [DRY RUN] Executaria: 
+    CREATE TABLE IF NOT EXISTS family_data_shares (
+        id SERIAL PRIMARY KEY,
+        family_i...
+2026-01-26 17:13:53,998 - INFO - [DRY RUN] Executaria: ALTER TABLE users ADD COLUMN IF NOT EXISTS family_id INTEGER...
+2026-01-26 17:13:53,998 - INFO - [DRY RUN] Executaria: ALTER TABLE users ADD COLUMN IF NOT EXISTS account_type VARCHAR(50) DEFAULT 'family_admin'...
+2026-01-26 17:13:53,998 - INFO - [DRY RUN] Executaria: ALTER TABLE users ADD COLUMN IF NOT EXISTS created_by INTEGER...
+2026-01-26 17:13:53,999 - INFO - [DRY RUN] Executaria: ALTER TABLE users ADD COLUMN IF NOT EXISTS permissions JSON...
+2026-01-26 17:13:53,999 - INFO - [DRY RUN] Executaria: ALTER TABLE medications ADD COLUMN IF NOT EXISTS profile_id INTEGER...
+2026-01-26 17:13:53,999 - INFO - [DRY RUN] Executaria: ALTER TABLE medication_logs ADD COLUMN IF NOT EXISTS profile_id INTEGER...
+2026-01-26 17:13:53,999 - INFO - [DRY RUN] Executaria: ALTER TABLE emergency_contacts ADD COLUMN IF NOT EXISTS profile_id INTEGER...
+2026-01-26 17:13:53,999 - INFO - [DRY RUN] Executaria: ALTER TABLE doctor_visits ADD COLUMN IF NOT EXISTS profile_id INTEGER...
+2026-01-26 17:13:53,999 - INFO - [DRY RUN] Executaria: ALTER TABLE medical_exams ADD COLUMN IF NOT EXISTS profile_id INTEGER...
+2026-01-26 17:13:53,999 - INFO - [DRY RUN] Executaria: ALTER TABLE exam_data_points ADD COLUMN IF NOT EXISTS profile_id INTEGER...
+2026-01-26 17:13:53,999 - INFO - === DRY RUN concluído - Nenhuma alteração foi feita ===
+2026-01-26 17:13:53,999 - INFO - Migração concluída com sucesso!
+
+2026-01-26 17:13:54,121 - INFO - 
+[2/4] 2. Migração de Usuários para Famílias
+2026-01-26 17:13:54,121 - INFO - 
+============================================================
+2026-01-26 17:13:54,121 - INFO - 2. Migração de Usuários para Famílias
+2026-01-26 17:13:54,122 - INFO - ============================================================
+2026-01-26 17:13:54,974 - INFO - None
+2026-01-26 17:13:54,975 - WARNING - 2026-01-26 17:13:54,724 - INFO - Iniciando migração de usuários para famílias...
+2026-01-26 17:13:54,724 - INFO - Modo DRY RUN ativado
+2026-01-26 17:13:54,805 - INFO - Total de usuários no banco: 13
+2026-01-26 17:13:54,808 - INFO - Usuários sem família: 4
+2026-01-26 17:13:54,809 - INFO - === MODO DRY RUN - Nenhuma alteração será feita ===
+2026-01-26 17:13:54,809 - INFO - [DRY RUN] Criaria família 'Família de Smoke1768485774' para usuário 1 (smoke1768485774@test.com)
+2026-01-26 17:13:54,809 - INFO - [DRY RUN] Criaria família 'Família de Smoke1768485928' para usuário 2 (smoke1768485928@test.com)
+2026-01-26 17:13:54,812 - INFO - [DRY RUN] Criaria família 'Família de Atosramos' para usuário 3 (atosramos@gmeil.com)
+2026-01-26 17:13:54,812 - INFO - [DRY RUN] Criaria família 'Família de Atosramos' para usuário 4 (atosramos@atosramos@gmail.comgmeil.com)
+2026-01-26 17:13:54,812 - INFO - === DRY RUN concluído - Nenhuma alteração foi feita ===
+2026-01-26 17:13:54,813 - INFO - Migração concluída com sucesso!
+
+2026-01-26 17:13:54,977 - INFO - 
+[3/4] 3. Migração de Dados Médicos para Perfis
+2026-01-26 17:13:54,977 - INFO - 
+============================================================
+2026-01-26 17:13:54,978 - INFO - 3. Migração de Dados Médicos para Perfis
+2026-01-26 17:13:54,978 - INFO - ============================================================
+2026-01-26 17:13:55,817 - INFO - 
+============================================================
+RELATÃ“RIO DE MIGRAÃ‡ÃƒO DE DADOS MÃ‰DICOS
+============================================================
+Tabelas processadas: 6
+Total de registros migrados: 1
+Total de registros Ã³rfÃ£os: 0
+Erros: 0
+============================================================
+
+
+2026-01-26 17:13:55,817 - WARNING - 2026-01-26 17:13:55,631 - INFO - Iniciando migração de dados médicos para perfis...
+2026-01-26 17:13:55,631 - INFO - Modo DRY RUN ativado
+2026-01-26 17:13:55,631 - INFO - === MODO DRY RUN - Nenhuma alteração será feita ===
+2026-01-26 17:13:55,631 - INFO - 
+Processando tabela: medications
+2026-01-26 17:13:55,692 - INFO - Tabela medications: 0 total, 0 sem profile_id
+2026-01-26 17:13:55,692 - INFO - Nenhum registro precisa de migração na tabela medications
+2026-01-26 17:13:55,692 - INFO - 
+Processando tabela: medication_logs
+2026-01-26 17:13:55,696 - INFO - Tabela medication_logs: 0 total, 0 sem profile_id
+2026-01-26 17:13:55,699 - INFO - Nenhum registro precisa de migração na tabela medication_logs
+2026-01-26 17:13:55,699 - INFO - 
+Processando tabela: emergency_contacts
+2026-01-26 17:13:55,700 - INFO - Tabela emergency_contacts: 0 total, 0 sem profile_id
+2026-01-26 17:13:55,700 - INFO - Nenhum registro precisa de migração na tabela emergency_contacts
+2026-01-26 17:13:55,700 - INFO - 
+Processando tabela: doctor_visits
+2026-01-26 17:13:55,702 - INFO - Tabela doctor_visits: 0 total, 0 sem profile_id
+2026-01-26 17:13:55,702 - INFO - Nenhum registro precisa de migração na tabela doctor_visits
+2026-01-26 17:13:55,702 - INFO - 
+Processando tabela: medical_exams
+2026-01-26 17:13:55,703 - INFO - Tabela medical_exams: 3 total, 1 sem profile_id
+2026-01-26 17:13:55,719 - INFO - [DRY RUN] Associaria 1 registros de medical_exams ao perfil 1
+2026-01-26 17:13:55,720 - INFO - 
+Processando tabela: exam_data_points
+2026-01-26 17:13:55,722 - INFO - Tabela exam_data_points: 0 total, 0 sem profile_id
+2026-01-26 17:13:55,722 - INFO - Nenhum registro precisa de migração na tabela exam_data_points
+2026-01-26 17:13:55,722 - INFO - 
+=== DRY RUN concluído - Nenhuma alteração foi feita ===
+2026-01-26 17:13:55,723 - INFO - Migração concluída com sucesso!
+
+2026-01-26 17:13:55,821 - INFO - 
+[4/4] 4. Verificação Pós-Migração
+2026-01-26 17:13:55,821 - INFO - 
+============================================================
+2026-01-26 17:13:55,822 - INFO - 4. Verificação Pós-Migração
+2026-01-26 17:13:55,822 - INFO - ============================================================
+2026-01-26 17:13:56,640 - ERROR - Erro ao executar C:\Users\lucia\Projetos\Saude\SaudeNold\backend\migrations\verify_migration.py:
+2026-01-26 17:13:56,641 - ERROR - None
+2026-01-26 17:13:56,641 - ERROR - 2026-01-26 17:13:56,389 - INFO - Iniciando verificação pós-migração...
+2026-01-26 17:13:56,389 - INFO - 
+1. Verificando se usuários têm família...
+2026-01-26 17:13:56,487 - INFO - Usuários: 9/13 com família
+2026-01-26 17:13:56,487 - INFO - 
+2. Verificando se usuários têm perfil...
+2026-01-26 17:13:56,502 - INFO - Usuários: 9/13 com perfil
+2026-01-26 17:13:56,502 - INFO - 
+3. Verificando se dados médicos têm profile_id...
+2026-01-26 17:13:56,506 - INFO - medical_exams: 2/3 com profile_id
+2026-01-26 17:13:56,507 - INFO - 
+4. Verificando integridade referencial...
+2026-01-26 17:13:56,509 - INFO - Integridade referencial: ok
+2026-01-26 17:13:56,509 - INFO - 
+Verificação concluída!
+2026-01-26 17:13:56,509 - WARNING - Verificação concluída com problemas - Verifique o relatório acima
+
+2026-01-26 17:13:56,647 - INFO - 
+============================================================
+2026-01-26 17:13:56,647 - INFO - RESUMO DO PROCESSO DE MIGRAÇÃO
+2026-01-26 17:13:56,647 - INFO - ============================================================
+2026-01-26 17:13:56,647 - INFO - Migrações executadas: 3/4
+2026-01-26 17:13:56,649 - ERROR - 
+Migrações que falharam:
+2026-01-26 17:13:56,649 - ERROR -   - 4. Verificação Pós-Migração
+2026-01-26 17:14:55,349 - INFO - ============================================================
+2026-01-26 17:14:55,349 - INFO - INICIANDO PROCESSO DE MIGRAÇÃO COMPLETO
+2026-01-26 17:14:55,349 - INFO - ============================================================
+2026-01-26 17:14:55,354 - INFO - 
+[1/4] 1. Migração de Schema (Tabelas e Colunas)
+2026-01-26 17:14:55,354 - INFO - 
+============================================================
+2026-01-26 17:14:55,354 - INFO - 1. Migração de Schema (Tabelas e Colunas)
+2026-01-26 17:14:55,354 - INFO - ============================================================
+2026-01-26 17:14:56,125 - INFO - 
+============================================================
+RELATÃ“RIO DE MIGRAÃ‡ÃƒO
+============================================================
+Tabelas criadas: 0
+Colunas adicionadas: 0
+Registros atualizados: 0
+Erros: 0
+============================================================
+
+
+2026-01-26 17:14:56,125 - WARNING - 2026-01-26 17:14:55,929 - INFO - Iniciando migração para suporte a perfis familiares...
+2026-01-26 17:14:55,929 - INFO - Modo DRY RUN ativado
+2026-01-26 17:14:55,989 - INFO - Validando estado do banco antes da migração...
+2026-01-26 17:14:56,024 - INFO - Total de usuários: 13
+2026-01-26 17:14:56,029 - INFO - === MODO DRY RUN - Nenhuma alteração será feita ===
+2026-01-26 17:14:56,029 - INFO - [DRY RUN] Executaria: 
+    CREATE TABLE IF NOT EXISTS families (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) ...
+2026-01-26 17:14:56,029 - INFO - [DRY RUN] Executaria: 
+    CREATE TABLE IF NOT EXISTS family_profiles (
+        id SERIAL PRIMARY KEY,
+        family_id I...
+2026-01-26 17:14:56,029 - INFO - [DRY RUN] Executaria: 
+    CREATE TABLE IF NOT EXISTS family_caregivers (
+        id SERIAL PRIMARY KEY,
+        profile_i...
+2026-01-26 17:14:56,029 - INFO - [DRY RUN] Executaria: 
+    CREATE TABLE IF NOT EXISTS family_profile_links (
+        id SERIAL PRIMARY KEY,
+        family...
+2026-01-26 17:14:56,029 - INFO - [DRY RUN] Executaria: 
+    CREATE TABLE IF NOT EXISTS family_invites (
+        id SERIAL PRIMARY KEY,
+        family_id IN...
+2026-01-26 17:14:56,029 - INFO - [DRY RUN] Executaria: 
+    CREATE TABLE IF NOT EXISTS family_data_shares (
+        id SERIAL PRIMARY KEY,
+        family_i...
+2026-01-26 17:14:56,029 - INFO - [DRY RUN] Executaria: ALTER TABLE users ADD COLUMN IF NOT EXISTS family_id INTEGER...
+2026-01-26 17:14:56,029 - INFO - [DRY RUN] Executaria: ALTER TABLE users ADD COLUMN IF NOT EXISTS account_type VARCHAR(50) DEFAULT 'family_admin'...
+2026-01-26 17:14:56,029 - INFO - [DRY RUN] Executaria: ALTER TABLE users ADD COLUMN IF NOT EXISTS created_by INTEGER...
+2026-01-26 17:14:56,029 - INFO - [DRY RUN] Executaria: ALTER TABLE users ADD COLUMN IF NOT EXISTS permissions JSON...
+2026-01-26 17:14:56,029 - INFO - [DRY RUN] Executaria: ALTER TABLE medications ADD COLUMN IF NOT EXISTS profile_id INTEGER...
+2026-01-26 17:14:56,029 - INFO - [DRY RUN] Executaria: ALTER TABLE medication_logs ADD COLUMN IF NOT EXISTS profile_id INTEGER...
+2026-01-26 17:14:56,029 - INFO - [DRY RUN] Executaria: ALTER TABLE emergency_contacts ADD COLUMN IF NOT EXISTS profile_id INTEGER...
+2026-01-26 17:14:56,029 - INFO - [DRY RUN] Executaria: ALTER TABLE doctor_visits ADD COLUMN IF NOT EXISTS profile_id INTEGER...
+2026-01-26 17:14:56,029 - INFO - [DRY RUN] Executaria: ALTER TABLE medical_exams ADD COLUMN IF NOT EXISTS profile_id INTEGER...
+2026-01-26 17:14:56,029 - INFO - [DRY RUN] Executaria: ALTER TABLE exam_data_points ADD COLUMN IF NOT EXISTS profile_id INTEGER...
+2026-01-26 17:14:56,029 - INFO - === DRY RUN concluído - Nenhuma alteração foi feita ===
+2026-01-26 17:14:56,029 - INFO - Migração concluída com sucesso!
+
+2026-01-26 17:14:56,125 - INFO - 
+[2/4] 2. Migração de Usuários para Famílias
+2026-01-26 17:14:56,125 - INFO - 
+============================================================
+2026-01-26 17:14:56,125 - INFO - 2. Migração de Usuários para Famílias
+2026-01-26 17:14:56,125 - INFO - ============================================================
+2026-01-26 17:14:56,917 - INFO - None
+2026-01-26 17:14:56,919 - WARNING - 2026-01-26 17:14:56,719 - INFO - Iniciando migração de usuários para famílias...
+2026-01-26 17:14:56,719 - INFO - Modo DRY RUN ativado
+2026-01-26 17:14:56,799 - INFO - Total de usuários no banco: 13
+2026-01-26 17:14:56,807 - INFO - Usuários sem família: 4
+2026-01-26 17:14:56,807 - INFO - === MODO DRY RUN - Nenhuma alteração será feita ===
+2026-01-26 17:14:56,807 - INFO - [DRY RUN] Criaria família 'Família de Smoke1768485774' para usuário 1 (smoke1768485774@test.com)
+2026-01-26 17:14:56,807 - INFO - [DRY RUN] Criaria família 'Família de Smoke1768485928' para usuário 2 (smoke1768485928@test.com)
+2026-01-26 17:14:56,807 - INFO - [DRY RUN] Criaria família 'Família de Atosramos' para usuário 3 (atosramos@gmeil.com)
+2026-01-26 17:14:56,809 - INFO - [DRY RUN] Criaria família 'Família de Atosramos' para usuário 4 (atosramos@atosramos@gmail.comgmeil.com)
+2026-01-26 17:14:56,809 - INFO - === DRY RUN concluído - Nenhuma alteração foi feita ===
+2026-01-26 17:14:56,809 - INFO - Migração concluída com sucesso!
+
+2026-01-26 17:14:56,922 - INFO - 
+[3/4] 3. Migração de Dados Médicos para Perfis
+2026-01-26 17:14:56,922 - INFO - 
+============================================================
+2026-01-26 17:14:56,922 - INFO - 3. Migração de Dados Médicos para Perfis
+2026-01-26 17:14:56,922 - INFO - ============================================================
+2026-01-26 17:14:57,712 - INFO - 
+============================================================
+RELATÃ“RIO DE MIGRAÃ‡ÃƒO DE DADOS MÃ‰DICOS
+============================================================
+Tabelas processadas: 6
+Total de registros migrados: 1
+Total de registros Ã³rfÃ£os: 0
+Erros: 0
+============================================================
+
+
+2026-01-26 17:14:57,712 - WARNING - 2026-01-26 17:14:57,519 - INFO - Iniciando migração de dados médicos para perfis...
+2026-01-26 17:14:57,519 - INFO - Modo DRY RUN ativado
+2026-01-26 17:14:57,519 - INFO - === MODO DRY RUN - Nenhuma alteração será feita ===
+2026-01-26 17:14:57,519 - INFO - 
+Processando tabela: medications
+2026-01-26 17:14:57,574 - INFO - Tabela medications: 0 total, 0 sem profile_id
+2026-01-26 17:14:57,574 - INFO - Nenhum registro precisa de migração na tabela medications
+2026-01-26 17:14:57,574 - INFO - 
+Processando tabela: medication_logs
+2026-01-26 17:14:57,579 - INFO - Tabela medication_logs: 0 total, 0 sem profile_id
+2026-01-26 17:14:57,579 - INFO - Nenhum registro precisa de migração na tabela medication_logs
+2026-01-26 17:14:57,579 - INFO - 
+Processando tabela: emergency_contacts
+2026-01-26 17:14:57,580 - INFO - Tabela emergency_contacts: 0 total, 0 sem profile_id
+2026-01-26 17:14:57,580 - INFO - Nenhum registro precisa de migração na tabela emergency_contacts
+2026-01-26 17:14:57,580 - INFO - 
+Processando tabela: doctor_visits
+2026-01-26 17:14:57,580 - INFO - Tabela doctor_visits: 0 total, 0 sem profile_id
+2026-01-26 17:14:57,580 - INFO - Nenhum registro precisa de migração na tabela doctor_visits
+2026-01-26 17:14:57,580 - INFO - 
+Processando tabela: medical_exams
+2026-01-26 17:14:57,580 - INFO - Tabela medical_exams: 3 total, 1 sem profile_id
+2026-01-26 17:14:57,599 - INFO - [DRY RUN] Associaria 1 registros de medical_exams ao perfil 1
+2026-01-26 17:14:57,599 - INFO - 
+Processando tabela: exam_data_points
+2026-01-26 17:14:57,599 - INFO - Tabela exam_data_points: 0 total, 0 sem profile_id
+2026-01-26 17:14:57,599 - INFO - Nenhum registro precisa de migração na tabela exam_data_points
+2026-01-26 17:14:57,599 - INFO - 
+=== DRY RUN concluído - Nenhuma alteração foi feita ===
+2026-01-26 17:14:57,599 - INFO - Migração concluída com sucesso!
+
+2026-01-26 17:14:57,714 - INFO - 
+[4/4] 4. Verificação Pós-Migração
+2026-01-26 17:14:57,714 - INFO - 
+============================================================
+2026-01-26 17:14:57,714 - INFO - 4. Verificação Pós-Migração
+2026-01-26 17:14:57,714 - INFO - ============================================================
+2026-01-26 17:14:58,490 - ERROR - Erro ao executar C:\Users\lucia\Projetos\Saude\SaudeNold\backend\migrations\verify_migration.py:
+2026-01-26 17:14:58,490 - ERROR - None
+2026-01-26 17:14:58,490 - ERROR - 2026-01-26 17:14:58,299 - INFO - Iniciando verificação pós-migração...
+2026-01-26 17:14:58,299 - INFO - 
+1. Verificando se usuários têm família...
+2026-01-26 17:14:58,369 - INFO - Usuários: 9/13 com família
+2026-01-26 17:14:58,369 - INFO - 
+2. Verificando se usuários têm perfil...
+2026-01-26 17:14:58,379 - INFO - Usuários: 9/13 com perfil
+2026-01-26 17:14:58,379 - INFO - 
+3. Verificando se dados médicos têm profile_id...
+2026-01-26 17:14:58,379 - INFO - medical_exams: 2/3 com profile_id
+2026-01-26 17:14:58,379 - INFO - 
+4. Verificando integridade referencial...
+2026-01-26 17:14:58,379 - INFO - Integridade referencial: ok
+2026-01-26 17:14:58,389 - INFO - 
+Verificação concluída!
+2026-01-26 17:14:58,389 - WARNING - Verificação concluída com problemas - Verifique o relatório acima
+
+2026-01-26 17:14:58,491 - INFO - 
+============================================================
+2026-01-26 17:14:58,491 - INFO - RESUMO DO PROCESSO DE MIGRAÇÃO
+2026-01-26 17:14:58,491 - INFO - ============================================================
+2026-01-26 17:14:58,494 - INFO - Migrações executadas: 3/4
+2026-01-26 17:14:58,494 - ERROR - 
+Migrações que falharam:
+2026-01-26 17:14:58,494 - ERROR -   - 4. Verificação Pós-Migração
+2026-01-26 17:15:05,439 - INFO - ============================================================
+2026-01-26 17:15:05,439 - INFO - INICIANDO PROCESSO DE MIGRAÇÃO COMPLETO
+2026-01-26 17:15:05,439 - INFO - ============================================================
+2026-01-26 17:15:05,439 - INFO - 
+[1/4] 1. Migração de Schema (Tabelas e Colunas)
+2026-01-26 17:15:05,439 - INFO - 
+============================================================
+2026-01-26 17:15:05,439 - INFO - 1. Migração de Schema (Tabelas e Colunas)
+2026-01-26 17:15:05,439 - INFO - ============================================================
+2026-01-26 17:15:06,242 - INFO - 
+============================================================
+RELATÃ“RIO DE MIGRAÃ‡ÃƒO
+============================================================
+Tabelas criadas: 6
+Colunas adicionadas: 10
+Registros atualizados: 0
+Backup criado: migration_backup_20260126_171506.json
+Erros: 0
+============================================================
+
+
+2026-01-26 17:15:06,242 - WARNING - 2026-01-26 17:15:05,978 - INFO - Iniciando migração para suporte a perfis familiares...
+2026-01-26 17:15:06,042 - INFO - Validando estado do banco antes da migração...
+2026-01-26 17:15:06,084 - INFO - Total de usuários: 13
+2026-01-26 17:15:06,089 - INFO - Criando backup do estado atual...
+2026-01-26 17:15:06,141 - INFO - Backup salvo em: migration_backup_20260126_171506.json
+2026-01-26 17:15:06,141 - INFO - Executando migração 1/16...
+2026-01-26 17:15:06,143 - INFO - Executando migração 2/16...
+2026-01-26 17:15:06,145 - INFO - Executando migração 3/16...
+2026-01-26 17:15:06,145 - INFO - Executando migração 4/16...
+2026-01-26 17:15:06,146 - INFO - Executando migração 5/16...
+2026-01-26 17:15:06,146 - INFO - Executando migração 6/16...
+2026-01-26 17:15:06,146 - INFO - Executando migração 7/16...
+2026-01-26 17:15:06,147 - INFO - Executando migração 8/16...
+2026-01-26 17:15:06,147 - INFO - Executando migração 9/16...
+2026-01-26 17:15:06,147 - INFO - Executando migração 10/16...
+2026-01-26 17:15:06,148 - INFO - Executando migração 11/16...
+2026-01-26 17:15:06,148 - INFO - Executando migração 12/16...
+2026-01-26 17:15:06,148 - INFO - Executando migração 13/16...
+2026-01-26 17:15:06,148 - INFO - Executando migração 14/16...
+2026-01-26 17:15:06,149 - INFO - Executando migração 15/16...
+2026-01-26 17:15:06,150 - INFO - Executando migração 16/16...
+2026-01-26 17:15:06,151 - INFO - Migração concluída com sucesso!
+2026-01-26 17:15:06,151 - INFO - Migração concluída com sucesso!
+
+2026-01-26 17:15:06,251 - INFO - 
+[2/4] 2. Migração de Usuários para Famílias
+2026-01-26 17:15:06,251 - INFO - 
+============================================================
+2026-01-26 17:15:06,251 - INFO - 2. Migração de Usuários para Famílias
+2026-01-26 17:15:06,251 - INFO - ============================================================
+2026-01-26 17:15:07,122 - INFO - None
+2026-01-26 17:15:07,122 - WARNING - 2026-01-26 17:15:06,888 - INFO - Iniciando migração de usuários para famílias...
+2026-01-26 17:15:06,969 - INFO - Total de usuários no banco: 13
+2026-01-26 17:15:06,969 - INFO - Usuários sem família: 4
+2026-01-26 17:15:06,979 - INFO - Criada família ID 10: 'Família de Smoke1768485774' para usuário 1
+2026-01-26 17:15:06,979 - INFO - Criado perfil ID 12: 'Smoke1768485774' (family_admin) na família 10
+2026-01-26 17:15:06,979 - INFO - Usuário 1 atualizado: family_id=10, account_type=family_admin
+2026-01-26 17:15:06,989 - INFO - Criada família ID 11: 'Família de Smoke1768485928' para usuário 2
+2026-01-26 17:15:06,990 - INFO - Criado perfil ID 13: 'Smoke1768485928' (family_admin) na família 11
+2026-01-26 17:15:06,990 - INFO - Usuário 2 atualizado: family_id=11, account_type=family_admin
+2026-01-26 17:15:06,991 - INFO - Criada família ID 12: 'Família de Atosramos' para usuário 3
+2026-01-26 17:15:06,991 - INFO - Criado perfil ID 14: 'Atosramos' (family_admin) na família 12
+2026-01-26 17:15:06,991 - INFO - Usuário 3 atualizado: family_id=12, account_type=family_admin
+2026-01-26 17:15:06,994 - INFO - Criada família ID 13: 'Família de Atosramos' para usuário 4
+2026-01-26 17:15:06,995 - INFO - Criado perfil ID 15: 'Atosramos' (family_admin) na família 13
+2026-01-26 17:15:06,995 - INFO - Usuário 4 atualizado: family_id=13, account_type=family_admin
+2026-01-26 17:15:06,995 - INFO - Migração concluída com sucesso!
+2026-01-26 17:15:06,995 - INFO - Migração concluída com sucesso!
+
+2026-01-26 17:15:07,123 - INFO - 
+[3/4] 3. Migração de Dados Médicos para Perfis
+2026-01-26 17:15:07,123 - INFO - 
+============================================================
+2026-01-26 17:15:07,123 - INFO - 3. Migração de Dados Médicos para Perfis
+2026-01-26 17:15:07,123 - INFO - ============================================================
+2026-01-26 17:15:07,909 - INFO - 
+============================================================
+RELATÃ“RIO DE MIGRAÃ‡ÃƒO DE DADOS MÃ‰DICOS
+============================================================
+Tabelas processadas: 6
+Total de registros migrados: 1
+Total de registros Ã³rfÃ£os: 0
+Erros: 0
+============================================================
+
+
+2026-01-26 17:15:07,909 - WARNING - 2026-01-26 17:15:07,708 - INFO - Iniciando migração de dados médicos para perfis...
+2026-01-26 17:15:07,708 - INFO - 
+Processando tabela: medications
+2026-01-26 17:15:07,773 - INFO - Tabela medications: 0 total, 0 sem profile_id
+2026-01-26 17:15:07,773 - INFO - Nenhum registro precisa de migração na tabela medications
+2026-01-26 17:15:07,773 - INFO - 
+Processando tabela: medication_logs
+2026-01-26 17:15:07,773 - INFO - Tabela medication_logs: 0 total, 0 sem profile_id
+2026-01-26 17:15:07,773 - INFO - Nenhum registro precisa de migração na tabela medication_logs
+2026-01-26 17:15:07,773 - INFO - 
+Processando tabela: emergency_contacts
+2026-01-26 17:15:07,775 - INFO - Tabela emergency_contacts: 0 total, 0 sem profile_id
+2026-01-26 17:15:07,775 - INFO - Nenhum registro precisa de migração na tabela emergency_contacts
+2026-01-26 17:15:07,775 - INFO - 
+Processando tabela: doctor_visits
+2026-01-26 17:15:07,775 - INFO - Tabela doctor_visits: 0 total, 0 sem profile_id
+2026-01-26 17:15:07,775 - INFO - Nenhum registro precisa de migração na tabela doctor_visits
+2026-01-26 17:15:07,775 - INFO - 
+Processando tabela: medical_exams
+2026-01-26 17:15:07,775 - INFO - Tabela medical_exams: 3 total, 1 sem profile_id
+2026-01-26 17:15:07,789 - INFO - Migrados 1 registros de medical_exams para perfil 1
+2026-01-26 17:15:07,789 - INFO - 
+Processando tabela: exam_data_points
+2026-01-26 17:15:07,789 - INFO - Tabela exam_data_points: 0 total, 0 sem profile_id
+2026-01-26 17:15:07,789 - INFO - Nenhum registro precisa de migração na tabela exam_data_points
+2026-01-26 17:15:07,789 - INFO - 
+Migração de dados médicos concluída com sucesso!
+2026-01-26 17:15:07,789 - INFO - Migração concluída com sucesso!
+
+2026-01-26 17:15:07,909 - INFO - 
+[4/4] 4. Verificação Pós-Migração
+2026-01-26 17:15:07,909 - INFO - 
+============================================================
+2026-01-26 17:15:07,909 - INFO - 4. Verificação Pós-Migração
+2026-01-26 17:15:07,909 - INFO - ============================================================
+2026-01-26 17:15:08,930 - INFO - None
+2026-01-26 17:15:08,930 - WARNING - 2026-01-26 17:15:08,529 - INFO - Iniciando verificação pós-migração...
+2026-01-26 17:15:08,532 - INFO - 
+1. Verificando se usuários têm família...
+2026-01-26 17:15:08,759 - INFO - Usuários: 13/13 com família
+2026-01-26 17:15:08,759 - INFO - 
+2. Verificando se usuários têm perfil...
+2026-01-26 17:15:08,769 - INFO - Usuários: 13/13 com perfil
+2026-01-26 17:15:08,769 - INFO - 
+3. Verificando se dados médicos têm profile_id...
+2026-01-26 17:15:08,779 - INFO - medical_exams: 3/3 com profile_id
+2026-01-26 17:15:08,783 - INFO - 
+4. Verificando integridade referencial...
+2026-01-26 17:15:08,784 - INFO - Integridade referencial: ok
+2026-01-26 17:15:08,784 - INFO - 
+Verificação concluída!
+2026-01-26 17:15:08,784 - INFO - Verificação concluída com sucesso - Todos os checks passaram!
+
+2026-01-26 17:15:08,930 - INFO - 
+============================================================
+2026-01-26 17:15:08,930 - INFO - RESUMO DO PROCESSO DE MIGRAÇÃO
+2026-01-26 17:15:08,930 - INFO - ============================================================
+2026-01-26 17:15:08,930 - INFO - Migrações executadas: 4/4
+2026-01-26 17:15:57,919 - INFO - ============================================================
+2026-01-26 17:15:57,919 - INFO - INICIANDO PROCESSO DE MIGRAÇÃO COMPLETO
+2026-01-26 17:15:57,919 - INFO - ============================================================
+2026-01-26 17:15:57,925 - INFO - 
+[1/4] 1. Migração de Schema (Tabelas e Colunas)
+2026-01-26 17:15:57,925 - INFO - 
+============================================================
+2026-01-26 17:15:57,925 - INFO - 1. Migração de Schema (Tabelas e Colunas)
+2026-01-26 17:15:57,925 - INFO - ============================================================
+2026-01-26 17:15:58,785 - INFO - 
+============================================================
+RELATÃ“RIO DE MIGRAÃ‡ÃƒO
+============================================================
+Tabelas criadas: 0
+Colunas adicionadas: 0
+Registros atualizados: 0
+Erros: 0
+============================================================
+
+
+2026-01-26 17:15:58,785 - WARNING - 2026-01-26 17:15:58,576 - INFO - Iniciando migração para suporte a perfis familiares...
+2026-01-26 17:15:58,576 - INFO - Modo DRY RUN ativado
+2026-01-26 17:15:58,642 - INFO - Validando estado do banco antes da migração...
+2026-01-26 17:15:58,679 - INFO - Total de usuários: 13
+2026-01-26 17:15:58,684 - INFO - === MODO DRY RUN - Nenhuma alteração será feita ===
+2026-01-26 17:15:58,684 - INFO - [DRY RUN] Executaria: 
+    CREATE TABLE IF NOT EXISTS families (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) ...
+2026-01-26 17:15:58,684 - INFO - [DRY RUN] Executaria: 
+    CREATE TABLE IF NOT EXISTS family_profiles (
+        id SERIAL PRIMARY KEY,
+        family_id I...
+2026-01-26 17:15:58,684 - INFO - [DRY RUN] Executaria: 
+    CREATE TABLE IF NOT EXISTS family_caregivers (
+        id SERIAL PRIMARY KEY,
+        profile_i...
+2026-01-26 17:15:58,684 - INFO - [DRY RUN] Executaria: 
+    CREATE TABLE IF NOT EXISTS family_profile_links (
+        id SERIAL PRIMARY KEY,
+        family...
+2026-01-26 17:15:58,684 - INFO - [DRY RUN] Executaria: 
+    CREATE TABLE IF NOT EXISTS family_invites (
+        id SERIAL PRIMARY KEY,
+        family_id IN...
+2026-01-26 17:15:58,684 - INFO - [DRY RUN] Executaria: 
+    CREATE TABLE IF NOT EXISTS family_data_shares (
+        id SERIAL PRIMARY KEY,
+        family_i...
+2026-01-26 17:15:58,684 - INFO - [DRY RUN] Executaria: ALTER TABLE users ADD COLUMN IF NOT EXISTS family_id INTEGER...
+2026-01-26 17:15:58,684 - INFO - [DRY RUN] Executaria: ALTER TABLE users ADD COLUMN IF NOT EXISTS account_type VARCHAR(50) DEFAULT 'family_admin'...
+2026-01-26 17:15:58,684 - INFO - [DRY RUN] Executaria: ALTER TABLE users ADD COLUMN IF NOT EXISTS created_by INTEGER...
+2026-01-26 17:15:58,684 - INFO - [DRY RUN] Executaria: ALTER TABLE users ADD COLUMN IF NOT EXISTS permissions JSON...
+2026-01-26 17:15:58,684 - INFO - [DRY RUN] Executaria: ALTER TABLE medications ADD COLUMN IF NOT EXISTS profile_id INTEGER...
+2026-01-26 17:15:58,684 - INFO - [DRY RUN] Executaria: ALTER TABLE medication_logs ADD COLUMN IF NOT EXISTS profile_id INTEGER...
+2026-01-26 17:15:58,684 - INFO - [DRY RUN] Executaria: ALTER TABLE emergency_contacts ADD COLUMN IF NOT EXISTS profile_id INTEGER...
+2026-01-26 17:15:58,684 - INFO - [DRY RUN] Executaria: ALTER TABLE doctor_visits ADD COLUMN IF NOT EXISTS profile_id INTEGER...
+2026-01-26 17:15:58,684 - INFO - [DRY RUN] Executaria: ALTER TABLE medical_exams ADD COLUMN IF NOT EXISTS profile_id INTEGER...
+2026-01-26 17:15:58,684 - INFO - [DRY RUN] Executaria: ALTER TABLE exam_data_points ADD COLUMN IF NOT EXISTS profile_id INTEGER...
+2026-01-26 17:15:58,684 - INFO - === DRY RUN concluído - Nenhuma alteração foi feita ===
+2026-01-26 17:15:58,684 - INFO - Migração concluída com sucesso!
+
+2026-01-26 17:15:58,791 - INFO - 
+[2/4] 2. Migração de Usuários para Famílias
+2026-01-26 17:15:58,791 - INFO - 
+============================================================
+2026-01-26 17:15:58,791 - INFO - 2. Migração de Usuários para Famílias
+2026-01-26 17:15:58,791 - INFO - ============================================================
+2026-01-26 17:15:59,599 - INFO - None
+2026-01-26 17:15:59,599 - WARNING - 2026-01-26 17:15:59,399 - INFO - Iniciando migração de usuários para famílias...
+2026-01-26 17:15:59,399 - INFO - Modo DRY RUN ativado
+2026-01-26 17:15:59,476 - INFO - Total de usuários no banco: 13
+2026-01-26 17:15:59,479 - INFO - Usuários sem família: 0
+2026-01-26 17:15:59,479 - INFO - Nenhum usuário precisa de migração.
+2026-01-26 17:15:59,479 - INFO - Migração concluída com sucesso!
+
+2026-01-26 17:15:59,599 - INFO - 
+[3/4] 3. Migração de Dados Médicos para Perfis
+2026-01-26 17:15:59,599 - INFO - 
+============================================================
+2026-01-26 17:15:59,599 - INFO - 3. Migração de Dados Médicos para Perfis
+2026-01-26 17:15:59,599 - INFO - ============================================================
+2026-01-26 17:16:00,351 - INFO - 
+============================================================
+RELATÃ“RIO DE MIGRAÃ‡ÃƒO DE DADOS MÃ‰DICOS
+============================================================
+Tabelas processadas: 6
+Total de registros migrados: 0
+Total de registros Ã³rfÃ£os: 0
+Erros: 0
+============================================================
+
+
+2026-01-26 17:16:00,351 - WARNING - 2026-01-26 17:16:00,192 - INFO - Iniciando migração de dados médicos para perfis...
+2026-01-26 17:16:00,193 - INFO - Modo DRY RUN ativado
+2026-01-26 17:16:00,193 - INFO - === MODO DRY RUN - Nenhuma alteração será feita ===
+2026-01-26 17:16:00,194 - INFO - 
+Processando tabela: medications
+2026-01-26 17:16:00,249 - INFO - Tabela medications: 0 total, 0 sem profile_id
+2026-01-26 17:16:00,249 - INFO - Nenhum registro precisa de migração na tabela medications
+2026-01-26 17:16:00,249 - INFO - 
+Processando tabela: medication_logs
+2026-01-26 17:16:00,249 - INFO - Tabela medication_logs: 0 total, 0 sem profile_id
+2026-01-26 17:16:00,249 - INFO - Nenhum registro precisa de migração na tabela medication_logs
+2026-01-26 17:16:00,249 - INFO - 
+Processando tabela: emergency_contacts
+2026-01-26 17:16:00,249 - INFO - Tabela emergency_contacts: 0 total, 0 sem profile_id
+2026-01-26 17:16:00,249 - INFO - Nenhum registro precisa de migração na tabela emergency_contacts
+2026-01-26 17:16:00,249 - INFO - 
+Processando tabela: doctor_visits
+2026-01-26 17:16:00,249 - INFO - Tabela doctor_visits: 0 total, 0 sem profile_id
+2026-01-26 17:16:00,249 - INFO - Nenhum registro precisa de migração na tabela doctor_visits
+2026-01-26 17:16:00,249 - INFO - 
+Processando tabela: medical_exams
+2026-01-26 17:16:00,249 - INFO - Tabela medical_exams: 3 total, 0 sem profile_id
+2026-01-26 17:16:00,249 - INFO - Nenhum registro precisa de migração na tabela medical_exams
+2026-01-26 17:16:00,249 - INFO - 
+Processando tabela: exam_data_points
+2026-01-26 17:16:00,249 - INFO - Tabela exam_data_points: 0 total, 0 sem profile_id
+2026-01-26 17:16:00,249 - INFO - Nenhum registro precisa de migração na tabela exam_data_points
+2026-01-26 17:16:00,249 - INFO - 
+=== DRY RUN concluído - Nenhuma alteração foi feita ===
+2026-01-26 17:16:00,249 - INFO - Migração concluída com sucesso!
+
+2026-01-26 17:16:00,351 - INFO - 
+[4/4] 4. Verificação Pós-Migração
+2026-01-26 17:16:00,351 - INFO - 
+============================================================
+2026-01-26 17:16:00,351 - INFO - 4. Verificação Pós-Migração
+2026-01-26 17:16:00,351 - INFO - ============================================================
+2026-01-26 17:16:01,181 - INFO - None
+2026-01-26 17:16:01,181 - WARNING - 2026-01-26 17:16:00,954 - INFO - Iniciando verificação pós-migração...
+2026-01-26 17:16:00,954 - INFO - 
+1. Verificando se usuários têm família...
+2026-01-26 17:16:01,029 - INFO - Usuários: 13/13 com família
+2026-01-26 17:16:01,029 - INFO - 
+2. Verificando se usuários têm perfil...
+2026-01-26 17:16:01,048 - INFO - Usuários: 13/13 com perfil
+2026-01-26 17:16:01,048 - INFO - 
+3. Verificando se dados médicos têm profile_id...
+2026-01-26 17:16:01,048 - INFO - medical_exams: 3/3 com profile_id
+2026-01-26 17:16:01,048 - INFO - 
+4. Verificando integridade referencial...
+2026-01-26 17:16:01,057 - INFO - Integridade referencial: ok
+2026-01-26 17:16:01,057 - INFO - 
+Verificação concluída!
+2026-01-26 17:16:01,059 - INFO - Verificação concluída com sucesso - Todos os checks passaram!
+
+2026-01-26 17:16:01,185 - INFO - 
+============================================================
+2026-01-26 17:16:01,187 - INFO - RESUMO DO PROCESSO DE MIGRAÇÃO
+2026-01-26 17:16:01,187 - INFO - ============================================================
+2026-01-26 17:16:01,187 - INFO - Migrações executadas: 4/4

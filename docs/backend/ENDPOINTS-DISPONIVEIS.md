@@ -127,7 +127,7 @@ Isso é **normal e esperado**. O FastAPI não define uma rota na raiz por padrã
 
 ### 3. Com API Key (PowerShell)
 ```powershell
-$apiKey = "JDZYc50zDSlsvev8ZzOJXXowHg_iqNJW8fKx49YgcLo"
+$apiKey = "<API_KEY>"
 $headers = @{
     "Authorization" = "Bearer $apiKey"
     "Content-Type" = "application/json"

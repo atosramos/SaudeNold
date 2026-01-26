@@ -34,7 +34,7 @@ Isso causava:
 1. **API_KEY atualizada no secret:**
    ```powershell
    kubectl create secret generic backend-secret -n saudenold \
-     --from-literal=API_KEY="JDZYc50zDSlsvev8ZzOJXXowHg_iqNJW8fKx49YgcLo" \
+     --from-literal=API_KEY="<API_KEY>" \
      --from-literal=DATABASE_PASSWORD="saudenold123" \
      --dry-run=client -o yaml | kubectl apply -f -
    ```

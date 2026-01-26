@@ -2,14 +2,19 @@ import { StyleSheet, Text, View, TouchableOpacity, ScrollView, TextInput, Image,
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getProfileItem, setProfileItem } from '../../services/profileStorageManager';
 import * as ImagePicker from 'expo-image-picker';
 import { scheduleMedicationAlarms } from '../../services/alarm';
 import { useCustomAlert } from '../../hooks/useCustomAlert';
+import VoiceTextInput from '../../components/VoiceTextInput';
+import { useProfileAuthGuard } from '../../hooks/useProfileAuthGuard';
 
 export default function NewMedication() {
   const router = useRouter();
   const { showAlert, AlertComponent } = useCustomAlert();
+  // Usar sensitive: false para não redirecionar automaticamente
+  // A tela de medicamentos pode funcionar sem perfil ativo (mostra mensagem se necessário)
+  useProfileAuthGuard({ sensitive: false });
   const [name, setName] = useState('');
   const [dosage, setDosage] = useState('');
   const [schedules, setSchedules] = useState([]);
@@ -20,12 +25,39 @@ export default function NewMedication() {
   const [customInterval, setCustomInterval] = useState('');
   const [daysOfWeek, setDaysOfWeek] = useState([0, 1, 2, 3, 4, 5, 6]); // 0 = Domingo, 6 = Sábado
   const [fasting, setFasting] = useState(false);
+  const [repeatMode, setRepeatMode] = useState('daily'); // daily | weekly | interval
+  const [intervalDays, setIntervalDays] = useState('2');
   
   // Estados para submenus colapsáveis
   const [showQuickTimes, setShowQuickTimes] = useState(false);
   const [showIntervalSchedule, setShowIntervalSchedule] = useState(false);
   const [showCustomTime, setShowCustomTime] = useState(false);
   const [showDaysOfWeek, setShowDaysOfWeek] = useState(false);
+
+  const weekDays = [
+    { value: 0, label: 'Dom' },
+    { value: 1, label: 'Seg' },
+    { value: 2, label: 'Ter' },
+    { value: 3, label: 'Qua' },
+    { value: 4, label: 'Qui' },
+    { value: 5, label: 'Sex' },
+    { value: 6, label: 'Sáb' },
+  ];
+
+  const toggleDay = (dayValue) => {
+    if (daysOfWeek.includes(dayValue)) {
+      setDaysOfWeek(daysOfWeek.filter(day => day !== dayValue));
+    } else {
+      setDaysOfWeek([...daysOfWeek, dayValue].sort());
+    }
+  };
+
+  const selectRepeatMode = (mode) => {
+    setRepeatMode(mode);
+    if (mode === 'daily') {
+      setDaysOfWeek([0, 1, 2, 3, 4, 5, 6]);
+    }
+  };
 
   // Gerar todos os horários do dia (de hora em hora)
   const generateQuickTimes = () => {
@@ -288,9 +320,24 @@ export default function NewMedication() {
       showAlert('Erro', 'Por favor, adicione pelo menos um horário', 'error');
       return;
     }
+    
+    if (repeatMode === 'weekly' && daysOfWeek.length === 0) {
+      showAlert('Erro', 'Selecione pelo menos um dia da semana', 'error');
+      return;
+    }
+    
+    let intervalDaysValue = null;
+    if (repeatMode === 'interval') {
+      const parsedInterval = parseInt(intervalDays, 10);
+      if (isNaN(parsedInterval) || parsedInterval < 2 || parsedInterval > 30) {
+        showAlert('Erro', 'Digite um intervalo válido entre 2 e 30 dias', 'error');
+        return;
+      }
+      intervalDaysValue = parsedInterval;
+    }
 
     try {
-      const stored = await AsyncStorage.getItem('medications');
+      const stored = await getProfileItem('medications');
       const medications = stored ? JSON.parse(stored) : [];
       
       const newMedication = {
@@ -301,12 +348,13 @@ export default function NewMedication() {
         notes: notes.trim(),
         image: image,
         active: true,
-        daysOfWeek: daysOfWeek.sort(), // Dias da semana selecionados (0=Domingo, 6=Sábado)
+        daysOfWeek: (repeatMode === 'weekly' ? daysOfWeek : [0, 1, 2, 3, 4, 5, 6]),
+        intervalDays: intervalDaysValue,
         fasting: fasting, // Se deve ser tomado em jejum
       };
 
       medications.push(newMedication);
-      await AsyncStorage.setItem('medications', JSON.stringify(medications));
+      await setProfileItem('medications', JSON.stringify(medications));
       
       // Agendar alarmes para o medicamento
       try {
@@ -359,23 +407,27 @@ export default function NewMedication() {
       <View style={styles.form}>
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Nome do Medicamento *</Text>
-          <TextInput
-            style={styles.input}
+          <VoiceTextInput
             value={name}
             onChangeText={setName}
             placeholder="Ex: Paracetamol"
             placeholderTextColor="#999"
+            containerStyle={styles.inputRow}
+            inputStyle={styles.inputField}
+            helperText="Toque no microfone para ditar."
           />
         </View>
 
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Dosagem</Text>
-          <TextInput
-            style={styles.input}
+          <VoiceTextInput
             value={dosage}
             onChangeText={setDosage}
             placeholder="Ex: 500mg"
             placeholderTextColor="#999"
+            containerStyle={styles.inputRow}
+            inputStyle={styles.inputField}
+            helperText="Toque no microfone para ditar."
           />
         </View>
 
@@ -546,6 +598,95 @@ export default function NewMedication() {
           )}
         </View>
 
+        {/* Dias de uso - Submenu Colapsável */}
+        <View style={styles.inputGroup}>
+          <TouchableOpacity
+            style={styles.collapsibleHeader}
+            onPress={() => setShowDaysOfWeek(!showDaysOfWeek)}
+          >
+            <View style={styles.collapsibleHeaderLeft}>
+              <Ionicons name="calendar-outline" size={28} color="#4ECDC4" />
+              <Text style={styles.collapsibleHeaderText}>Dias de Uso</Text>
+            </View>
+            <Ionicons 
+              name={showDaysOfWeek ? "chevron-up" : "chevron-down"} 
+              size={28} 
+              color="#4ECDC4" 
+            />
+          </TouchableOpacity>
+          {showDaysOfWeek && (
+            <View style={styles.daysOfWeekContainer}>
+              <View style={styles.repeatModeContainer}>
+                <TouchableOpacity
+                  style={[styles.repeatModeButton, repeatMode === 'daily' && styles.repeatModeButtonActive]}
+                  onPress={() => selectRepeatMode('daily')}
+                >
+                  <Text style={[styles.repeatModeText, repeatMode === 'daily' && styles.repeatModeTextActive]}>
+                    Todos os dias
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.repeatModeButton, repeatMode === 'weekly' && styles.repeatModeButtonActive]}
+                  onPress={() => selectRepeatMode('weekly')}
+                >
+                  <Text style={[styles.repeatModeText, repeatMode === 'weekly' && styles.repeatModeTextActive]}>
+                    Dias específicos
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.repeatModeButton, repeatMode === 'interval' && styles.repeatModeButtonActive]}
+                  onPress={() => selectRepeatMode('interval')}
+                >
+                  <Text style={[styles.repeatModeText, repeatMode === 'interval' && styles.repeatModeTextActive]}>
+                    Intervalo (dia sim/dia não)
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              
+              {repeatMode === 'weekly' && (
+                <View style={styles.daysOfWeekGrid}>
+                  {weekDays.map((day) => (
+                    <TouchableOpacity
+                      key={day.value}
+                      style={[
+                        styles.dayButton,
+                        daysOfWeek.includes(day.value) && styles.dayButtonActive
+                      ]}
+                      onPress={() => toggleDay(day.value)}
+                    >
+                      <Text style={[
+                        styles.dayButtonText,
+                        daysOfWeek.includes(day.value) && styles.dayButtonTextActive
+                      ]}>
+                        {day.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+              
+              {repeatMode === 'interval' && (
+                <View style={styles.intervalDaysContainer}>
+                  <Text style={styles.intervalLabel}>Intervalo em dias:</Text>
+                  <View style={styles.customIntervalInputContainer}>
+                    <TextInput
+                      style={styles.customIntervalInput}
+                      value={intervalDays}
+                      onChangeText={(text) => setIntervalDays(text.replace(/\D/g, ''))}
+                      placeholder="2"
+                      placeholderTextColor="#999"
+                      keyboardType="numeric"
+                      maxLength={2}
+                    />
+                    <Text style={styles.customIntervalLabel}>dias</Text>
+                  </View>
+                  <Text style={styles.helperText}>Ex: 2 = dia sim, dia não</Text>
+                </View>
+              )}
+            </View>
+          )}
+        </View>
+
         {schedules.length > 0 && (
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Horários Selecionados</Text>
@@ -581,14 +722,16 @@ export default function NewMedication() {
 
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Observações</Text>
-          <TextInput
-            style={[styles.input, styles.textArea]}
+          <VoiceTextInput
             value={notes}
             onChangeText={setNotes}
             placeholder="Informações adicionais..."
             placeholderTextColor="#999"
+            containerStyle={styles.inputRow}
+            inputStyle={[styles.inputField, styles.textArea]}
             multiline
             numberOfLines={4}
+            helperText="Toque no microfone para ditar."
           />
         </View>
 
@@ -642,6 +785,20 @@ const styles = StyleSheet.create({
     color: '#333',
     borderWidth: 2,
     borderColor: '#e0e0e0',
+  },
+  inputRow: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 20,
+    borderWidth: 2,
+    borderColor: '#e0e0e0',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  inputField: {
+    flex: 1,
+    fontSize: 22,
+    color: '#333',
   },
   textArea: {
     height: 120,
@@ -927,10 +1084,35 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#e0e0e0',
   },
+  repeatModeContainer: {
+    gap: 12,
+  },
+  repeatModeButton: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 2,
+    borderColor: '#4ECDC4',
+    alignItems: 'center',
+  },
+  repeatModeButtonActive: {
+    backgroundColor: '#4ECDC4',
+  },
+  repeatModeText: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#4ECDC4',
+  },
+  repeatModeTextActive: {
+    color: '#fff',
+  },
   daysOfWeekGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 12,
+    marginTop: 12,
+  },
+  intervalDaysContainer: {
     marginTop: 12,
   },
   dayButton: {

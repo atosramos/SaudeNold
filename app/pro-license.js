@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, TextInput, Alert } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useState, useCallback } from 'react';
@@ -19,6 +19,7 @@ import {
   checkPendingPurchases,
   endConnection
 } from '../services/googlePay';
+import VoiceTextInput from '../components/VoiceTextInput';
 
 export default function ProLicense() {
   const router = useRouter();
@@ -293,21 +294,21 @@ export default function ProLicense() {
             <Text style={styles.activationDescription}>
               Insira sua chave de licença (45 caracteres, sem hífens): PRO seguido de 42 caracteres alfanuméricos
             </Text>
-            <TextInput
-              style={styles.licenseInput}
-              placeholder="PROXXXXXXXXXXXX..."
-              placeholderTextColor="#999"
+            <VoiceTextInput
               value={licenseKey}
               onChangeText={(text) => {
-                // Remover espaços e hífens automaticamente
                 const cleaned = text.replace(/\s+/g, '').replace(/-/g, '').toUpperCase();
                 setLicenseKey(cleaned);
               }}
+              placeholder="PROXXXXXXXXXXXX..."
+              placeholderTextColor="#999"
               autoCapitalize="characters"
               autoCorrect={false}
               editable={!loading}
               maxLength={45}
               keyboardType="default"
+              containerStyle={styles.licenseInput}
+              inputStyle={styles.licenseInputText}
             />
             <TouchableOpacity
               style={[styles.activateButton, loading && styles.activateButtonDisabled]}
@@ -537,6 +538,14 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
     marginBottom: 16,
     backgroundColor: '#f9f9f9',
+  },
+  licenseInputText: {
+    flex: 1,
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    textAlign: 'center',
+    letterSpacing: 2,
   },
   activateButton: {
     flexDirection: 'row',

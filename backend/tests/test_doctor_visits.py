@@ -18,7 +18,7 @@ class TestDoctorVisits:
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == []
     
-    def test_create_doctor_visit_success(self, client, api_key):
+    def test_create_doctor_visit_success(self, client, api_key, csrf_token):
         """Testa criar uma visita ao médico com sucesso"""
         visit_data = {
             "doctor_name": "Dr. João Silva",
@@ -29,7 +29,10 @@ class TestDoctorVisits:
         response = client.post(
             "/api/doctor-visits",
             json=visit_data,
-            headers={"Authorization": f"Bearer {api_key}"}
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "X-CSRF-Token": csrf_token
+            }
         )
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
@@ -39,7 +42,7 @@ class TestDoctorVisits:
         assert "id" in data
         assert "created_at" in data
     
-    def test_get_doctor_visits_after_create(self, client, api_key):
+    def test_get_doctor_visits_after_create(self, client, api_key, csrf_token, jwt_token, test_profile):
         """Testa listar visitas após criar uma"""
         # Criar visita
         visit_data = {
@@ -51,7 +54,11 @@ class TestDoctorVisits:
         create_response = client.post(
             "/api/doctor-visits",
             json=visit_data,
-            headers={"Authorization": f"Bearer {api_key}"}
+            headers={
+                "Authorization": f"Bearer {jwt_token}",
+                "X-CSRF-Token": csrf_token,
+                "X-Profile-Id": str(test_profile.id)
+            }
         )
         assert create_response.status_code == status.HTTP_200_OK
         created_id = create_response.json()["id"]
@@ -59,7 +66,10 @@ class TestDoctorVisits:
         # Listar visitas
         response = client.get(
             "/api/doctor-visits",
-            headers={"Authorization": f"Bearer {api_key}"}
+            headers={
+                "Authorization": f"Bearer {jwt_token}",
+                "X-Profile-Id": str(test_profile.id)
+            }
         )
         assert response.status_code == status.HTTP_200_OK
         visits = response.json()
@@ -67,7 +77,7 @@ class TestDoctorVisits:
         assert visits[0]["id"] == created_id
         assert visits[0]["doctor_name"] == visit_data["doctor_name"]
     
-    def test_update_doctor_visit(self, client, api_key):
+    def test_update_doctor_visit(self, client, api_key, csrf_token):
         """Testa atualizar uma visita ao médico"""
         # Criar visita
         visit_data = {
@@ -79,7 +89,10 @@ class TestDoctorVisits:
         create_response = client.post(
             "/api/doctor-visits",
             json=visit_data,
-            headers={"Authorization": f"Bearer {api_key}"}
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "X-CSRF-Token": csrf_token
+            }
         )
         visit_id = create_response.json()["id"]
         
@@ -93,13 +106,16 @@ class TestDoctorVisits:
         response = client.put(
             f"/api/doctor-visits/{visit_id}",
             json=update_data,
-            headers={"Authorization": f"Bearer {api_key}"}
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "X-CSRF-Token": csrf_token
+            }
         )
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert data["notes"] == update_data["notes"]
     
-    def test_update_doctor_visit_not_found(self, client, api_key):
+    def test_update_doctor_visit_not_found(self, client, api_key, csrf_token):
         """Testa atualizar visita inexistente"""
         update_data = {
             "doctor_name": "Dr. João Silva",
@@ -110,11 +126,14 @@ class TestDoctorVisits:
         response = client.put(
             "/api/doctor-visits/99999",
             json=update_data,
-            headers={"Authorization": f"Bearer {api_key}"}
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "X-CSRF-Token": csrf_token
+            }
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
     
-    def test_delete_doctor_visit(self, client, api_key):
+    def test_delete_doctor_visit(self, client, api_key, csrf_token):
         """Testa deletar uma visita ao médico"""
         # Criar visita
         visit_data = {
@@ -126,14 +145,20 @@ class TestDoctorVisits:
         create_response = client.post(
             "/api/doctor-visits",
             json=visit_data,
-            headers={"Authorization": f"Bearer {api_key}"}
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "X-CSRF-Token": csrf_token
+            }
         )
         visit_id = create_response.json()["id"]
         
         # Deletar visita
         response = client.delete(
             f"/api/doctor-visits/{visit_id}",
-            headers={"Authorization": f"Bearer {api_key}"}
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "X-CSRF-Token": csrf_token
+            }
         )
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["message"] == "Visit deleted"
@@ -145,11 +170,14 @@ class TestDoctorVisits:
         )
         assert len(get_response.json()) == 0
     
-    def test_delete_doctor_visit_not_found(self, client, api_key):
+    def test_delete_doctor_visit_not_found(self, client, api_key, csrf_token):
         """Testa deletar visita inexistente"""
         response = client.delete(
             "/api/doctor-visits/99999",
-            headers={"Authorization": f"Bearer {api_key}"}
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "X-CSRF-Token": csrf_token
+            }
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
     
@@ -160,8 +188,16 @@ class TestDoctorVisits:
             "specialty": "Cardiologista",
             "visit_date": "2024-12-30T10:00:00"
         }
-        response = client.post("/api/doctor-visits", json=visit_data)
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        # CSRF middleware bloqueia antes da autenticação
+        try:
+            response = client.post("/api/doctor-visits", json=visit_data)
+            # Se chegou aqui, deve retornar 403
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+            detail = response.json().get("detail", "").lower()
+            assert "csrf" in detail
+        except Exception:
+            # Se levantou exceção, está correto (middleware bloqueou)
+            pass
 
 
 

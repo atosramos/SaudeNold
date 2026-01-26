@@ -2,7 +2,7 @@ import { StyleSheet, Text, View, TouchableOpacity, ScrollView, ActivityIndicator
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useState, useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getProfileItem } from '../../services/profileStorageManager';
 import { useCustomAlert } from '../../hooks/useCustomAlert';
 import LineChart from '../../components/LineChart';
 
@@ -21,7 +21,7 @@ export default function ParameterTimeline() {
     setLoading(true);
     try {
       // Buscar todos os exames localmente
-      const stored = await AsyncStorage.getItem('medicalExams');
+      const stored = await getProfileItem('medicalExams');
       if (!stored) {
         setTimelineData(null);
         return;
