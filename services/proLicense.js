@@ -1,8 +1,8 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { trackLicenseActivation, trackLicenseValidation, trackError } from './analytics';
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import api from './api';
+import { getProfileItem, setProfileItem, removeProfileItem } from './profileStorageManager';
 
 const LICENSE_STORAGE_KEY = 'pro_license';
 const LICENSE_INFO_KEY = 'pro_license_info';
@@ -229,7 +229,7 @@ export const activateLicense = async (key) => {
       expirationDate: validation.expirationDate,
     };
     
-    await AsyncStorage.setItem(LICENSE_STORAGE_KEY, JSON.stringify(licenseData));
+    await setProfileItem(LICENSE_STORAGE_KEY, JSON.stringify(licenseData));
     
     // Salvar informações para exibição
     const licenseInfo = {
@@ -240,7 +240,7 @@ export const activateLicense = async (key) => {
       isActive: true,
     };
     
-    await AsyncStorage.setItem(LICENSE_INFO_KEY, JSON.stringify(licenseInfo));
+    await setProfileItem(LICENSE_INFO_KEY, JSON.stringify(licenseInfo));
     
     // Rastrear ativacao
     const deviceId = await getDeviceId();
@@ -266,7 +266,7 @@ export const activateLicense = async (key) => {
  */
 export const hasActiveLicense = async () => {
   try {
-    const licenseDataStr = await AsyncStorage.getItem(LICENSE_STORAGE_KEY);
+    const licenseDataStr = await getProfileItem(LICENSE_STORAGE_KEY);
     if (!licenseDataStr) {
       return false;
     }
@@ -278,8 +278,8 @@ export const hasActiveLicense = async () => {
     // Verificar se não expirou
     if (now > expirationDate) {
       // Licença expirada, remover
-      await AsyncStorage.removeItem(LICENSE_STORAGE_KEY);
-      await AsyncStorage.removeItem(LICENSE_INFO_KEY);
+      await removeProfileItem(LICENSE_STORAGE_KEY);
+      await removeProfileItem(LICENSE_INFO_KEY);
       return false;
     }
     
@@ -300,7 +300,7 @@ export const getLicenseInfo = async () => {
       return null;
     }
     
-    const licenseInfoStr = await AsyncStorage.getItem(LICENSE_INFO_KEY);
+    const licenseInfoStr = await getProfileItem(LICENSE_INFO_KEY);
     if (!licenseInfoStr) {
       return null;
     }
@@ -328,8 +328,8 @@ export const getLicenseInfo = async () => {
  */
 export const deactivateLicense = async () => {
   try {
-    await AsyncStorage.removeItem(LICENSE_STORAGE_KEY);
-    await AsyncStorage.removeItem(LICENSE_INFO_KEY);
+    await removeProfileItem(LICENSE_STORAGE_KEY);
+    await removeProfileItem(LICENSE_INFO_KEY);
     return { success: true };
   } catch (error) {
     console.error('Erro ao desativar licença:', error);

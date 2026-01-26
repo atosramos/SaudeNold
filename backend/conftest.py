@@ -106,3 +106,79 @@ def client(db_session, monkeypatch):
 def api_key():
     """Retorna a API key para uso nos testes"""
     return "test-api-key-123"
+
+
+@pytest.fixture
+def csrf_token():
+    """Obtém um token CSRF para uso nos testes"""
+    from services.csrf_service import generate_and_store_csrf_token
+    # Gerar token CSRF diretamente (sem precisar de autenticação)
+    # Em testes, podemos mockar ou gerar diretamente
+    token = generate_and_store_csrf_token()
+    if not token:
+        # Fallback: gerar token manualmente para testes
+        import secrets
+        token = secrets.token_urlsafe(32)
+        from services.csrf_service import store_csrf_token
+        store_csrf_token(token)
+    return token
+
+
+@pytest.fixture
+def test_user(db_session):
+    """Cria um usuário de teste e retorna"""
+    from auth import hash_password
+    from models import User
+    
+    user = User(
+        email="test@example.com",
+        password_hash=hash_password("Test1234!"),
+        is_active=True,
+        email_verified=True
+    )
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    return user
+
+
+@pytest.fixture
+def jwt_token(test_user):
+    """Cria um token JWT para o usuário de teste"""
+    from auth import create_access_token
+    
+    return create_access_token({
+        "sub": str(test_user.id),
+        "email": test_user.email
+    })
+
+
+@pytest.fixture
+def test_profile(db_session, test_user):
+    """Cria um perfil de teste e retorna"""
+    from models import Family, FamilyProfile
+    
+    # Criar família para o usuário
+    family = Family(
+        name="Test Family",
+        admin_user_id=test_user.id
+    )
+    db_session.add(family)
+    db_session.commit()
+    db_session.refresh(family)
+    
+    # Associar usuário à família
+    test_user.family_id = family.id
+    db_session.commit()
+    
+    # Criar perfil
+    profile = FamilyProfile(
+        family_id=family.id,
+        name="Test Profile",
+        account_type="adult_member"
+    )
+    db_session.add(profile)
+    db_session.commit()
+    db_session.refresh(profile)
+    
+    return profile

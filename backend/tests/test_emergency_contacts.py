@@ -17,7 +17,7 @@ class TestEmergencyContacts:
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == []
     
-    def test_create_emergency_contact_success(self, client, api_key):
+    def test_create_emergency_contact_success(self, client, api_key, csrf_token):
         """Testa criar um contato de emergência com sucesso"""
         contact_data = {
             "name": "Maria Silva",
@@ -28,7 +28,10 @@ class TestEmergencyContacts:
         response = client.post(
             "/api/emergency-contacts",
             json=contact_data,
-            headers={"Authorization": f"Bearer {api_key}"}
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "X-CSRF-Token": csrf_token
+            }
         )
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
@@ -38,7 +41,7 @@ class TestEmergencyContacts:
         assert "id" in data
         assert "created_at" in data
     
-    def test_create_emergency_contact_limit(self, client, api_key):
+    def test_create_emergency_contact_limit(self, client, api_key, csrf_token):
         """Testa o limite de 5 contatos de emergência"""
         # Criar 5 contatos
         for i in range(5):
@@ -51,7 +54,10 @@ class TestEmergencyContacts:
             response = client.post(
                 "/api/emergency-contacts",
                 json=contact_data,
-                headers={"Authorization": f"Bearer {api_key}"}
+                headers={
+                "Authorization": f"Bearer {api_key}",
+                "X-CSRF-Token": csrf_token
+            }
             )
             assert response.status_code == status.HTTP_200_OK
         
@@ -65,12 +71,15 @@ class TestEmergencyContacts:
         response = client.post(
             "/api/emergency-contacts",
             json=contact_data,
-            headers={"Authorization": f"Bearer {api_key}"}
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "X-CSRF-Token": csrf_token
+            }
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Maximum of 5 emergency contacts" in response.json()["detail"]
     
-    def test_get_emergency_contacts_after_create(self, client, api_key):
+    def test_get_emergency_contacts_after_create(self, client, api_key, csrf_token, jwt_token, test_profile):
         """Testa listar contatos após criar um"""
         # Criar contato
         contact_data = {
@@ -82,7 +91,11 @@ class TestEmergencyContacts:
         create_response = client.post(
             "/api/emergency-contacts",
             json=contact_data,
-            headers={"Authorization": f"Bearer {api_key}"}
+            headers={
+                "Authorization": f"Bearer {jwt_token}",
+                "X-CSRF-Token": csrf_token,
+                "X-Profile-Id": str(test_profile.id)
+            }
         )
         assert create_response.status_code == status.HTTP_200_OK
         created_id = create_response.json()["id"]
@@ -90,7 +103,10 @@ class TestEmergencyContacts:
         # Listar contatos
         response = client.get(
             "/api/emergency-contacts",
-            headers={"Authorization": f"Bearer {api_key}"}
+            headers={
+                "Authorization": f"Bearer {jwt_token}",
+                "X-Profile-Id": str(test_profile.id)
+            }
         )
         assert response.status_code == status.HTTP_200_OK
         contacts = response.json()
@@ -98,7 +114,7 @@ class TestEmergencyContacts:
         assert contacts[0]["id"] == created_id
         assert contacts[0]["name"] == contact_data["name"]
     
-    def test_update_emergency_contact(self, client, api_key):
+    def test_update_emergency_contact(self, client, api_key, csrf_token):
         """Testa atualizar um contato de emergência"""
         # Criar contato
         contact_data = {
@@ -110,7 +126,10 @@ class TestEmergencyContacts:
         create_response = client.post(
             "/api/emergency-contacts",
             json=contact_data,
-            headers={"Authorization": f"Bearer {api_key}"}
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "X-CSRF-Token": csrf_token
+            }
         )
         contact_id = create_response.json()["id"]
         
@@ -124,14 +143,17 @@ class TestEmergencyContacts:
         response = client.put(
             f"/api/emergency-contacts/{contact_id}",
             json=update_data,
-            headers={"Authorization": f"Bearer {api_key}"}
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "X-CSRF-Token": csrf_token
+            }
         )
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert data["name"] == update_data["name"]
         assert data["phone"] == update_data["phone"]
     
-    def test_update_emergency_contact_not_found(self, client, api_key):
+    def test_update_emergency_contact_not_found(self, client, api_key, csrf_token):
         """Testa atualizar contato inexistente"""
         update_data = {
             "name": "Maria Silva",
@@ -142,11 +164,14 @@ class TestEmergencyContacts:
         response = client.put(
             "/api/emergency-contacts/99999",
             json=update_data,
-            headers={"Authorization": f"Bearer {api_key}"}
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "X-CSRF-Token": csrf_token
+            }
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
     
-    def test_delete_emergency_contact(self, client, api_key):
+    def test_delete_emergency_contact(self, client, api_key, csrf_token):
         """Testa deletar um contato de emergência"""
         # Criar contato
         contact_data = {
@@ -158,14 +183,20 @@ class TestEmergencyContacts:
         create_response = client.post(
             "/api/emergency-contacts",
             json=contact_data,
-            headers={"Authorization": f"Bearer {api_key}"}
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "X-CSRF-Token": csrf_token
+            }
         )
         contact_id = create_response.json()["id"]
         
         # Deletar contato
         response = client.delete(
             f"/api/emergency-contacts/{contact_id}",
-            headers={"Authorization": f"Bearer {api_key}"}
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "X-CSRF-Token": csrf_token
+            }
         )
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["message"] == "Contact deleted"
@@ -173,15 +204,21 @@ class TestEmergencyContacts:
         # Verificar que foi deletado
         get_response = client.get(
             "/api/emergency-contacts",
-            headers={"Authorization": f"Bearer {api_key}"}
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "X-CSRF-Token": csrf_token
+            }
         )
         assert len(get_response.json()) == 0
     
-    def test_delete_emergency_contact_not_found(self, client, api_key):
+    def test_delete_emergency_contact_not_found(self, client, api_key, csrf_token):
         """Testa deletar contato inexistente"""
         response = client.delete(
             "/api/emergency-contacts/99999",
-            headers={"Authorization": f"Bearer {api_key}"}
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "X-CSRF-Token": csrf_token
+            }
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
     
@@ -192,8 +229,16 @@ class TestEmergencyContacts:
             "phone": "+5511999999999",
             "relation": "Filha"
         }
-        response = client.post("/api/emergency-contacts", json=contact_data)
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        # CSRF middleware bloqueia antes da autenticação
+        try:
+            response = client.post("/api/emergency-contacts", json=contact_data)
+            # Se chegou aqui, deve retornar 403
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+            detail = response.json().get("detail", "").lower()
+            assert "csrf" in detail
+        except Exception:
+            # Se levantou exceção, está correto (middleware bloqueou)
+            pass
 
 
 

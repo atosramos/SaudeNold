@@ -1,9 +1,10 @@
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, TextInput, Alert, Image, KeyboardAvoidingView, Platform } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Alert, Image, KeyboardAvoidingView, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getProfileItem, setProfileItem } from '../../services/profileStorageManager';
 import * as ImagePicker from 'expo-image-picker';
+import VoiceTextInput from '../../components/VoiceTextInput';
 
 const relations = ['Filha', 'Filho', 'Cônjuge', 'Neto(a)', 'Amigo(a)', 'Cuidador(a)', 'Outro'];
 
@@ -90,7 +91,7 @@ export default function NewEmergencyContact() {
     }
 
     try {
-      const stored = await AsyncStorage.getItem('emergencyContacts');
+      const stored = await getProfileItem('emergencyContacts');
       const contacts = stored ? JSON.parse(stored) : [];
       
       if (contacts.length >= 5) {
@@ -107,7 +108,7 @@ export default function NewEmergencyContact() {
       };
 
       contacts.push(newContact);
-      await AsyncStorage.setItem('emergencyContacts', JSON.stringify(contacts));
+      await setProfileItem('emergencyContacts', JSON.stringify(contacts));
       
       Alert.alert('Sucesso', 'Contato cadastrado com sucesso!', [
         { text: 'OK', onPress: () => router.back() }
@@ -159,24 +160,26 @@ export default function NewEmergencyContact() {
 
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Nome *</Text>
-          <TextInput
-            style={styles.input}
+          <VoiceTextInput
             value={name}
             onChangeText={setName}
             placeholder="Nome do contato"
             placeholderTextColor="#999"
+            containerStyle={styles.input}
+            inputStyle={styles.inputField}
           />
         </View>
 
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Telefone *</Text>
-          <TextInput
-            style={styles.input}
+          <VoiceTextInput
             value={phone}
             onChangeText={setPhone}
             placeholder="(00) 00000-0000"
             placeholderTextColor="#999"
             keyboardType="phone-pad"
+            containerStyle={styles.input}
+            inputStyle={styles.inputField}
           />
         </View>
 
@@ -211,12 +214,13 @@ export default function NewEmergencyContact() {
             <View style={styles.customRelationForm}>
               <Text style={styles.customRelationLabel}>Digite o parentesco:</Text>
               <View style={styles.customRelationInputContainer}>
-                <TextInput
-                  style={styles.customRelationInput}
+                <VoiceTextInput
                   value={customRelation}
                   onChangeText={setCustomRelation}
                   placeholder="Ex: Sobrinho, Vizinho"
                   placeholderTextColor="#999"
+                  containerStyle={styles.customRelationInput}
+                  inputStyle={styles.inputField}
                 />
                 <TouchableOpacity
                   style={styles.addCustomRelationButton}
@@ -337,6 +341,11 @@ const styles = StyleSheet.create({
     color: '#333',
     borderWidth: 2,
     borderColor: '#e0e0e0',
+  },
+  inputField: {
+    flex: 1,
+    fontSize: 22,
+    color: '#333',
   },
   relationsContainer: {
     flexDirection: 'row',

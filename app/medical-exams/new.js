@@ -1,8 +1,8 @@
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Image, ActivityIndicator, Alert, TextInput, Modal, Platform, KeyboardAvoidingView } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Image, ActivityIndicator, Alert, Modal, Platform, KeyboardAvoidingView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState, useRef } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getProfileItem, setProfileItem } from '../../services/profileStorageManager';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { imageToBase64, performOCR, validateExamText } from '../../services/ocr';
@@ -13,10 +13,12 @@ import { useCustomAlert } from '../../hooks/useCustomAlert';
 import { isProFeatureAvailable } from '../../services/proLicense';
 import PdfViewer from '../../components/PdfViewer';
 import { trackProFeatureUsage } from '../../services/analytics';
+import { useProfileAuthGuard } from '../../hooks/useProfileAuthGuard';
 
 export default function NewMedicalExam() {
   const router = useRouter();
   const { showAlert, AlertComponent } = useCustomAlert();
+  useProfileAuthGuard({ sensitive: true });
   const [file, setFile] = useState(null);
   const [fileType, setFileType] = useState('image'); // 'image' ou 'pdf'
   const [uploading, setUploading] = useState(false);
@@ -580,10 +582,10 @@ export default function NewMedicalExam() {
         };
 
         // Salvar localmente
-        const stored = await AsyncStorage.getItem('medicalExams');
+        const stored = await getProfileItem('medicalExams');
         const exams = stored ? JSON.parse(stored) : [];
         exams.push(exam);
-        await AsyncStorage.setItem('medicalExams', JSON.stringify(exams));
+        await setProfileItem('medicalExams', JSON.stringify(exams));
 
         showAlert('Sucesso', 'Exame salvo localmente!', 'success');
         router.back();
@@ -606,10 +608,10 @@ export default function NewMedicalExam() {
       };
 
       // Salvar localmente
-        const stored = await AsyncStorage.getItem('medicalExams');
+      const stored = await getProfileItem('medicalExams');
         const exams = stored ? JSON.parse(stored) : [];
         exams.push(exam);
-        await AsyncStorage.setItem('medicalExams', JSON.stringify(exams));
+      await setProfileItem('medicalExams', JSON.stringify(exams));
 
       const paramsCount = extractedData.parameters?.length || 0;
       

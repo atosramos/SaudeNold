@@ -2,14 +2,41 @@ import { StyleSheet, Text, View, TouchableOpacity, ScrollView, FlatList, Image }
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useState, useCallback } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getProfileItem, setProfileItem } from '../services/profileStorageManager';
 import { cancelMedicationAlarms } from '../services/alarm';
 import { useCustomModal } from '../hooks/useCustomModal';
+import { useTheme } from '../contexts/ThemeContext';
+import { useProfileChange } from '../hooks/useProfileChange';
 
 export default function Medications() {
   const router = useRouter();
+  const { colors } = useTheme();
   const { showModal, ModalComponent } = useCustomModal();
   const [medications, setMedications] = useState([]);
+
+  const loadMedications = async () => {
+    try {
+      // #region agent log
+      console.log('[Medications] loadMedications chamado');
+      // #endregion
+      const stored = await getProfileItem('medications');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        // #region agent log
+        console.log('[Medications] Medicamentos carregados:', parsed.length);
+        // #endregion
+        setMedications(parsed);
+      } else {
+        // #region agent log
+        console.log('[Medications] Nenhum medicamento encontrado');
+        // #endregion
+        setMedications([]);
+      }
+    } catch (error) {
+      console.error('Erro ao carregar medicamentos:', error);
+      setMedications([]);
+    }
+  };
 
   useFocusEffect(
     useCallback(() => {
@@ -17,16 +44,14 @@ export default function Medications() {
     }, [])
   );
 
-  const loadMedications = async () => {
-    try {
-      const stored = await AsyncStorage.getItem('medications');
-      if (stored) {
-        setMedications(JSON.parse(stored));
-      }
-    } catch (error) {
-      console.error('Erro ao carregar medicamentos:', error);
-    }
-  };
+  // CRÍTICO: Recarregar quando o perfil muda
+  useProfileChange(() => {
+    // #region agent log
+    console.log('[Medications] Perfil mudou - recarregando medicamentos');
+    // #endregion
+    loadMedications();
+  });
+
 
   const deleteMedication = async (id) => {
     showModal(
@@ -44,7 +69,7 @@ export default function Medications() {
               await cancelMedicationAlarms(id);
               
               const updated = medications.filter(m => m.id !== id);
-              await AsyncStorage.setItem('medications', JSON.stringify(updated));
+              await setProfileItem('medications', JSON.stringify(updated));
               setMedications(updated);
             } catch (error) {
               console.error('Erro ao excluir medicamento:', error);
@@ -89,6 +114,7 @@ export default function Medications() {
       <TouchableOpacity 
         style={[
           styles.medicationCard,
+          { backgroundColor: colors.surface, borderLeftColor: colors.primary },
           isDue && styles.medicationCardDue
         ]}
         onPress={() => router.push({
@@ -101,8 +127,8 @@ export default function Medications() {
       )}
       <View style={styles.medicationHeader}>
         <View style={styles.medicationHeaderText}>
-          <Text style={styles.medicationName}>{item.name}</Text>
-          {item.dosage && <Text style={styles.medicationDosage}>{item.dosage}</Text>}
+          <Text style={[styles.medicationName, { color: colors.text }]}>{item.name}</Text>
+          {item.dosage && <Text style={[styles.medicationDosage, { color: colors.textSecondary }]}>{item.dosage}</Text>}
         </View>
         <View style={styles.medicationActions}>
           <TouchableOpacity
@@ -115,7 +141,7 @@ export default function Medications() {
               });
             }}
           >
-            <Ionicons name="create-outline" size={24} color="#4ECDC4" />
+            <Ionicons name="create-outline" size={24} color={colors.primary} />
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.deleteButton}
@@ -124,44 +150,44 @@ export default function Medications() {
               deleteMedication(item.id);
             }}
           >
-            <Ionicons name="trash-outline" size={24} color="#FF6B6B" />
+            <Ionicons name="trash-outline" size={24} color={colors.error} />
           </TouchableOpacity>
         </View>
       </View>
       <View style={styles.medicationSchedules}>
-        <Text style={styles.schedulesLabel}>Horários:</Text>
+        <Text style={[styles.schedulesLabel, { color: colors.text }]}>Horários:</Text>
         <View style={styles.schedulesContainer}>
           {item.schedules && item.schedules.map((schedule, index) => (
-            <View key={index} style={styles.scheduleBadge}>
+            <View key={index} style={[styles.scheduleBadge, { backgroundColor: colors.primary }]}>
               <Text style={styles.scheduleTime}>{schedule}</Text>
             </View>
           ))}
         </View>
       </View>
       {item.notes && (
-        <Text style={styles.medicationNotes} numberOfLines={2}>{item.notes}</Text>
+        <Text style={[styles.medicationNotes, { color: colors.textSecondary }]} numberOfLines={2}>{item.notes}</Text>
       )}
     </TouchableOpacity>
     );
   };
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
+    <ScrollView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { backgroundColor: colors.surface }]}>
         <TouchableOpacity 
           style={styles.backButton}
           onPress={() => router.back()}
         >
-          <Ionicons name="arrow-back" size={32} color="#4ECDC4" />
+          <Ionicons name="arrow-back" size={32} color={colors.primary} />
         </TouchableOpacity>
-        <Text style={styles.title}>Meus Medicamentos</Text>
+        <Text style={[styles.title, { color: colors.text }]}>Meus Medicamentos</Text>
       </View>
 
       {medications.length === 0 ? (
         <View style={styles.emptyContainer}>
-          <Ionicons name="medical-outline" size={80} color="#ccc" />
-          <Text style={styles.emptyText}>Nenhum medicamento cadastrado</Text>
-          <Text style={styles.emptySubtext}>Toque no botão + para adicionar</Text>
+          <Ionicons name="medical-outline" size={80} color={colors.textTertiary} />
+          <Text style={[styles.emptyText, { color: colors.textSecondary }]}>Nenhum medicamento cadastrado</Text>
+          <Text style={[styles.emptySubtext, { color: colors.textSecondary }]}>Toque no botão + para adicionar</Text>
         </View>
       ) : (
         <FlatList
@@ -174,7 +200,7 @@ export default function Medications() {
       )}
 
       <TouchableOpacity 
-        style={styles.addButton}
+        style={[styles.addButton, { backgroundColor: colors.primary }]}
         onPress={() => router.push('/medications/new')}
       >
         <Ionicons name="add" size={40} color="#fff" />
@@ -188,13 +214,11 @@ export default function Medications() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 24,
-    backgroundColor: '#fff',
     marginBottom: 16,
   },
   backButton: {
@@ -203,21 +227,18 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 32,
     fontWeight: 'bold',
-    color: '#333',
   },
   list: {
     padding: 24,
   },
   medicationCard: {
-    backgroundColor: '#fff',
     borderRadius: 16,
     padding: 24,
     marginBottom: 16,
     borderLeftWidth: 6,
-    borderLeftColor: '#4ECDC4',
   },
   medicationCardDue: {
-    backgroundColor: '#FFF9C4', // Amarelo claro
+    backgroundColor: '#FFF9C4', // Amarelo claro (mantido para destaque)
     borderLeftColor: '#FFD700', // Amarelo dourado
     borderWidth: 2,
     borderColor: '#FFD700',
@@ -251,12 +272,10 @@ const styles = StyleSheet.create({
   medicationName: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#333',
     marginBottom: 8,
   },
   medicationDosage: {
     fontSize: 24,
-    color: '#666',
   },
   medicationSchedules: {
     marginBottom: 16,
@@ -264,7 +283,6 @@ const styles = StyleSheet.create({
   schedulesLabel: {
     fontSize: 22,
     fontWeight: 'bold',
-    color: '#333',
     marginBottom: 8,
   },
   schedulesContainer: {
@@ -274,7 +292,6 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   scheduleBadge: {
-    backgroundColor: '#4ECDC4',
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 8,
@@ -286,7 +303,6 @@ const styles = StyleSheet.create({
   },
   medicationNotes: {
     fontSize: 20,
-    color: '#666',
     fontStyle: 'italic',
   },
   emptyContainer: {
@@ -299,18 +315,15 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#999',
     marginTop: 24,
     textAlign: 'center',
   },
   emptySubtext: {
     fontSize: 22,
-    color: '#999',
     marginTop: 12,
     textAlign: 'center',
   },
   addButton: {
-    backgroundColor: '#4ECDC4',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',

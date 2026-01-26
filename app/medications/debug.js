@@ -3,6 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useState, useCallback } from 'react';
 import { getDebugLogs, clearDebugLogs } from '../../services/alarmDebug';
+import { testNotification } from '../../services/alarm';
 import { Alert } from 'react-native';
 
 export default function AlarmDebugScreen() {
@@ -22,6 +23,16 @@ export default function AlarmDebugScreen() {
     } catch (error) {
       console.error('Erro ao carregar logs:', error);
     }
+  };
+
+  const handleTestNotification = async () => {
+    const result = await testNotification();
+    if (result.success) {
+      Alert.alert('Teste agendado', 'Uma notificação deve aparecer em 10 segundos.');
+    } else {
+      Alert.alert('Falha no teste', result.error || 'Nao foi possivel testar');
+    }
+    loadLogs();
   };
 
   const handleClearLogs = () => {
@@ -86,12 +97,26 @@ export default function AlarmDebugScreen() {
           <Ionicons name="arrow-back" size={32} color="#4ECDC4" />
         </TouchableOpacity>
         <Text style={styles.title}>Logs de Debug - Alarmes</Text>
-        <TouchableOpacity 
-          style={styles.clearButton}
-          onPress={handleClearLogs}
-        >
-          <Ionicons name="trash-outline" size={24} color="#FF6B6B" />
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity 
+            style={styles.iconButton}
+            onPress={handleTestNotification}
+          >
+            <Ionicons name="play-circle-outline" size={24} color="#4ECDC4" />
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.iconButton}
+            onPress={loadLogs}
+          >
+            <Ionicons name="refresh-outline" size={24} color="#4ECDC4" />
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.iconButton}
+            onPress={handleClearLogs}
+          >
+            <Ionicons name="trash-outline" size={24} color="#FF6B6B" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {logs.length === 0 ? (
@@ -138,7 +163,12 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#333',
   },
-  clearButton: {
+  headerActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginLeft: 12,
+  },
+  iconButton: {
     padding: 8,
   },
   list: {

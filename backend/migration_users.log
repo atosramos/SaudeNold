@@ -1,0 +1,45 @@
+2026-01-26 17:13:54,724 - INFO - Iniciando migração de usuários para famílias...
+2026-01-26 17:13:54,724 - INFO - Modo DRY RUN ativado
+2026-01-26 17:13:54,805 - INFO - Total de usuários no banco: 13
+2026-01-26 17:13:54,808 - INFO - Usuários sem família: 4
+2026-01-26 17:13:54,809 - INFO - === MODO DRY RUN - Nenhuma alteração será feita ===
+2026-01-26 17:13:54,809 - INFO - [DRY RUN] Criaria família 'Família de Smoke1768485774' para usuário 1 (smoke1768485774@test.com)
+2026-01-26 17:13:54,809 - INFO - [DRY RUN] Criaria família 'Família de Smoke1768485928' para usuário 2 (smoke1768485928@test.com)
+2026-01-26 17:13:54,812 - INFO - [DRY RUN] Criaria família 'Família de Atosramos' para usuário 3 (atosramos@gmeil.com)
+2026-01-26 17:13:54,812 - INFO - [DRY RUN] Criaria família 'Família de Atosramos' para usuário 4 (atosramos@atosramos@gmail.comgmeil.com)
+2026-01-26 17:13:54,812 - INFO - === DRY RUN concluído - Nenhuma alteração foi feita ===
+2026-01-26 17:13:54,813 - INFO - Migração concluída com sucesso!
+2026-01-26 17:14:56,719 - INFO - Iniciando migração de usuários para famílias...
+2026-01-26 17:14:56,719 - INFO - Modo DRY RUN ativado
+2026-01-26 17:14:56,799 - INFO - Total de usuários no banco: 13
+2026-01-26 17:14:56,807 - INFO - Usuários sem família: 4
+2026-01-26 17:14:56,807 - INFO - === MODO DRY RUN - Nenhuma alteração será feita ===
+2026-01-26 17:14:56,807 - INFO - [DRY RUN] Criaria família 'Família de Smoke1768485774' para usuário 1 (smoke1768485774@test.com)
+2026-01-26 17:14:56,807 - INFO - [DRY RUN] Criaria família 'Família de Smoke1768485928' para usuário 2 (smoke1768485928@test.com)
+2026-01-26 17:14:56,807 - INFO - [DRY RUN] Criaria família 'Família de Atosramos' para usuário 3 (atosramos@gmeil.com)
+2026-01-26 17:14:56,809 - INFO - [DRY RUN] Criaria família 'Família de Atosramos' para usuário 4 (atosramos@atosramos@gmail.comgmeil.com)
+2026-01-26 17:14:56,809 - INFO - === DRY RUN concluído - Nenhuma alteração foi feita ===
+2026-01-26 17:14:56,809 - INFO - Migração concluída com sucesso!
+2026-01-26 17:15:06,888 - INFO - Iniciando migração de usuários para famílias...
+2026-01-26 17:15:06,969 - INFO - Total de usuários no banco: 13
+2026-01-26 17:15:06,969 - INFO - Usuários sem família: 4
+2026-01-26 17:15:06,979 - INFO - Criada família ID 10: 'Família de Smoke1768485774' para usuário 1
+2026-01-26 17:15:06,979 - INFO - Criado perfil ID 12: 'Smoke1768485774' (family_admin) na família 10
+2026-01-26 17:15:06,979 - INFO - Usuário 1 atualizado: family_id=10, account_type=family_admin
+2026-01-26 17:15:06,989 - INFO - Criada família ID 11: 'Família de Smoke1768485928' para usuário 2
+2026-01-26 17:15:06,990 - INFO - Criado perfil ID 13: 'Smoke1768485928' (family_admin) na família 11
+2026-01-26 17:15:06,990 - INFO - Usuário 2 atualizado: family_id=11, account_type=family_admin
+2026-01-26 17:15:06,991 - INFO - Criada família ID 12: 'Família de Atosramos' para usuário 3
+2026-01-26 17:15:06,991 - INFO - Criado perfil ID 14: 'Atosramos' (family_admin) na família 12
+2026-01-26 17:15:06,991 - INFO - Usuário 3 atualizado: family_id=12, account_type=family_admin
+2026-01-26 17:15:06,994 - INFO - Criada família ID 13: 'Família de Atosramos' para usuário 4
+2026-01-26 17:15:06,995 - INFO - Criado perfil ID 15: 'Atosramos' (family_admin) na família 13
+2026-01-26 17:15:06,995 - INFO - Usuário 4 atualizado: family_id=13, account_type=family_admin
+2026-01-26 17:15:06,995 - INFO - Migração concluída com sucesso!
+2026-01-26 17:15:06,995 - INFO - Migração concluída com sucesso!
+2026-01-26 17:15:59,399 - INFO - Iniciando migração de usuários para famílias...
+2026-01-26 17:15:59,399 - INFO - Modo DRY RUN ativado
+2026-01-26 17:15:59,476 - INFO - Total de usuários no banco: 13
+2026-01-26 17:15:59,479 - INFO - Usuários sem família: 0
+2026-01-26 17:15:59,479 - INFO - Nenhum usuário precisa de migração.
+2026-01-26 17:15:59,479 - INFO - Migração concluída com sucesso!

@@ -66,7 +66,7 @@ O `Test-NetConnection` testa do servidor para o celular, mas o que importa é o 
      "expo": {
        "extra": {
          "apiUrl": "http://192.168.15.17:8000",
-         "apiKey": "JDZYc50zDSlsvev8ZzOJXXowHg_iqNJW8fKx49YgcLo"
+         "apiKey": "<API_KEY>"
        }
      }
    }

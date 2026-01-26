@@ -2,7 +2,7 @@ import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Image } from 'rea
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { useState, useCallback } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getProfileItem } from '../../services/profileStorageManager';
 
 export default function MedicationDetails() {
   const router = useRouter();
@@ -20,7 +20,7 @@ export default function MedicationDetails() {
       if (medicationParam) {
         setMedication(JSON.parse(medicationParam));
       } else {
-        const stored = await AsyncStorage.getItem('medications');
+        const stored = await getProfileItem('medications');
         if (stored) {
           const medications = JSON.parse(stored);
           const found = medications.find(m => m.id === id);

@@ -2,16 +2,43 @@ import { StyleSheet, Text, View, TouchableOpacity, ScrollView, FlatList, Image, 
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useState, useCallback } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getProfileItem, setProfileItem } from '../services/profileStorageManager';
 import * as Linking from 'expo-linking';
 import { useCustomModal } from '../hooks/useCustomModal';
+import { useTheme } from '../contexts/ThemeContext';
+import { useProfileChange } from '../hooks/useProfileChange';
 
 export default function EmergencyContacts() {
   const router = useRouter();
+  const { colors } = useTheme();
   const { showModal, ModalComponent } = useCustomModal();
   const [contacts, setContacts] = useState([]);
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
   const [selectedPhone, setSelectedPhone] = useState('');
+
+  const loadContacts = async () => {
+    try {
+      // #region agent log
+      console.log('[EmergencyContacts] loadContacts chamado');
+      // #endregion
+      const stored = await getProfileItem('emergencyContacts');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        // #region agent log
+        console.log('[EmergencyContacts] Contatos carregados:', parsed.length);
+        // #endregion
+        setContacts(parsed);
+      } else {
+        // #region agent log
+        console.log('[EmergencyContacts] Nenhum contato encontrado');
+        // #endregion
+        setContacts([]);
+      }
+    } catch (error) {
+      console.error('Erro ao carregar contatos:', error);
+      setContacts([]);
+    }
+  };
 
   useFocusEffect(
     useCallback(() => {
@@ -19,16 +46,14 @@ export default function EmergencyContacts() {
     }, [])
   );
 
-  const loadContacts = async () => {
-    try {
-      const stored = await AsyncStorage.getItem('emergencyContacts');
-      if (stored) {
-        setContacts(JSON.parse(stored));
-      }
-    } catch (error) {
-      console.error('Erro ao carregar contatos:', error);
-    }
-  };
+  // CRÍTICO: Recarregar quando o perfil muda
+  useProfileChange(() => {
+    // #region agent log
+    console.log('[EmergencyContacts] Perfil mudou - recarregando contatos');
+    // #endregion
+    loadContacts();
+  });
+
 
   const callContact = (phone) => {
     Linking.openURL(`tel:${phone}`);
@@ -88,7 +113,7 @@ export default function EmergencyContacts() {
           onPress: async () => {
             try {
               const updated = contacts.filter(c => c.id !== id);
-              await AsyncStorage.setItem('emergencyContacts', JSON.stringify(updated));
+              await setProfileItem('emergencyContacts', JSON.stringify(updated));
               setContacts(updated);
             } catch (error) {
               console.error('Erro ao excluir contato:', error);
@@ -101,12 +126,12 @@ export default function EmergencyContacts() {
   };
 
   const renderContact = ({ item }) => (
-    <View style={styles.contactCard}>
+    <View style={[styles.contactCard, { backgroundColor: colors.surface, borderLeftColor: colors.error }]}>
       <View style={styles.contactPhoto}>
         {item.photo ? (
           <Image source={{ uri: item.photo }} style={styles.contactPhotoImage} />
         ) : (
-          <View style={styles.photoPlaceholder}>
+          <View style={[styles.photoPlaceholder, { backgroundColor: colors.error }]}>
             <Ionicons name="person" size={60} color="#fff" />
           </View>
         )}
@@ -114,9 +139,9 @@ export default function EmergencyContacts() {
       <View style={styles.contactInfo}>
         <View style={styles.contactHeader}>
           <View style={styles.contactHeaderText}>
-            <Text style={styles.contactName}>{item.name}</Text>
-            <Text style={styles.contactRelation}>{item.relation}</Text>
-            <Text style={styles.contactPhone}>{item.phone}</Text>
+            <Text style={[styles.contactName, { color: colors.text }]}>{item.name}</Text>
+            <Text style={[styles.contactRelation, { color: colors.textSecondary }]}>{item.relation}</Text>
+            <Text style={[styles.contactPhone, { color: colors.text }]}>{item.phone}</Text>
           </View>
           <View style={styles.contactCardActions}>
             <TouchableOpacity
@@ -126,19 +151,19 @@ export default function EmergencyContacts() {
                 params: { id: item.id, contact: JSON.stringify(item) }
               })}
             >
-              <Ionicons name="create-outline" size={24} color="#FF6B6B" />
+              <Ionicons name="create-outline" size={24} color={colors.error} />
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.deleteButton}
               onPress={() => deleteContact(item.id)}
             >
-              <Ionicons name="trash-outline" size={24} color="#FF6B6B" />
+              <Ionicons name="trash-outline" size={24} color={colors.error} />
             </TouchableOpacity>
           </View>
         </View>
         <View style={styles.contactActions}>
           <TouchableOpacity
-            style={styles.actionButton}
+            style={[styles.actionButton, { backgroundColor: colors.primary }]}
             onPress={() => callContact(item.phone)}
           >
             <Ionicons name="call" size={32} color="#fff" />
@@ -159,23 +184,23 @@ export default function EmergencyContacts() {
   const canAddContact = contacts.length < 5;
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
+    <ScrollView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { backgroundColor: colors.surface }]}>
         <TouchableOpacity 
           style={styles.backButton}
           onPress={() => router.back()}
         >
-          <Ionicons name="arrow-back" size={32} color="#FF6B6B" />
+          <Ionicons name="arrow-back" size={32} color={colors.error} />
         </TouchableOpacity>
-        <Text style={styles.title}>Contatos de Emergência</Text>
-        <Text style={styles.subtitle}>Máximo de 5 contatos</Text>
+        <Text style={[styles.title, { color: colors.text }]}>Contatos de Emergência</Text>
+        <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Máximo de 5 contatos</Text>
       </View>
 
       {contacts.length === 0 ? (
         <View style={styles.emptyContainer}>
-          <Ionicons name="call-outline" size={80} color="#ccc" />
-          <Text style={styles.emptyText}>Nenhum contato cadastrado</Text>
-          <Text style={styles.emptySubtext}>Toque no botão + para adicionar</Text>
+          <Ionicons name="call-outline" size={80} color={colors.textTertiary} />
+          <Text style={[styles.emptyText, { color: colors.textSecondary }]}>Nenhum contato cadastrado</Text>
+          <Text style={[styles.emptySubtext, { color: colors.textSecondary }]}>Toque no botão + para adicionar</Text>
         </View>
       ) : (
         <FlatList
@@ -189,7 +214,7 @@ export default function EmergencyContacts() {
 
       {canAddContact ? (
         <TouchableOpacity 
-          style={styles.addButton}
+          style={[styles.addButton, { backgroundColor: colors.error }]}
           onPress={() => router.push('/emergency-contacts/new')}
         >
           <Ionicons name="add" size={40} color="#fff" />
@@ -197,7 +222,7 @@ export default function EmergencyContacts() {
         </TouchableOpacity>
       ) : (
         <View style={styles.limitMessage}>
-          <Text style={styles.limitText}>Limite de 5 contatos atingido</Text>
+          <Text style={[styles.limitText, { color: colors.textSecondary }]}>Limite de 5 contatos atingido</Text>
         </View>
       )}
 
@@ -209,11 +234,11 @@ export default function EmergencyContacts() {
         onRequestClose={() => setShowWhatsAppModal(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
             <View style={styles.modalHeader}>
               <Ionicons name="logo-whatsapp" size={48} color="#25D366" />
-              <Text style={styles.modalTitle}>WhatsApp</Text>
-              <Text style={styles.modalSubtitle}>Escolha uma opção</Text>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>WhatsApp</Text>
+              <Text style={[styles.modalSubtitle, { color: colors.textSecondary }]}>Escolha uma opção</Text>
             </View>
 
             <View style={styles.modalButtons}>
@@ -226,7 +251,7 @@ export default function EmergencyContacts() {
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.modalButton, styles.callButton]}
+                style={[styles.modalButton, styles.callButton, { backgroundColor: colors.primary }]}
                 onPress={handleWhatsAppCall}
               >
                 <Ionicons name="call" size={40} color="#fff" />
@@ -238,7 +263,7 @@ export default function EmergencyContacts() {
               style={styles.modalCancelButton}
               onPress={() => setShowWhatsAppModal(false)}
             >
-              <Text style={styles.modalCancelText}>Cancelar</Text>
+              <Text style={[styles.modalCancelText, { color: colors.textSecondary }]}>Cancelar</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -251,11 +276,9 @@ export default function EmergencyContacts() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
   },
   header: {
     padding: 24,
-    backgroundColor: '#fff',
     marginBottom: 16,
   },
   backButton: {
@@ -264,24 +287,20 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 32,
     fontWeight: 'bold',
-    color: '#333',
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 20,
-    color: '#666',
   },
   list: {
     padding: 24,
   },
   contactCard: {
-    backgroundColor: '#fff',
     borderRadius: 16,
     padding: 24,
     marginBottom: 24,
     alignItems: 'center',
     borderLeftWidth: 6,
-    borderLeftColor: '#FF6B6B',
   },
   contactPhoto: {
     marginBottom: 16,
@@ -290,7 +309,6 @@ const styles = StyleSheet.create({
     width: 120,
     height: 120,
     borderRadius: 60,
-    backgroundColor: '#FF6B6B',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -328,18 +346,15 @@ const styles = StyleSheet.create({
   contactName: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#333',
     marginBottom: 8,
     textAlign: 'center',
   },
   contactRelation: {
     fontSize: 22,
-    color: '#666',
     marginBottom: 8,
   },
   contactPhone: {
     fontSize: 24,
-    color: '#333',
     marginBottom: 16,
   },
   contactActions: {
@@ -349,7 +364,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   actionButton: {
-    backgroundColor: '#4ECDC4',
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
@@ -376,18 +390,15 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#999',
     marginTop: 24,
     textAlign: 'center',
   },
   emptySubtext: {
     fontSize: 22,
-    color: '#999',
     marginTop: 12,
     textAlign: 'center',
   },
   addButton: {
-    backgroundColor: '#FF6B6B',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -408,7 +419,6 @@ const styles = StyleSheet.create({
   },
   limitText: {
     fontSize: 22,
-    color: '#999',
     textAlign: 'center',
   },
   modalOverlay: {
@@ -419,7 +429,6 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   modalContent: {
-    backgroundColor: '#fff',
     borderRadius: 24,
     padding: 32,
     width: '100%',
@@ -433,13 +442,11 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 32,
     fontWeight: 'bold',
-    color: '#333',
     marginTop: 16,
     marginBottom: 8,
   },
   modalSubtitle: {
     fontSize: 22,
-    color: '#666',
   },
   modalButtons: {
     width: '100%',
@@ -459,7 +466,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#25D366',
   },
   callButton: {
-    backgroundColor: '#4ECDC4',
+    // backgroundColor aplicado inline
   },
   modalButtonText: {
     fontSize: 28,
@@ -473,7 +480,6 @@ const styles = StyleSheet.create({
   },
   modalCancelText: {
     fontSize: 24,
-    color: '#999',
     fontWeight: '600',
   },
 });

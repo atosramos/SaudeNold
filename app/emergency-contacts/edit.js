@@ -1,9 +1,10 @@
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, TextInput, Alert, Image } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Alert, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useState, useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getProfileItem, setProfileItem } from '../../services/profileStorageManager';
 import * as ImagePicker from 'expo-image-picker';
+import VoiceTextInput from '../../components/VoiceTextInput';
 
 const relations = ['Filha', 'Filho', 'Cônjuge', 'Neto(a)', 'Amigo(a)', 'Cuidador(a)', 'Outro'];
 
@@ -27,7 +28,7 @@ export default function EditEmergencyContact() {
       if (contactParam) {
         contactData = JSON.parse(contactParam);
       } else {
-        const stored = await AsyncStorage.getItem('emergencyContacts');
+        const stored = await getProfileItem('emergencyContacts');
         if (stored) {
           const contacts = JSON.parse(stored);
           contactData = contacts.find(c => c.id === id);
@@ -123,7 +124,7 @@ export default function EditEmergencyContact() {
     }
 
     try {
-      const stored = await AsyncStorage.getItem('emergencyContacts');
+      const stored = await getProfileItem('emergencyContacts');
       const contacts = stored ? JSON.parse(stored) : [];
 
       const updatedContacts = contacts.map(c => 
@@ -138,7 +139,7 @@ export default function EditEmergencyContact() {
           : c
       );
 
-      await AsyncStorage.setItem('emergencyContacts', JSON.stringify(updatedContacts));
+      await setProfileItem('emergencyContacts', JSON.stringify(updatedContacts));
       
       Alert.alert('Sucesso', 'Contato atualizado com sucesso!', [
         { text: 'OK', onPress: () => router.back() }
@@ -180,24 +181,26 @@ export default function EditEmergencyContact() {
 
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Nome *</Text>
-          <TextInput
-            style={styles.input}
+          <VoiceTextInput
             value={name}
             onChangeText={setName}
             placeholder="Nome do contato"
             placeholderTextColor="#999"
+            containerStyle={styles.input}
+            inputStyle={styles.inputField}
           />
         </View>
 
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Telefone *</Text>
-          <TextInput
-            style={styles.input}
+          <VoiceTextInput
             value={phone}
             onChangeText={setPhone}
             placeholder="(00) 00000-0000"
             placeholderTextColor="#999"
             keyboardType="phone-pad"
+            containerStyle={styles.input}
+            inputStyle={styles.inputField}
           />
         </View>
 
@@ -232,12 +235,13 @@ export default function EditEmergencyContact() {
             <View style={styles.customRelationForm}>
               <Text style={styles.customRelationLabel}>Digite o parentesco:</Text>
               <View style={styles.customRelationInputContainer}>
-                <TextInput
-                  style={styles.customRelationInput}
+                <VoiceTextInput
                   value={customRelation}
                   onChangeText={setCustomRelation}
                   placeholder="Ex: Sobrinho, Vizinho"
                   placeholderTextColor="#999"
+                  containerStyle={styles.customRelationInput}
+                  inputStyle={styles.inputField}
                 />
                 <TouchableOpacity
                   style={styles.addCustomRelationButton}
@@ -257,7 +261,7 @@ export default function EditEmergencyContact() {
                     if (contactParam) {
                       contactData = JSON.parse(contactParam);
                     } else {
-                      const stored = await AsyncStorage.getItem('emergencyContacts');
+                      const stored = await getProfileItem('emergencyContacts');
                       if (stored) {
                         const contacts = JSON.parse(stored);
                         contactData = contacts.find(c => c.id === id);
@@ -380,6 +384,11 @@ const styles = StyleSheet.create({
     color: '#333',
     borderWidth: 2,
     borderColor: '#e0e0e0',
+  },
+  inputField: {
+    flex: 1,
+    fontSize: 22,
+    color: '#333',
   },
   relationsContainer: {
     flexDirection: 'row',

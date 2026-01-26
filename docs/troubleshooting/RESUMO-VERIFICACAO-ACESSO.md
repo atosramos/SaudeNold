@@ -6,7 +6,7 @@
 
 1. **❌ API_KEY vazia no Kubernetes Secret**
    - **Status:** ✅ CORRIGIDO
-   - **Ação:** Secret atualizado com a API key correta: `JDZYc50zDSlsvev8ZzOJXXowHg_iqNJW8fKx49YgcLo`
+   - **Ação:** Secret atualizado com a API key correta: `<API_KEY>`
    - **Resultado:** Backend agora aceita requisições autenticadas
 
 2. **❌ Port-forward não estava escutando em localhost**
@@ -142,7 +142,7 @@ kubectl get pods -n saudenold -l app=backend
 kubectl get secret backend-secret -n saudenold -o jsonpath='{.data.API_KEY}' | ForEach-Object { [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($_)) }
 
 # Testar API
-$apiKey = "JDZYc50zDSlsvev8ZzOJXXowHg_iqNJW8fKx49YgcLo"
+$apiKey = "<API_KEY>"
 $headers = @{ "Authorization" = "Bearer $apiKey" }
 Invoke-RestMethod -Uri "http://localhost:8000/api/medical-exams" -Headers $headers
 

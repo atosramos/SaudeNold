@@ -4,7 +4,7 @@ Write-Host "  Verificação de Exames Médicos" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-$apiKey = "JDZYc50zDSlsvev8ZzOJXXowHg_iqNJW8fKx49YgcLo"
+$apiKey = "<API_KEY>"
 $baseUrl = "http://localhost:8000"
 $headers = @{
     "Authorization" = "Bearer $apiKey"

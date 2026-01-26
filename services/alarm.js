@@ -1,10 +1,10 @@
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Audio } from 'expo-av';
 import * as Speech from 'expo-speech';
 import { addDebugLog } from './alarmDebug';
+import { getProfileItem, setProfileItem, removeProfileItem } from './profileStorageManager';
 
 // Configurar como as notificações devem ser tratadas quando o app está em foreground
 Notifications.setNotificationHandler({
@@ -99,22 +99,33 @@ export const requestNotificationPermissions = async () => {
     // e deve ter MAX importance para funcionar mesmo com o app fechado
     if (Platform.OS === 'android') {
       try {
-        await Notifications.setNotificationChannelAsync('medication-alarm', {
-          name: 'Alarme de Medicamentos',
-          description: 'Notificações de alarmes de medicamentos, consultas e vacinas',
-          importance: Notifications.AndroidImportance.MAX, // CRÍTICO: MAX para funcionar em background
-          vibrationPattern: [0, 250, 250, 250],
-          lightColor: '#FF6B6B',
-          sound: 'default', // Som padrão do sistema (garante que toque)
-          enableVibrate: true,
-          showBadge: true,
-          enableLights: true,
-          // Nota: bypassDnd não está disponível na API do Expo, mas MAX importance já garante alta prioridade
-        });
-        await addDebugLog('Canal de notificação Android configurado com sucesso', 'success');
+        // Verificar se o canal já existe
+        const existingChannels = await Notifications.getNotificationChannelsAsync();
+        const channelExists = existingChannels.some(ch => ch.id === 'medication-alarm');
+        
+        if (!channelExists) {
+          await Notifications.setNotificationChannelAsync('medication-alarm', {
+            name: 'Alarme de Medicamentos',
+            description: 'Notificações de alarmes de medicamentos, consultas e vacinas',
+            importance: Notifications.AndroidImportance.MAX, // CRÍTICO: MAX para funcionar em background
+            vibrationPattern: [0, 250, 250, 250],
+            lightColor: '#FF6B6B',
+            sound: 'default', // Som padrão do sistema (garante que toque)
+            enableVibrate: true,
+            showBadge: true,
+            enableLights: true,
+            // Nota: bypassDnd não está disponível na API do Expo, mas MAX importance já garante alta prioridade
+          });
+          await addDebugLog('Canal de notificação Android configurado com sucesso', 'success');
+        } else {
+          await addDebugLog('Canal de notificação Android já existe', 'info');
+        }
       } catch (channelError) {
-        await addDebugLog(`Erro ao configurar canal: ${channelError.message}`, 'error');
-        // Continuar mesmo com erro no canal
+        const errorMsg = `Erro ao configurar canal: ${channelError.message}`;
+        await addDebugLog(errorMsg, 'error');
+        console.error(`❌ ${errorMsg}`);
+        // Continuar mesmo com erro no canal, mas avisar
+        throw new Error(`Falha ao configurar canal de notificação: ${channelError.message}`);
       }
     }
     
@@ -134,7 +145,7 @@ const isMedicationAlreadyTaken = async (medicationId, schedule) => {
   try {
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
     const logKey = `medication_log_${medicationId}_${today}_${schedule}`;
-    const log = await AsyncStorage.getItem(logKey);
+    const log = await getProfileItem(logKey);
     
     if (log) {
       const logData = JSON.parse(log);
@@ -143,7 +154,7 @@ const isMedicationAlreadyTaken = async (medicationId, schedule) => {
     
     // Verificar também no array de logs do dia
     const dailyLogsKey = `medication_logs_${today}`;
-    const dailyLogs = await AsyncStorage.getItem(dailyLogsKey);
+    const dailyLogs = await getProfileItem(dailyLogsKey);
     if (dailyLogs) {
       const logs = JSON.parse(dailyLogs);
       const found = logs.find(l => 
@@ -183,6 +194,7 @@ export const scheduleMedicationAlarms = async (medication) => {
     
     // Obter dias da semana selecionados (padrão: todos os dias se não especificado)
     const daysOfWeek = medication.daysOfWeek || [0, 1, 2, 3, 4, 5, 6];
+    const intervalDays = Number.isInteger(medication.intervalDays) ? medication.intervalDays : null;
     const daysLog = `Dias da semana: ${daysOfWeek.join(', ')}`;
     console.log(`📅 ${daysLog}`);
     await addDebugLog(daysLog, 'info');
@@ -211,8 +223,51 @@ export const scheduleMedicationAlarms = async (medication) => {
       console.log(`⏰ ${scheduleLog}`);
       await addDebugLog(scheduleLog, 'info');
       
-      // Se há dias específicos selecionados, agendar para cada dia
-      if (daysOfWeek.length < 7) {
+      // Se houver intervalo de dias (ex: dia sim/dia não), agendar datas específicas
+      if (intervalDays && intervalDays >= 2) {
+        const maxDaysAhead = 180;
+        const totalOccurrences = Math.floor(maxDaysAhead / intervalDays) + 1;
+        const baseDate = new Date();
+        baseDate.setHours(parseInt(hours, 10), parseInt(minutes, 10), 0, 0);
+        
+        if (baseDate <= new Date()) {
+          baseDate.setDate(baseDate.getDate() + 1);
+        }
+        
+        for (let i = 0; i < totalOccurrences; i++) {
+          const triggerDate = new Date(baseDate);
+          triggerDate.setDate(baseDate.getDate() + (i * intervalDays));
+          
+          const dateKey = triggerDate.toISOString().split('T')[0];
+          const notificationId = `${medication.id}-${schedule}-interval-${dateKey}`;
+          const intervalLog = `Agendando intervalo (${intervalDays} dias): ${notificationId} em ${triggerDate.toLocaleString('pt-BR')}`;
+          console.log(`📌 ${intervalLog}`);
+          await addDebugLog(intervalLog, 'info');
+          
+          const scheduledId = await Notifications.scheduleNotificationAsync({
+            identifier: notificationId,
+            content: {
+              title: 'Hora do Medicamento! 💊',
+              body: `${medication.name}${medication.dosage ? ' - ' + medication.dosage : ''}${medication.fasting ? ' (Em jejum)' : ''}`,
+              data: {
+                medicationId: medication.id,
+                medicationName: medication.name,
+                dosage: medication.dosage || '',
+                schedule: schedule,
+                type: 'medication_alarm',
+                fasting: medication.fasting || false,
+              },
+              sound: 'default',
+              priority: Notifications.AndroidNotificationPriority.MAX,
+              ...(Platform.OS === 'android' && { channelId: 'medication-alarm' }),
+            },
+            trigger: triggerDate,
+          });
+          
+          notificationIds.push(scheduledId);
+        }
+      } else if (daysOfWeek.length < 7) {
+        // Se há dias específicos selecionados, agendar para cada dia
         // Agendar para dias específicos da semana
         for (const dayOfWeek of daysOfWeek) {
           // Criar identificador único para esta notificação
@@ -244,22 +299,12 @@ export const scheduleMedicationAlarms = async (medication) => {
               priority: Notifications.AndroidNotificationPriority.MAX,
               ...(Platform.OS === 'android' && { channelId: 'medication-alarm' }),
             },
-            trigger: Platform.OS === 'android'
-              ? {
-                  // Para Android, usar formato específico para garantir precisão
-                  channelId: 'medication-alarm',
-                  weekday: parseInt(expoWeekday, 10), // Expo usa 1-7 (Segunda a Domingo)
-                  hour: parseInt(hours, 10), // Garantir que é inteiro
-                  minute: parseInt(minutes, 10), // Garantir que é inteiro
-                  repeats: true,
-                }
-              : {
-                  // Para iOS, formato padrão
-                  weekday: parseInt(expoWeekday, 10),
-                  hour: parseInt(hours, 10),
-                  minute: parseInt(minutes, 10),
-                  repeats: true,
-                },
+            trigger: {
+              weekday: parseInt(expoWeekday, 10),
+              hour: parseInt(hours, 10),
+              minute: parseInt(minutes, 10),
+              repeats: true,
+            },
           });
           
           const successLog = `Notificação semanal agendada com sucesso! ID: ${scheduledId}`;
@@ -291,41 +336,56 @@ export const scheduleMedicationAlarms = async (medication) => {
           await addDebugLog(successMsg, 'success');
         }
         
-        // Para Android, usar trigger de data específica para a primeira notificação
-        // e depois usar notificação recorrente diária
+        // Para Android, usar trigger recorrente diário diretamente
+        // O Expo Notifications gerencia automaticamente a primeira ocorrência
         if (Platform.OS === 'android') {
-          // Calcular segundos até o horário programado
-          const secondsUntilTrigger = Math.max(0, Math.floor((scheduledTime.getTime() - now.getTime()) / 1000));
+          // Calcular segundos até a primeira notificação
+          const now = new Date();
+          const secondsUntilFirst = Math.max(0, Math.floor((scheduledTime.getTime() - now.getTime()) / 1000));
           
-          // Agendar primeira notificação para o horário exato
-          const firstNotificationId = `${notificationId}-first`;
-          const firstScheduledId = await Notifications.scheduleNotificationAsync({
-            identifier: firstNotificationId,
-            content: {
-              title: 'Hora do Medicamento! 💊',
-              body: `${medication.name}${medication.dosage ? ' - ' + medication.dosage : ''}${medication.fasting ? ' (Em jejum)' : ''}`,
-              data: {
-                medicationId: medication.id,
-                medicationName: medication.name,
-                dosage: medication.dosage || '',
-                schedule: schedule,
-                type: 'medication_alarm',
-                fasting: medication.fasting || false,
+          // Se o horário já passou hoje, calcular para amanhã
+          let triggerSeconds = secondsUntilFirst;
+          if (secondsUntilFirst <= 0) {
+            // Calcular para amanhã no mesmo horário
+            const tomorrow = new Date(scheduledTime);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            triggerSeconds = Math.floor((tomorrow.getTime() - now.getTime()) / 1000);
+          }
+          
+          // Agendar notificação recorrente diária usando timeInterval para a primeira
+          // e depois usar daily trigger para repetições
+          if (triggerSeconds > 0 && triggerSeconds < 86400) {
+            // Se for hoje, agendar com timeInterval primeiro
+            const firstNotificationId = `${notificationId}-first`;
+            const firstScheduledId = await Notifications.scheduleNotificationAsync({
+              identifier: firstNotificationId,
+              content: {
+                title: 'Hora do Medicamento! 💊',
+                body: `${medication.name}${medication.dosage ? ' - ' + medication.dosage : ''}${medication.fasting ? ' (Em jejum)' : ''}`,
+                data: {
+                  medicationId: medication.id,
+                  medicationName: medication.name,
+                  dosage: medication.dosage || '',
+                  schedule: schedule,
+                  type: 'medication_alarm',
+                  fasting: medication.fasting || false,
+                },
+                sound: 'default',
+                priority: Notifications.AndroidNotificationPriority.MAX,
+                channelId: 'medication-alarm',
               },
-              sound: 'default',
-              priority: Notifications.AndroidNotificationPriority.MAX,
-              channelId: 'medication-alarm',
-            },
-            trigger: {
-              channelId: 'medication-alarm',
-              type: 'timeInterval',
-              seconds: secondsUntilTrigger,
-              repeats: false,
-            },
-          });
-          notificationIds.push(firstScheduledId);
+              trigger: {
+                channelId: 'medication-alarm',
+                type: 'timeInterval',
+                seconds: triggerSeconds,
+                repeats: false,
+              },
+            });
+            notificationIds.push(firstScheduledId);
+            console.log(`✅ Primeira notificação agendada para ${triggerSeconds} segundos (${Math.floor(triggerSeconds / 60)} minutos)`);
+          }
           
-          // Agendar notificação recorrente diária (começando amanhã)
+          // Agendar notificação recorrente diária
           const recurringScheduledId = await Notifications.scheduleNotificationAsync({
             identifier: notificationId,
             content: {
@@ -344,13 +404,16 @@ export const scheduleMedicationAlarms = async (medication) => {
               channelId: 'medication-alarm',
             },
             trigger: {
-              channelId: 'medication-alarm',
               hour: parseInt(hours, 10),
               minute: parseInt(minutes, 10),
               repeats: true,
             },
           });
           notificationIds.push(recurringScheduledId);
+          
+          const dailySuccessLog = `Notificações diárias agendadas: primeira em ${scheduledTime.toLocaleString('pt-BR')} e recorrente às ${hours}:${minutes}`;
+          console.log(`✅ ${dailySuccessLog}`);
+          await addDebugLog(dailySuccessLog, 'success');
         } else {
           // Para iOS, usar formato padrão
           const scheduledId = await Notifications.scheduleNotificationAsync({
@@ -376,12 +439,11 @@ export const scheduleMedicationAlarms = async (medication) => {
             },
           });
           notificationIds.push(scheduledId);
+          
+          const dailySuccessLog = `Notificação diária agendada com sucesso! ID: ${scheduledId}`;
+          console.log(`✅ ${dailySuccessLog}`);
+          await addDebugLog(dailySuccessLog, 'success');
         }
-        
-        const dailySuccessLog = `Notificação diária agendada com sucesso! ID: ${scheduledId}`;
-        console.log(`✅ ${dailySuccessLog}`);
-        await addDebugLog(dailySuccessLog, 'success');
-        notificationIds.push(scheduledId);
       }
     }
     
@@ -397,6 +459,31 @@ export const scheduleMedicationAlarms = async (medication) => {
     const systemLog = `Total de notificações agendadas no sistema: ${allScheduled.length}`;
     console.log(`📊 ${systemLog}`);
     await addDebugLog(systemLog, 'info');
+    
+    // Verificar se as notificações deste medicamento foram agendadas
+    const medicationNotifications = allScheduled.filter(n => 
+      n.identifier.startsWith(`${medication.id}-`) || 
+      n.content.data?.medicationId === medication.id
+    );
+    const medicationLog = `Notificações agendadas para ${medication.name}: ${medicationNotifications.length}`;
+    console.log(`📋 ${medicationLog}`);
+    await addDebugLog(medicationLog, 'info');
+    
+    // Listar detalhes das notificações agendadas para debug
+    medicationNotifications.forEach((notif, index) => {
+      const triggerInfo = notif.trigger.type === 'daily' 
+        ? `diário às ${notif.trigger.hour}:${String(notif.trigger.minute).padStart(2, '0')}`
+        : notif.trigger.type === 'timeInterval'
+        ? `em ${notif.trigger.seconds} segundos`
+        : notif.trigger.type;
+      console.log(`  ${index + 1}. ${notif.identifier} - ${triggerInfo}`);
+    });
+    
+    if (medicationNotifications.length === 0 && notificationIds.length > 0) {
+      const warningMsg = `⚠️ ATENÇÃO: ${notificationIds.length} notificação(ões) foram agendadas mas não aparecem na lista do sistema!`;
+      console.warn(warningMsg);
+      await addDebugLog(warningMsg, 'warning');
+    }
     
     return notificationIds;
   } catch (error) {
@@ -439,7 +526,7 @@ export const rescheduleMedicationAlarms = async (medication) => {
 const saveNotificationIds = async (medicationId, notificationIds) => {
   try {
     const key = `notificationIds_${medicationId}`;
-    await AsyncStorage.setItem(key, JSON.stringify(notificationIds));
+    await setProfileItem(key, JSON.stringify(notificationIds));
   } catch (error) {
     console.error('Erro ao salvar IDs de notificação:', error);
   }
@@ -451,7 +538,7 @@ const saveNotificationIds = async (medicationId, notificationIds) => {
 const getNotificationIds = async (medicationId) => {
   try {
     const key = `notificationIds_${medicationId}`;
-    const ids = await AsyncStorage.getItem(key);
+    const ids = await getProfileItem(key);
     return ids ? JSON.parse(ids) : [];
   } catch (error) {
     console.error('Erro ao recuperar IDs de notificação:', error);
@@ -465,7 +552,7 @@ const getNotificationIds = async (medicationId) => {
 const removeNotificationIds = async (medicationId) => {
   try {
     const key = `notificationIds_${medicationId}`;
-    await AsyncStorage.removeItem(key);
+    await removeProfileItem(key);
   } catch (error) {
     console.error('Erro ao remover IDs de notificação:', error);
   }
@@ -476,7 +563,7 @@ const removeNotificationIds = async (medicationId) => {
  */
 export const scheduleAllMedicationAlarms = async () => {
   try {
-    const stored = await AsyncStorage.getItem('medications');
+    const stored = await getProfileItem('medications');
     if (!stored) return;
     
     const medications = JSON.parse(stored);
@@ -495,7 +582,7 @@ export const scheduleAllMedicationAlarms = async () => {
  */
 export const scheduleAllVisitAlarms = async () => {
   try {
-    const stored = await AsyncStorage.getItem('doctorVisits');
+    const stored = await getProfileItem('doctorVisits');
     if (!stored) return;
     
     const visits = JSON.parse(stored);
@@ -524,13 +611,13 @@ export const scheduleAllVisitAlarms = async () => {
  */
 export const scheduleAllVaccineAlarms = async () => {
   try {
-    const stored = await AsyncStorage.getItem('vaccineRecords');
+    const stored = await getProfileItem('vaccineRecords');
     if (!stored) return;
     
     const vaccineRecords = JSON.parse(stored);
     
     // Carregar calendário de vacinas para obter informações de periodicidade
-    const calendarStored = await AsyncStorage.getItem('vaccineCalendar');
+    const calendarStored = await getProfileItem('vaccineCalendar');
     if (!calendarStored) return;
     
     const vaccineCalendar = JSON.parse(calendarStored);

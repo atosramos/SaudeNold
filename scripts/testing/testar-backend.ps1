@@ -4,7 +4,7 @@ Write-Host "  Teste Completo do Backend SaudeNold" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-$apiKey = "JDZYc50zDSlsvev8ZzOJXXowHg_iqNJW8fKx49YgcLo"
+$apiKey = "<API_KEY>"
 $baseUrl = "http://localhost:8000"
 
 # Teste 1: Health Check

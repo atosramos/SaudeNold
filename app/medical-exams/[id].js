@@ -2,7 +2,7 @@ import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Image, ActivityIn
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { useState, useCallback } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getProfileItem } from '../../services/profileStorageManager';
 import { useCustomAlert } from '../../hooks/useCustomAlert';
 import PdfViewer from '../../components/PdfViewer';
 
@@ -27,7 +27,7 @@ export default function MedicalExamDetail() {
     setLoading(true);
     try {
       // Buscar localmente
-      const stored = await AsyncStorage.getItem('medicalExams');
+      const stored = await getProfileItem('medicalExams');
       if (stored) {
         const exams = JSON.parse(stored);
         const found = exams.find(e => e.id === parseInt(id));
@@ -179,7 +179,10 @@ export default function MedicalExamDetail() {
             </View>
           </View>
           {exam.processing_error && (
-            <Text style={styles.errorMessage}>Erro: {exam.processing_error}</Text>
+            <View style={styles.errorMessageContainer}>
+              <Text style={styles.errorLabel}>Erro:</Text>
+              <Text style={styles.errorMessageText}>{exam.processing_error}</Text>
+            </View>
           )}
         </View>
 
@@ -417,10 +420,22 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: 'bold',
   },
-  errorMessage: {
+  errorMessageContainer: {
     marginTop: 12,
-    fontSize: 18,
+    padding: 12,
+    backgroundColor: '#FFF5F5',
+    borderRadius: 8,
+  },
+  errorLabel: {
+    fontSize: 16,
+    fontWeight: 'bold',
     color: '#F44336',
+    marginBottom: 4,
+  },
+  errorMessageText: {
+    fontSize: 16,
+    color: '#F44336',
+    lineHeight: 22,
   },
   infoCard: {
     backgroundColor: '#fff',

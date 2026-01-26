@@ -1,5 +1,7 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getProfileItem, setProfileItem } from './profileStorageManager';
 import { medicationsAPI, medicationLogsAPI, emergencyContactsAPI, doctorVisitsAPI, medicalExamsAPI, healthCheck } from './api';
+import { hasAuthToken } from './auth';
+import { hasActiveLicense } from './proLicense';
 
 const STORAGE_KEYS = {
   medications: 'medications',
@@ -25,12 +27,20 @@ export const isBackendAvailable = async () => {
 
 /**
  * Sincroniza dados do backend para o AsyncStorage
+ * Permite buscar dados mesmo sem licença PRO (para usuários que tiveram licença antes)
  */
 export const syncFromBackend = async () => {
   try {
+    // CRÍTICO: Verificar autenticação antes de sincronizar
+    const isAuthenticated = await hasAuthToken();
+    if (!isAuthenticated) {
+      console.log('[Sync] Usuário não autenticado, pulando sincronização do backend');
+      return false;
+    }
+
     const isAvailable = await isBackendAvailable();
     if (!isAvailable) {
-      console.log('Backend não disponível, usando dados locais');
+      console.log('[Sync] Backend não disponível, usando dados locais');
       return false;
     }
 
@@ -38,7 +48,7 @@ export const syncFromBackend = async () => {
     try {
       const medicationsResponse = await medicationsAPI.getAll();
       if (medicationsResponse.data) {
-        await AsyncStorage.setItem(STORAGE_KEYS.medications, JSON.stringify(medicationsResponse.data));
+        await setProfileItem(STORAGE_KEYS.medications, JSON.stringify(medicationsResponse.data));
       }
     } catch (error) {
       console.error('Erro ao sincronizar medicamentos:', error);
@@ -48,7 +58,7 @@ export const syncFromBackend = async () => {
     try {
       const logsResponse = await medicationLogsAPI.getAll();
       if (logsResponse.data) {
-        await AsyncStorage.setItem(STORAGE_KEYS.medicationLogs, JSON.stringify(logsResponse.data));
+        await setProfileItem(STORAGE_KEYS.medicationLogs, JSON.stringify(logsResponse.data));
       }
     } catch (error) {
       console.error('Erro ao sincronizar logs:', error);
@@ -58,7 +68,7 @@ export const syncFromBackend = async () => {
     try {
       const contactsResponse = await emergencyContactsAPI.getAll();
       if (contactsResponse.data) {
-        await AsyncStorage.setItem(STORAGE_KEYS.emergencyContacts, JSON.stringify(contactsResponse.data));
+        await setProfileItem(STORAGE_KEYS.emergencyContacts, JSON.stringify(contactsResponse.data));
       }
     } catch (error) {
       console.error('Erro ao sincronizar contatos:', error);
@@ -68,7 +78,7 @@ export const syncFromBackend = async () => {
     try {
       const visitsResponse = await doctorVisitsAPI.getAll();
       if (visitsResponse.data) {
-        await AsyncStorage.setItem(STORAGE_KEYS.doctorVisits, JSON.stringify(visitsResponse.data));
+        await setProfileItem(STORAGE_KEYS.doctorVisits, JSON.stringify(visitsResponse.data));
       }
     } catch (error) {
       console.error('Erro ao sincronizar visitas:', error);
@@ -78,14 +88,14 @@ export const syncFromBackend = async () => {
     try {
       const examsResponse = await medicalExamsAPI.getAll();
       if (examsResponse.data) {
-        await AsyncStorage.setItem(STORAGE_KEYS.medicalExams, JSON.stringify(examsResponse.data));
+        await setProfileItem(STORAGE_KEYS.medicalExams, JSON.stringify(examsResponse.data));
       }
     } catch (error) {
       console.error('Erro ao sincronizar exames médicos:', error);
     }
 
     // Salvar timestamp da última sincronização
-    await AsyncStorage.setItem(STORAGE_KEYS.lastSync, new Date().toISOString());
+    await setProfileItem(STORAGE_KEYS.lastSync, new Date().toISOString());
 
     console.log('Sincronização do backend concluída');
     return true;
@@ -97,18 +107,34 @@ export const syncFromBackend = async () => {
 
 /**
  * Sincroniza dados do AsyncStorage para o backend
+ * CRÍTICO: Requer licença PRO ativa para salvar dados no servidor (conformidade LGPD/HIPAA)
  */
 export const syncToBackend = async () => {
   try {
+    // CRÍTICO: Verificar autenticação antes de sincronizar
+    const isAuthenticated = await hasAuthToken();
+    if (!isAuthenticated) {
+      console.log('[Sync] Usuário não autenticado, pulando sincronização para o backend');
+      return false;
+    }
+
+    // CRÍTICO: Verificar licença PRO ativa para armazenamento no servidor
+    // Dados de saúde só podem ser armazenados no servidor com licença PRO (conformidade LGPD/HIPAA)
+    const hasProLicense = await hasActiveLicense();
+    if (!hasProLicense) {
+      console.log('[Sync] Licença PRO não ativa - dados serão salvos apenas localmente (conformidade LGPD/HIPAA)');
+      return false;
+    }
+
     const isAvailable = await isBackendAvailable();
     if (!isAvailable) {
-      console.log('Backend não disponível, dados serão salvos apenas localmente');
+      console.log('[Sync] Backend não disponível, dados serão salvos apenas localmente');
       return false;
     }
 
     // Sincronizar medicamentos
     try {
-      const localMedications = await AsyncStorage.getItem(STORAGE_KEYS.medications);
+      const localMedications = await getProfileItem(STORAGE_KEYS.medications);
       if (localMedications) {
         const medications = JSON.parse(localMedications);
         // Aqui você pode implementar lógica para comparar timestamps
@@ -133,7 +159,7 @@ export const syncToBackend = async () => {
 
     // Sincronizar logs
     try {
-      const localLogs = await AsyncStorage.getItem(STORAGE_KEYS.medicationLogs);
+      const localLogs = await getProfileItem(STORAGE_KEYS.medicationLogs);
       if (localLogs) {
         const logs = JSON.parse(localLogs);
         for (const log of logs) {
@@ -153,7 +179,7 @@ export const syncToBackend = async () => {
 
     // Sincronizar contatos
     try {
-      const localContacts = await AsyncStorage.getItem(STORAGE_KEYS.emergencyContacts);
+      const localContacts = await getProfileItem(STORAGE_KEYS.emergencyContacts);
       if (localContacts) {
         const contacts = JSON.parse(localContacts);
         for (const contact of contacts) {
@@ -174,7 +200,7 @@ export const syncToBackend = async () => {
 
     // Sincronizar visitas
     try {
-      const localVisits = await AsyncStorage.getItem(STORAGE_KEYS.doctorVisits);
+      const localVisits = await getProfileItem(STORAGE_KEYS.doctorVisits);
       if (localVisits) {
         const visits = JSON.parse(localVisits);
         for (const visit of visits) {
@@ -195,7 +221,7 @@ export const syncToBackend = async () => {
 
     // Sincronizar exames médicos
     try {
-      const localExams = await AsyncStorage.getItem(STORAGE_KEYS.medicalExams);
+      const localExams = await getProfileItem(STORAGE_KEYS.medicalExams);
       if (localExams) {
         const exams = JSON.parse(localExams);
         for (const exam of exams) {
@@ -204,10 +230,29 @@ export const syncToBackend = async () => {
             // Exames pendentes precisam ser enviados para processamento
             if (!exam.id || exam.id <= 0 || (typeof exam.id === 'number' && exam.id > 1000000000000)) {
               // É um ID temporário (timestamp), criar novo no backend
+              // Converter exam_date para formato ISO datetime se necessário
+              let examDate = exam.exam_date || null;
+              if (examDate) {
+                try {
+                  // Se for apenas data (YYYY-MM-DD), converter para datetime ISO
+                  if (typeof examDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(examDate)) {
+                    examDate = new Date(examDate + 'T12:00:00.000Z').toISOString();
+                  } else if (examDate instanceof Date) {
+                    examDate = examDate.toISOString();
+                  } else if (typeof examDate === 'string' && !examDate.includes('T')) {
+                    // Se for string de data sem T, adicionar hora
+                    examDate = new Date(examDate + 'T12:00:00.000Z').toISOString();
+                  }
+                } catch (error) {
+                  console.warn('Erro ao converter exam_date:', error);
+                  examDate = null;
+                }
+              }
+              
               const examData = {
                 image_base64: exam.image_base64,
                 file_type: exam.file_type || 'image',
-                exam_date: exam.exam_date || null,
+                exam_date: examDate,
                 exam_type: exam.exam_type || null,
               };
               const response = await medicalExamsAPI.create(examData);
@@ -216,7 +261,7 @@ export const syncToBackend = async () => {
                 const updatedExams = exams.map(e => 
                   e.id === exam.id ? { ...response.data, id: response.data.id } : e
                 );
-                await AsyncStorage.setItem(STORAGE_KEYS.medicalExams, JSON.stringify(updatedExams));
+                await setProfileItem(STORAGE_KEYS.medicalExams, JSON.stringify(updatedExams));
               }
             } else if (exam.processing_status === 'pending' || exam.processing_status === 'processing') {
               // Verificar se o status mudou no backend
@@ -227,7 +272,7 @@ export const syncToBackend = async () => {
                   const updatedExams = exams.map(e => 
                     e.id === exam.id ? backendExam.data : e
                   );
-                  await AsyncStorage.setItem(STORAGE_KEYS.medicalExams, JSON.stringify(updatedExams));
+                  await setProfileItem(STORAGE_KEYS.medicalExams, JSON.stringify(updatedExams));
                 }
               } catch (error) {
                 console.error('Erro ao verificar status do exame:', error);
@@ -252,9 +297,27 @@ export const syncToBackend = async () => {
 
 /**
  * Sincronização completa: primeiro envia dados locais, depois busca do backend
+ * CRÍTICO: Requer licença PRO ativa para salvar dados no servidor (conformidade LGPD/HIPAA)
  */
 export const fullSync = async () => {
-  console.log('Iniciando sincronização completa...');
+  // CRÍTICO: Verificar autenticação antes de sincronizar
+  const isAuthenticated = await hasAuthToken();
+  if (!isAuthenticated) {
+    console.log('[Sync] Usuário não autenticado, pulando sincronização completa');
+    return false;
+  }
+
+  // CRÍTICO: Verificar licença PRO ativa para armazenamento no servidor
+  const hasProLicense = await hasActiveLicense();
+  if (!hasProLicense) {
+    console.log('[Sync] Licença PRO não ativa - sincronização limitada a dados locais (conformidade LGPD/HIPAA)');
+    // Ainda podemos buscar dados do servidor se houver (para usuários que tiveram licença antes)
+    // Mas não vamos enviar novos dados sem licença PRO
+    await syncFromBackend();
+    return false;
+  }
+
+  console.log('[Sync] Iniciando sincronização completa (licença PRO ativa)...');
   
   // Primeiro: enviar dados locais para o backend
   await syncToBackend();
@@ -262,7 +325,8 @@ export const fullSync = async () => {
   // Depois: buscar dados atualizados do backend
   await syncFromBackend();
   
-  console.log('Sincronização completa concluída');
+  console.log('[Sync] Sincronização completa concluída');
+  return true;
 };
 
 /**
@@ -275,7 +339,7 @@ export const checkPendingExams = async () => {
       return false;
     }
 
-    const localExams = await AsyncStorage.getItem(STORAGE_KEYS.medicalExams);
+    const localExams = await getProfileItem(STORAGE_KEYS.medicalExams);
     if (!localExams) {
       return false;
     }
@@ -304,10 +368,29 @@ export const checkPendingExams = async () => {
         } else {
           // Exame local sem ID do backend, tentar enviar
           try {
+            // Converter exam_date para formato ISO datetime se necessário
+            let examDate = exam.exam_date || null;
+            if (examDate) {
+              try {
+                // Se for apenas data (YYYY-MM-DD), converter para datetime ISO
+                if (typeof examDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(examDate)) {
+                  examDate = new Date(examDate + 'T12:00:00.000Z').toISOString();
+                } else if (examDate instanceof Date) {
+                  examDate = examDate.toISOString();
+                } else if (typeof examDate === 'string' && !examDate.includes('T')) {
+                  // Se for string de data sem T, adicionar hora
+                  examDate = new Date(examDate + 'T12:00:00.000Z').toISOString();
+                }
+              } catch (error) {
+                console.warn('Erro ao converter exam_date:', error);
+                examDate = null;
+              }
+            }
+            
             const examData = {
               image_base64: exam.image_base64,
               file_type: exam.file_type || 'image',
-              exam_date: exam.exam_date || null,
+              exam_date: examDate,
               exam_type: exam.exam_type || null,
             };
             const response = await medicalExamsAPI.create(examData);
@@ -330,7 +413,7 @@ export const checkPendingExams = async () => {
     }
 
     if (updated) {
-      await AsyncStorage.setItem(STORAGE_KEYS.medicalExams, JSON.stringify(exams));
+      await setProfileItem(STORAGE_KEYS.medicalExams, JSON.stringify(exams));
       console.log('Status de exames atualizado');
     }
 

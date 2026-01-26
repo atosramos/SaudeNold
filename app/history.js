@@ -2,23 +2,18 @@ import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Alert, Platform }
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useState, useCallback } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getProfileItem } from '../services/profileStorageManager';
+import { useProfileChange } from '../hooks/useProfileChange';
 
 export default function History() {
   const router = useRouter();
   const [visits, setVisits] = useState({ upcoming: [], past: [] });
   const [medications, setMedications] = useState([]);
 
-  useFocusEffect(
-    useCallback(() => {
-      loadData();
-    }, [])
-  );
-
   const loadData = async () => {
     try {
       // Carregar visitas - apenas passadas (consultas agendadas removidas do histórico)
-      const visitsStored = await AsyncStorage.getItem('doctorVisits');
+      const visitsStored = await getProfileItem('doctorVisits');
       if (visitsStored) {
         const parsed = JSON.parse(visitsStored);
         // Filtrar apenas visitas passadas
@@ -37,7 +32,7 @@ export default function History() {
       }
 
       // Carregar medicamentos
-      const medsStored = await AsyncStorage.getItem('medications');
+      const medsStored = await getProfileItem('medications');
       if (medsStored) {
         const parsed = JSON.parse(medsStored);
         setMedications(parsed.filter(m => m.active !== false));
@@ -48,6 +43,17 @@ export default function History() {
       console.error('Erro ao carregar histórico:', error);
     }
   };
+
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [])
+  );
+
+  // CRÍTICO: Recarregar quando o perfil muda
+  useProfileChange(() => {
+    loadData();
+  });
 
   const formatDate = (dateString) => {
     const date = new Date(dateString);
@@ -102,6 +108,15 @@ export default function History() {
       </View>
 
       <View style={styles.content}>
+        {/* Botão para adicionar nova consulta/cirurgia */}
+        <TouchableOpacity 
+          style={styles.addButton}
+          onPress={() => router.push('/doctor-visits/new')}
+        >
+          <Ionicons name="add-circle" size={32} color="#fff" />
+          <Text style={styles.addButtonText}>Adicionar Consulta/Cirurgia</Text>
+        </TouchableOpacity>
+
         {/* Consultas Realizadas */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>

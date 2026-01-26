@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Audio } from 'expo-av';
 import * as Speech from 'expo-speech';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getProfileItem, setProfileItem } from '../services/profileStorageManager';
 import * as Notifications from 'expo-notifications';
 import { useCustomModal } from '../hooks/useCustomModal';
 
@@ -61,7 +61,7 @@ export default function AlarmScreen() {
       
       if (schedule) {
         const logKey = `medication_log_${medication.id}_${today}_${schedule}`;
-        const log = await AsyncStorage.getItem(logKey);
+        const log = await getProfileItem(logKey);
         
         if (log) {
           const logData = JSON.parse(log);
@@ -74,7 +74,7 @@ export default function AlarmScreen() {
         
         // Verificar também no array de logs do dia
         const dailyLogsKey = `medication_logs_${today}`;
-        const dailyLogs = await AsyncStorage.getItem(dailyLogsKey);
+        const dailyLogs = await getProfileItem(dailyLogsKey);
         if (dailyLogs) {
           const logs = JSON.parse(dailyLogs);
           const found = logs.find(l => 
@@ -105,7 +105,7 @@ export default function AlarmScreen() {
       
       // Se os dados vieram via params
       if (params.medicationId) {
-        const stored = await AsyncStorage.getItem('medications');
+        const stored = await getProfileItem('medications');
         if (stored) {
           const medications = JSON.parse(stored);
           medicationData = medications.find(m => m.id === params.medicationId);
@@ -304,17 +304,17 @@ export default function AlarmScreen() {
         takenAt: now.toISOString(),
         status: 'taken'
       };
-      await AsyncStorage.setItem(logKey, JSON.stringify(logData));
+      await setProfileItem(logKey, JSON.stringify(logData));
       
       // Salvar no array de logs do dia
       const dailyLogsKey = `medication_logs_${today}`;
-      const dailyLogs = await AsyncStorage.getItem(dailyLogsKey);
+      const dailyLogs = await getProfileItem(dailyLogsKey);
       let logs = dailyLogs ? JSON.parse(dailyLogs) : [];
       logs.push(logData);
-      await AsyncStorage.setItem(dailyLogsKey, JSON.stringify(logs));
+      await setProfileItem(dailyLogsKey, JSON.stringify(logs));
       
       // Atualizar lastTaken no medicamento
-      const stored = await AsyncStorage.getItem('medications');
+      const stored = await getProfileItem('medications');
       if (stored) {
         const medications = JSON.parse(stored);
         const updatedMedications = medications.map(m => 
@@ -322,7 +322,7 @@ export default function AlarmScreen() {
             ? { ...m, lastTaken: now.toISOString() }
             : m
         );
-        await AsyncStorage.setItem('medications', JSON.stringify(updatedMedications));
+        await setProfileItem('medications', JSON.stringify(updatedMedications));
       }
       
       // Cancelar notificações do dia para este horário

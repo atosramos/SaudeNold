@@ -1,0 +1,118 @@
+2026-01-26 17:13:55,631 - INFO - Iniciando migração de dados médicos para perfis...
+2026-01-26 17:13:55,631 - INFO - Modo DRY RUN ativado
+2026-01-26 17:13:55,631 - INFO - === MODO DRY RUN - Nenhuma alteração será feita ===
+2026-01-26 17:13:55,631 - INFO - 
+Processando tabela: medications
+2026-01-26 17:13:55,692 - INFO - Tabela medications: 0 total, 0 sem profile_id
+2026-01-26 17:13:55,692 - INFO - Nenhum registro precisa de migração na tabela medications
+2026-01-26 17:13:55,692 - INFO - 
+Processando tabela: medication_logs
+2026-01-26 17:13:55,696 - INFO - Tabela medication_logs: 0 total, 0 sem profile_id
+2026-01-26 17:13:55,699 - INFO - Nenhum registro precisa de migração na tabela medication_logs
+2026-01-26 17:13:55,699 - INFO - 
+Processando tabela: emergency_contacts
+2026-01-26 17:13:55,700 - INFO - Tabela emergency_contacts: 0 total, 0 sem profile_id
+2026-01-26 17:13:55,700 - INFO - Nenhum registro precisa de migração na tabela emergency_contacts
+2026-01-26 17:13:55,700 - INFO - 
+Processando tabela: doctor_visits
+2026-01-26 17:13:55,702 - INFO - Tabela doctor_visits: 0 total, 0 sem profile_id
+2026-01-26 17:13:55,702 - INFO - Nenhum registro precisa de migração na tabela doctor_visits
+2026-01-26 17:13:55,702 - INFO - 
+Processando tabela: medical_exams
+2026-01-26 17:13:55,703 - INFO - Tabela medical_exams: 3 total, 1 sem profile_id
+2026-01-26 17:13:55,719 - INFO - [DRY RUN] Associaria 1 registros de medical_exams ao perfil 1
+2026-01-26 17:13:55,720 - INFO - 
+Processando tabela: exam_data_points
+2026-01-26 17:13:55,722 - INFO - Tabela exam_data_points: 0 total, 0 sem profile_id
+2026-01-26 17:13:55,722 - INFO - Nenhum registro precisa de migração na tabela exam_data_points
+2026-01-26 17:13:55,722 - INFO - 
+=== DRY RUN concluído - Nenhuma alteração foi feita ===
+2026-01-26 17:13:55,723 - INFO - Migração concluída com sucesso!
+2026-01-26 17:14:57,519 - INFO - Iniciando migração de dados médicos para perfis...
+2026-01-26 17:14:57,519 - INFO - Modo DRY RUN ativado
+2026-01-26 17:14:57,519 - INFO - === MODO DRY RUN - Nenhuma alteração será feita ===
+2026-01-26 17:14:57,519 - INFO - 
+Processando tabela: medications
+2026-01-26 17:14:57,574 - INFO - Tabela medications: 0 total, 0 sem profile_id
+2026-01-26 17:14:57,574 - INFO - Nenhum registro precisa de migração na tabela medications
+2026-01-26 17:14:57,574 - INFO - 
+Processando tabela: medication_logs
+2026-01-26 17:14:57,579 - INFO - Tabela medication_logs: 0 total, 0 sem profile_id
+2026-01-26 17:14:57,579 - INFO - Nenhum registro precisa de migração na tabela medication_logs
+2026-01-26 17:14:57,579 - INFO - 
+Processando tabela: emergency_contacts
+2026-01-26 17:14:57,580 - INFO - Tabela emergency_contacts: 0 total, 0 sem profile_id
+2026-01-26 17:14:57,580 - INFO - Nenhum registro precisa de migração na tabela emergency_contacts
+2026-01-26 17:14:57,580 - INFO - 
+Processando tabela: doctor_visits
+2026-01-26 17:14:57,580 - INFO - Tabela doctor_visits: 0 total, 0 sem profile_id
+2026-01-26 17:14:57,580 - INFO - Nenhum registro precisa de migração na tabela doctor_visits
+2026-01-26 17:14:57,580 - INFO - 
+Processando tabela: medical_exams
+2026-01-26 17:14:57,580 - INFO - Tabela medical_exams: 3 total, 1 sem profile_id
+2026-01-26 17:14:57,599 - INFO - [DRY RUN] Associaria 1 registros de medical_exams ao perfil 1
+2026-01-26 17:14:57,599 - INFO - 
+Processando tabela: exam_data_points
+2026-01-26 17:14:57,599 - INFO - Tabela exam_data_points: 0 total, 0 sem profile_id
+2026-01-26 17:14:57,599 - INFO - Nenhum registro precisa de migração na tabela exam_data_points
+2026-01-26 17:14:57,599 - INFO - 
+=== DRY RUN concluído - Nenhuma alteração foi feita ===
+2026-01-26 17:14:57,599 - INFO - Migração concluída com sucesso!
+2026-01-26 17:15:07,708 - INFO - Iniciando migração de dados médicos para perfis...
+2026-01-26 17:15:07,708 - INFO - 
+Processando tabela: medications
+2026-01-26 17:15:07,773 - INFO - Tabela medications: 0 total, 0 sem profile_id
+2026-01-26 17:15:07,773 - INFO - Nenhum registro precisa de migração na tabela medications
+2026-01-26 17:15:07,773 - INFO - 
+Processando tabela: medication_logs
+2026-01-26 17:15:07,773 - INFO - Tabela medication_logs: 0 total, 0 sem profile_id
+2026-01-26 17:15:07,773 - INFO - Nenhum registro precisa de migração na tabela medication_logs
+2026-01-26 17:15:07,773 - INFO - 
+Processando tabela: emergency_contacts
+2026-01-26 17:15:07,775 - INFO - Tabela emergency_contacts: 0 total, 0 sem profile_id
+2026-01-26 17:15:07,775 - INFO - Nenhum registro precisa de migração na tabela emergency_contacts
+2026-01-26 17:15:07,775 - INFO - 
+Processando tabela: doctor_visits
+2026-01-26 17:15:07,775 - INFO - Tabela doctor_visits: 0 total, 0 sem profile_id
+2026-01-26 17:15:07,775 - INFO - Nenhum registro precisa de migração na tabela doctor_visits
+2026-01-26 17:15:07,775 - INFO - 
+Processando tabela: medical_exams
+2026-01-26 17:15:07,775 - INFO - Tabela medical_exams: 3 total, 1 sem profile_id
+2026-01-26 17:15:07,789 - INFO - Migrados 1 registros de medical_exams para perfil 1
+2026-01-26 17:15:07,789 - INFO - 
+Processando tabela: exam_data_points
+2026-01-26 17:15:07,789 - INFO - Tabela exam_data_points: 0 total, 0 sem profile_id
+2026-01-26 17:15:07,789 - INFO - Nenhum registro precisa de migração na tabela exam_data_points
+2026-01-26 17:15:07,789 - INFO - 
+Migração de dados médicos concluída com sucesso!
+2026-01-26 17:15:07,789 - INFO - Migração concluída com sucesso!
+2026-01-26 17:16:00,192 - INFO - Iniciando migração de dados médicos para perfis...
+2026-01-26 17:16:00,193 - INFO - Modo DRY RUN ativado
+2026-01-26 17:16:00,193 - INFO - === MODO DRY RUN - Nenhuma alteração será feita ===
+2026-01-26 17:16:00,194 - INFO - 
+Processando tabela: medications
+2026-01-26 17:16:00,249 - INFO - Tabela medications: 0 total, 0 sem profile_id
+2026-01-26 17:16:00,249 - INFO - Nenhum registro precisa de migração na tabela medications
+2026-01-26 17:16:00,249 - INFO - 
+Processando tabela: medication_logs
+2026-01-26 17:16:00,249 - INFO - Tabela medication_logs: 0 total, 0 sem profile_id
+2026-01-26 17:16:00,249 - INFO - Nenhum registro precisa de migração na tabela medication_logs
+2026-01-26 17:16:00,249 - INFO - 
+Processando tabela: emergency_contacts
+2026-01-26 17:16:00,249 - INFO - Tabela emergency_contacts: 0 total, 0 sem profile_id
+2026-01-26 17:16:00,249 - INFO - Nenhum registro precisa de migração na tabela emergency_contacts
+2026-01-26 17:16:00,249 - INFO - 
+Processando tabela: doctor_visits
+2026-01-26 17:16:00,249 - INFO - Tabela doctor_visits: 0 total, 0 sem profile_id
+2026-01-26 17:16:00,249 - INFO - Nenhum registro precisa de migração na tabela doctor_visits
+2026-01-26 17:16:00,249 - INFO - 
+Processando tabela: medical_exams
+2026-01-26 17:16:00,249 - INFO - Tabela medical_exams: 3 total, 0 sem profile_id
+2026-01-26 17:16:00,249 - INFO - Nenhum registro precisa de migração na tabela medical_exams
+2026-01-26 17:16:00,249 - INFO - 
+Processando tabela: exam_data_points
+2026-01-26 17:16:00,249 - INFO - Tabela exam_data_points: 0 total, 0 sem profile_id
+2026-01-26 17:16:00,249 - INFO - Nenhum registro precisa de migração na tabela exam_data_points
+2026-01-26 17:16:00,249 - INFO - 
+=== DRY RUN concluído - Nenhuma alteração foi feita ===
+2026-01-26 17:16:00,249 - INFO - Migração concluída com sucesso!

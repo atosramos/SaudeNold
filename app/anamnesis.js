@@ -1,10 +1,12 @@
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, TextInput, Alert, KeyboardAvoidingView } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Alert, KeyboardAvoidingView, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { useState, useCallback } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useState, useCallback, useEffect } from 'react';
+import { getProfileItem, setProfileItem } from '../services/profileStorageManager';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Platform } from 'react-native';
+import VoiceTextInput from '../components/VoiceTextInput';
+import { useTheme } from '../contexts/ThemeContext';
 
 const bloodTypes = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', 'Não sei'];
 
@@ -24,11 +26,14 @@ const commonConditions = [
 
 export default function Anamnesis() {
   const router = useRouter();
+  const { colors } = useTheme();
   // Dados pessoais
   const [birthDate, setBirthDate] = useState(null);
+  const [birthDateInput, setBirthDateInput] = useState('');
   const [showBirthDatePicker, setShowBirthDatePicker] = useState(false);
   const [gender, setGender] = useState('');
   const [isPregnant, setIsPregnant] = useState(null);
+  const [saveStatus, setSaveStatus] = useState('');
   
   // Calcular idade a partir da data de nascimento
   const calculateAge = (date) => {
@@ -52,6 +57,45 @@ export default function Anamnesis() {
   };
   
   const age = birthDate ? calculateAge(birthDate) : null;
+
+  const formatDateForInput = (date) => {
+    if (!date) return '';
+    const value = new Date(date);
+    if (Number.isNaN(value.getTime())) return '';
+    const year = value.getFullYear();
+    const month = `${value.getMonth() + 1}`.padStart(2, '0');
+    const day = `${value.getDate()}`.padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  // Sincronizar birthDateInput quando birthDate mudar (apenas se necessário)
+  useEffect(() => {
+    if (birthDate && !isNaN(birthDate.getTime())) {
+      const formatted = formatDateForInput(birthDate);
+      // Só atualizar se o valor formatado for diferente do atual
+      if (formatted && formatted !== birthDateInput) {
+        setBirthDateInput(formatted);
+      }
+    } else if (!birthDate && birthDateInput) {
+      // Limpar apenas se birthDate for null/undefined e birthDateInput ainda tiver valor
+      setBirthDateInput('');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [birthDate]);
+
+  const updateBirthDateFromInput = (value) => {
+    setBirthDateInput(value);
+    if (!value) {
+      setBirthDate(null);
+      return;
+    }
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      setBirthDate(null);
+      return;
+    }
+    setBirthDate(parsed);
+  };
   // Tipo sanguíneo
   const [bloodType, setBloodType] = useState('');
   // Alergias
@@ -138,33 +182,71 @@ export default function Anamnesis() {
 
   const loadAnamnesis = async () => {
     try {
-      const stored = await AsyncStorage.getItem('anamnesis');
+      const stored = await getProfileItem('anamnesis');
       let savedMedications = [];
       
       if (stored) {
         const data = JSON.parse(stored);
         // Suportar tanto data de nascimento quanto idade (para compatibilidade)
         if (data.birthDate) {
-          setBirthDate(new Date(data.birthDate));
+          try {
+            // Parsear a data e garantir que seja válida
+            const parsed = new Date(data.birthDate);
+            if (!isNaN(parsed.getTime())) {
+              // Extrair componentes para evitar problemas de timezone
+              const year = parsed.getFullYear();
+              const month = parsed.getMonth();
+              const day = parsed.getDate();
+              // Criar data local usando os componentes
+              const validDate = new Date(year, month, day, 12, 0, 0, 0);
+              setBirthDate(validDate);
+              const formatted = formatDateForInput(validDate);
+              setBirthDateInput(formatted);
+            } else {
+              console.warn('Data inválida ao carregar:', data.birthDate);
+              setBirthDate(null);
+              setBirthDateInput('');
+            }
+          } catch (error) {
+            console.error('Erro ao parsear data de nascimento:', error);
+            setBirthDate(null);
+            setBirthDateInput('');
+          }
         } else if (data.age) {
           // Se tiver apenas idade, estimar data de nascimento (aproximada)
           const today = new Date();
           const estimatedYear = today.getFullYear() - parseInt(data.age) || 0;
-          setBirthDate(new Date(estimatedYear, today.getMonth(), today.getDate()));
+          const estimated = new Date(estimatedYear, today.getMonth(), today.getDate(), 12, 0, 0, 0);
+          setBirthDate(estimated);
+          setBirthDateInput(formatDateForInput(estimated));
+        } else {
+          // Limpar se não houver data
+          setBirthDate(null);
+          setBirthDateInput('');
         }
+        // Carregar outros campos
         setGender(data.gender || '');
         setIsPregnant(data.isPregnant !== undefined ? data.isPregnant : null);
         setBloodType(data.bloodType || '');
-        setAllergies(data.allergies || []);
-        setSurgeries(data.surgeries || []);
-        setConditions(data.conditions || []);
-        setCustomConditions(data.customConditions || []);
+        setAllergies(Array.isArray(data.allergies) ? data.allergies : []);
+        setSurgeries(Array.isArray(data.surgeries) ? data.surgeries : []);
+        setConditions(Array.isArray(data.conditions) ? data.conditions : []);
+        setCustomConditions(Array.isArray(data.customConditions) ? data.customConditions : []);
         setSmoking(data.smoking || '');
         setAlcohol(data.alcohol || '');
         setPhysicalActivity(data.physicalActivity || '');
-        setFamilyHistory(data.familyHistory || []);
-        savedMedications = data.currentMedications || [];
-        setSystemReview(data.systemReview || {
+        setFamilyHistory(Array.isArray(data.familyHistory) ? data.familyHistory : []);
+        savedMedications = Array.isArray(data.currentMedications) ? data.currentMedications : [];
+        setSystemReview(data.systemReview && typeof data.systemReview === 'object' ? {
+          cardiovascular: data.systemReview.cardiovascular || '',
+          respiratory: data.systemReview.respiratory || '',
+          digestive: data.systemReview.digestive || '',
+          urinary: data.systemReview.urinary || '',
+          neurological: data.systemReview.neurological || '',
+          dermatological: data.systemReview.dermatological || '',
+          endocrine: data.systemReview.endocrine || '',
+          musculoskeletal: data.systemReview.musculoskeletal || '',
+        } : {
           cardiovascular: '',
           respiratory: '',
           digestive: '',
@@ -175,11 +257,37 @@ export default function Anamnesis() {
           musculoskeletal: '',
         });
         setObservations(data.observations || '');
+      } else {
+        // Se não há dados salvos, limpar todos os campos
+        setBirthDate(null);
+        setBirthDateInput('');
+        setGender('');
+        setIsPregnant(null);
+        setBloodType('');
+        setAllergies([]);
+        setSurgeries([]);
+        setConditions([]);
+        setCustomConditions([]);
+        setSmoking('');
+        setAlcohol('');
+        setPhysicalActivity('');
+        setFamilyHistory([]);
+        setSystemReview({
+          cardiovascular: '',
+          respiratory: '',
+          digestive: '',
+          urinary: '',
+          neurological: '',
+          dermatological: '',
+          endocrine: '',
+          musculoskeletal: '',
+        });
+        setObservations('');
       }
 
       // Carregar medicamentos de "Meus Medicamentos" e sincronizar
       try {
-        const medicationsStored = await AsyncStorage.getItem('medications');
+        const medicationsStored = await getProfileItem('medications');
         if (medicationsStored) {
           const medications = JSON.parse(medicationsStored);
           setMedicationsList(medications); // Salvar lista completa para buscar IDs
@@ -219,6 +327,7 @@ export default function Anamnesis() {
 
   const saveAnamnesis = async () => {
     try {
+      setSaveStatus('Salvando...');
       const anamnesisData = {
         birthDate: birthDate ? birthDate.toISOString() : null,
         age: age !== null && age !== undefined ? age : null, // Manter idade calculada para compatibilidade
@@ -239,11 +348,17 @@ export default function Anamnesis() {
         lastUpdated: new Date().toISOString(),
       };
 
-      await AsyncStorage.setItem('anamnesis', JSON.stringify(anamnesisData));
-      Alert.alert('Sucesso', 'Ficha de anamnese salva com sucesso!');
+      await setProfileItem('anamnesis', JSON.stringify(anamnesisData));
+      setSaveStatus(`Salvo em ${new Date().toLocaleTimeString('pt-BR')}`);
+      if (Platform.OS !== 'web') {
+        Alert.alert('Sucesso', 'Ficha de anamnese salva com sucesso!');
+      }
     } catch (error) {
       console.error('Erro ao salvar anamnese:', error);
-      Alert.alert('Erro', 'Não foi possível salvar a ficha de anamnese');
+      setSaveStatus('Erro ao salvar. Tente novamente.');
+      if (Platform.OS !== 'web') {
+        Alert.alert('Erro', 'Não foi possível salvar a ficha de anamnese');
+      }
     }
   };
 
@@ -385,12 +500,12 @@ export default function Anamnesis() {
 
   return (
     <KeyboardAvoidingView 
-      style={styles.container}
+      style={[styles.container, { backgroundColor: colors.background }]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
     >
       <ScrollView 
-        style={styles.container}
+        style={[styles.container, { backgroundColor: colors.background }]}
         contentContainerStyle={{ paddingBottom: 100 }}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={true}
@@ -400,9 +515,9 @@ export default function Anamnesis() {
           style={styles.backButton}
           onPress={() => router.back()}
         >
-          <Ionicons name="arrow-back" size={32} color="#4ECDC4" />
+          <Ionicons name="arrow-back" size={32} color={colors.primary} />
         </TouchableOpacity>
-        <Text style={styles.title}>Ficha de Anamnese</Text>
+        <Text style={[styles.title, { color: colors.text }]}>Ficha de Anamnese</Text>
       </View>
 
       <View style={styles.form}>
@@ -425,28 +540,75 @@ export default function Anamnesis() {
             <View style={styles.personalDataContainer}>
               <View style={styles.personalDataRow}>
                 <Text style={styles.personalDataLabel}>Data de Nascimento:</Text>
-                <TouchableOpacity
-                  style={styles.dateButton}
-                  onPress={() => setShowBirthDatePicker(true)}
-                >
-                  <Ionicons name="calendar-outline" size={24} color="#4ECDC4" />
-                  <Text style={styles.dateButtonText}>
-                    {birthDate ? formatDate(birthDate.toISOString()) : 'Selecione a data'}
-                  </Text>
-                </TouchableOpacity>
-                {showBirthDatePicker && (
-                  <DateTimePicker
-                    value={birthDate || new Date()}
-                    mode="date"
-                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                    maximumDate={new Date()}
-                    onChange={(event, selectedDate) => {
-                      setShowBirthDatePicker(false);
-                      if (selectedDate) {
-                        setBirthDate(selectedDate);
-                      }
-                    }}
-                  />
+                {Platform.OS === 'web' ? (
+                  <View style={styles.dateInputRow}>
+                    <Ionicons name="calendar-outline" size={24} color="#4ECDC4" />
+                    <TextInput
+                      style={styles.dateInputField}
+                      value={birthDateInput}
+                      onChangeText={updateBirthDateFromInput}
+                      placeholder="AAAA-MM-DD"
+                      placeholderTextColor="#999"
+                      accessibilityLabel="Data de nascimento"
+                      inputMode="numeric"
+                      {...{ type: 'date' }}
+                    />
+                  </View>
+                ) : (
+                  <>
+                    <TouchableOpacity
+                      style={styles.dateButton}
+                      onPress={() => setShowBirthDatePicker(true)}
+                    >
+                      <Ionicons name="calendar-outline" size={24} color="#4ECDC4" />
+                      <Text style={styles.dateButtonText}>
+                        {birthDate && !isNaN(birthDate.getTime()) 
+                          ? formatDate(birthDate.toISOString()) 
+                          : birthDateInput 
+                            ? formatDate(new Date(birthDateInput + 'T12:00:00').toISOString())
+                            : 'Selecione a data'}
+                      </Text>
+                    </TouchableOpacity>
+                    {showBirthDatePicker && (
+                      <DateTimePicker
+                        value={birthDate || new Date(1969, 7, 29)}
+                        mode="date"
+                        display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                        maximumDate={new Date()}
+                        onChange={(event, selectedDate) => {
+                          // No Android, o evento pode ser 'dismissed' se o usuário cancelar
+                          if (Platform.OS === 'android') {
+                            setShowBirthDatePicker(false);
+                            // Só atualizar se não foi cancelado e há data selecionada
+                            if (event.type !== 'dismissed' && selectedDate) {
+                              // Extrair componentes da data para evitar problemas de timezone
+                              const year = selectedDate.getFullYear();
+                              const month = selectedDate.getMonth();
+                              const day = selectedDate.getDate();
+                              // Criar nova data local usando os componentes extraídos
+                              // Isso evita ajustes automáticos do DateTimePicker
+                              const validDate = new Date(year, month, day, 12, 0, 0, 0);
+                              setBirthDate(validDate);
+                              setBirthDateInput(formatDateForInput(validDate));
+                            }
+                          } else {
+                            // iOS: manter picker aberto até confirmação
+                            if (selectedDate) {
+                              const year = selectedDate.getFullYear();
+                              const month = selectedDate.getMonth();
+                              const day = selectedDate.getDate();
+                              const validDate = new Date(year, month, day, 12, 0, 0, 0);
+                              setBirthDate(validDate);
+                              setBirthDateInput(formatDateForInput(validDate));
+                            }
+                            if (event.type === 'set') {
+                              setShowBirthDatePicker(false);
+                            }
+                          }
+                        }}
+                      />
+                    )}
+                  </>
                 )}
                 {age !== null && age !== undefined && (
                   <Text style={styles.ageDisplay}>
@@ -454,39 +616,6 @@ export default function Anamnesis() {
                   </Text>
                 )}
               </View>
-              {/* Mostrar status de gestação se for feminino */}
-              {gender === 'Feminino' && isPregnant !== null && (
-                <View style={styles.pregnancyStatusContainer}>
-                  <Ionicons 
-                    name={isPregnant ? "checkmark-circle" : "close-circle"} 
-                    size={24} 
-                    color={isPregnant ? "#2ECC71" : "#E74C3C"} 
-                  />
-                  <Text style={styles.pregnancyStatusText}>
-                    {isPregnant ? 'Em período de gestação' : 'Não está em período de gestação'}
-                  </Text>
-                  <TouchableOpacity
-                    onPress={() => {
-                      Alert.alert(
-                        'Alterar Status',
-                        'Você está em período de gestação?',
-                        [
-                          {
-                            text: 'Não',
-                            onPress: () => setIsPregnant(false),
-                          },
-                          {
-                            text: 'Sim',
-                            onPress: () => setIsPregnant(true),
-                          },
-                        ]
-                      );
-                    }}
-                  >
-                    <Ionicons name="create-outline" size={20} color="#4ECDC4" />
-                  </TouchableOpacity>
-                </View>
-              )}
               <View style={styles.personalDataRow}>
                 <Text style={styles.personalDataLabel}>Sexo:</Text>
                 <View style={styles.genderContainer}>
@@ -501,20 +630,7 @@ export default function Anamnesis() {
                         setGender(g);
                         // Se mudou para Feminino e ainda não foi perguntado, perguntar sobre gestação
                         if (g === 'Feminino' && isPregnant === null) {
-                          Alert.alert(
-                            'Informação Importante',
-                            'Você está em período de gestação?',
-                            [
-                              {
-                                text: 'Não',
-                                onPress: () => setIsPregnant(false),
-                              },
-                              {
-                                text: 'Sim',
-                                onPress: () => setIsPregnant(true),
-                              },
-                            ]
-                          );
+                          setIsPregnant(null);
                         } else if (g === 'Masculino') {
                           // Se mudou para Masculino, limpar informação de gestação
                           setIsPregnant(null);
@@ -531,6 +647,60 @@ export default function Anamnesis() {
                   ))}
                 </View>
               </View>
+              {/* Pergunta sobre gestação - aparece ABAIXO do botão feminino */}
+              {gender === 'Feminino' && editing && (
+                <View style={styles.pregnancyQuestion}>
+                  <Text style={styles.pregnancyQuestionLabel}>Esta gestante?</Text>
+                  <View style={styles.pregnancyButtons}>
+                    <TouchableOpacity
+                      style={[
+                        styles.pregnancyButton,
+                        isPregnant === true && styles.pregnancyButtonActive,
+                      ]}
+                      onPress={() => setIsPregnant(true)}
+                    >
+                      <Text style={[
+                        styles.pregnancyButtonText,
+                        isPregnant === true && styles.pregnancyButtonTextActive,
+                      ]}>
+                        Sim
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.pregnancyButton,
+                        isPregnant === false && styles.pregnancyButtonActive,
+                      ]}
+                      onPress={() => setIsPregnant(false)}
+                    >
+                      <Text style={[
+                        styles.pregnancyButtonText,
+                        isPregnant === false && styles.pregnancyButtonTextActive,
+                      ]}>
+                        Nao
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+              {/* Mostrar status de gestação se for feminino */}
+              {gender === 'Feminino' && isPregnant !== null && (
+                <View style={styles.pregnancyStatusContainer}>
+                  <Ionicons 
+                    name={isPregnant ? "checkmark-circle" : "close-circle"} 
+                    size={24} 
+                    color={isPregnant ? "#2ECC71" : "#E74C3C"} 
+                  />
+                  <Text style={styles.pregnancyStatusText}>
+                    {isPregnant ? 'Em período de gestação' : 'Não está em período de gestação'}
+                  </Text>
+                  {editing && (
+                    <TouchableOpacity onPress={() => setIsPregnant(isPregnant ? false : true)}>
+                      <Ionicons name="create-outline" size={20} color="#4ECDC4" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
             </View>
           ) : expandedSections.personalData ? (
             <View style={styles.displayValue}>
@@ -603,13 +773,14 @@ export default function Anamnesis() {
           </TouchableOpacity>
           {expandedSections.allergies && editing && (
             <View style={styles.addAllergyContainer}>
-              <TextInput
-                style={styles.addAllergyInput}
+              <VoiceTextInput
                 value={newAllergy}
                 onChangeText={setNewAllergy}
                 placeholder="Ex: Penicilina, Amendoim..."
                 placeholderTextColor="#999"
                 onSubmitEditing={addAllergy}
+                containerStyle={styles.addAllergyInput}
+                inputStyle={styles.inputField}
               />
               <TouchableOpacity
                 style={styles.addButton}
@@ -664,12 +835,13 @@ export default function Anamnesis() {
                 </TouchableOpacity>
               ) : (
                 <View style={styles.surgeryForm}>
-                  <TextInput
-                    style={styles.input}
+                  <VoiceTextInput
                     value={newSurgery.type}
                     onChangeText={(text) => setNewSurgery({ ...newSurgery, type: text })}
                     placeholder="Tipo de cirurgia (Ex: Apendicectomia)"
                     placeholderTextColor="#999"
+                    containerStyle={styles.input}
+                    inputStyle={styles.inputField}
                   />
                   <TouchableOpacity
                     style={styles.dateButton}
@@ -693,14 +865,15 @@ export default function Anamnesis() {
                       }}
                     />
                   )}
-                  <TextInput
-                    style={[styles.input, styles.textArea]}
+                  <VoiceTextInput
                     value={newSurgery.notes}
                     onChangeText={(text) => setNewSurgery({ ...newSurgery, notes: text })}
                     placeholder="Observações sobre a cirurgia..."
                     placeholderTextColor="#999"
                     multiline
                     numberOfLines={3}
+                    containerStyle={[styles.input, styles.textArea]}
+                    inputStyle={[styles.inputField, styles.textAreaInput]}
                   />
                   <View style={styles.surgeryFormButtons}>
                     <TouchableOpacity
@@ -810,12 +983,13 @@ export default function Anamnesis() {
                 <View style={styles.customConditionForm}>
                   <Text style={styles.customConditionLabel}>Descreva a condição:</Text>
                   <View style={styles.customConditionInputContainer}>
-                    <TextInput
-                      style={styles.customConditionInput}
+                    <VoiceTextInput
                       value={newCustomCondition}
                       onChangeText={setNewCustomCondition}
                       placeholder="Ex: Artrite reumatoide"
                       placeholderTextColor="#999"
+                      containerStyle={styles.customConditionInput}
+                      inputStyle={styles.inputField}
                     />
                     <TouchableOpacity
                       style={styles.addCustomConditionButton}
@@ -1068,12 +1242,13 @@ export default function Anamnesis() {
                 </TouchableOpacity>
               ) : (
                 <View style={styles.familyHistoryForm}>
-                  <TextInput
-                    style={styles.input}
+                  <VoiceTextInput
                     value={newFamilyHistory}
                     onChangeText={setNewFamilyHistory}
                     placeholder="Ex: Pai com diabetes, Mãe com hipertensão"
                     placeholderTextColor="#999"
+                    containerStyle={styles.input}
+                    inputStyle={styles.inputField}
                   />
                   <View style={styles.formButtons}>
                     <TouchableOpacity
@@ -1192,13 +1367,14 @@ export default function Anamnesis() {
               ].map((system) => (
                 <View key={system.key} style={styles.systemReviewItem}>
                   <Text style={styles.systemReviewLabel}>{system.label}:</Text>
-                  <TextInput
-                    style={styles.systemReviewInput}
+                  <VoiceTextInput
                     value={systemReview[system.key]}
                     onChangeText={(text) => setSystemReview({ ...systemReview, [system.key]: text })}
                     placeholder={system.placeholder}
                     placeholderTextColor="#999"
                     multiline
+                    containerStyle={styles.systemReviewInput}
+                    inputStyle={styles.systemReviewInputText}
                   />
                 </View>
               ))}
@@ -1250,14 +1426,15 @@ export default function Anamnesis() {
             </View>
           </TouchableOpacity>
           {expandedSections.observations && editing ? (
-            <TextInput
-              style={[styles.input, styles.textArea]}
+            <VoiceTextInput
               value={observations}
               onChangeText={setObservations}
               placeholder="Informações adicionais relevantes para o atendimento médico..."
               placeholderTextColor="#999"
               multiline
               numberOfLines={6}
+              containerStyle={[styles.input, styles.textArea]}
+              inputStyle={[styles.inputField, styles.textAreaInput]}
             />
           ) : expandedSections.observations ? (
             <View style={styles.displayValue}>
@@ -1285,6 +1462,11 @@ export default function Anamnesis() {
             >
               <Text style={styles.actionButtonText}>Salvar</Text>
             </TouchableOpacity>
+          </View>
+        )}
+        {!!saveStatus && (
+          <View style={styles.saveStatus}>
+            <Text style={styles.saveStatusText}>{saveStatus}</Text>
           </View>
         )}
       </View>
@@ -1352,8 +1534,16 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#e0e0e0',
   },
+  inputField: {
+    flex: 1,
+    fontSize: 22,
+    color: '#333',
+  },
   textArea: {
     height: 150,
+    textAlignVertical: 'top',
+  },
+  textAreaInput: {
     textAlignVertical: 'top',
   },
   displayValue: {
@@ -1676,6 +1866,15 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#fff',
   },
+  saveStatus: {
+    marginTop: 16,
+    alignItems: 'center',
+  },
+  saveStatusText: {
+    fontSize: 18,
+    color: '#4ECDC4',
+    fontWeight: 'bold',
+  },
   personalDataContainer: {
     backgroundColor: '#f9f9f9',
     borderRadius: 12,
@@ -1691,6 +1890,22 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#333',
     marginBottom: 8,
+  },
+  dateInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderWidth: 2,
+    borderColor: '#4ECDC4',
+    gap: 12,
+  },
+  dateInputField: {
+    flex: 1,
+    fontSize: 20,
+    color: '#333',
   },
   personalDataInput: {
     backgroundColor: '#fff',
@@ -1716,6 +1931,44 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginTop: 12,
     gap: 8,
+  },
+  pregnancyQuestion: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 2,
+    borderColor: '#4ECDC4',
+    marginTop: 12,
+  },
+  pregnancyQuestionLabel: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 12,
+  },
+  pregnancyButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  pregnancyButton: {
+    flex: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#4ECDC4',
+    backgroundColor: '#fff',
+  },
+  pregnancyButtonActive: {
+    backgroundColor: '#4ECDC4',
+  },
+  pregnancyButtonText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#4ECDC4',
+  },
+  pregnancyButtonTextActive: {
+    color: '#fff',
   },
   pregnancyStatusText: {
     fontSize: 18,
@@ -1856,6 +2109,12 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#e0e0e0',
     minHeight: 60,
+    textAlignVertical: 'top',
+  },
+  systemReviewInputText: {
+    flex: 1,
+    fontSize: 20,
+    color: '#333',
     textAlignVertical: 'top',
   },
   systemReviewDisplay: {

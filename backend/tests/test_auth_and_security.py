@@ -42,7 +42,7 @@ class TestAuthentication:
 class TestInputValidation:
     """Testes para validação de entrada e sanitização"""
     
-    def test_medication_log_invalid_status(self, client, api_key):
+    def test_medication_log_invalid_status(self, client, api_key, csrf_token):
         """Testa criar log com status inválido"""
         log_data = {
             "medication_name": "Paracetamol",
@@ -52,12 +52,15 @@ class TestInputValidation:
         response = client.post(
             "/api/medication-logs",
             json=log_data,
-            headers={"Authorization": f"Bearer {api_key}"}
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "X-CSRF-Token": csrf_token
+            }
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Invalid status" in response.json()["detail"]
     
-    def test_medication_log_valid_statuses(self, client, api_key):
+    def test_medication_log_valid_statuses(self, client, api_key, csrf_token):
         """Testa criar log com status válidos"""
         valid_statuses = ["taken", "skipped", "postponed"]
         for status_val in valid_statuses:
@@ -69,7 +72,10 @@ class TestInputValidation:
             response = client.post(
                 "/api/medication-logs",
                 json=log_data,
-                headers={"Authorization": f"Bearer {api_key}"}
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "X-CSRF-Token": csrf_token
+                }
             )
             assert response.status_code == status.HTTP_200_OK
             assert response.json()["status"] == status_val
@@ -88,7 +94,7 @@ class TestImageValidation:
         encoded = base64.b64encode(fake_image_data.encode()).decode()
         return f"data:image/png;base64,{encoded}"
     
-    def test_medication_with_large_image(self, client, api_key):
+    def test_medication_with_large_image(self, client, api_key, csrf_token):
         """Testa criar medicamento com imagem muito grande"""
         large_image = self.generate_large_base64_image(6.0)  # 6MB em base64 = ~4.5MB original
         medication_data = {
@@ -101,12 +107,15 @@ class TestImageValidation:
         response = client.post(
             "/api/medications",
             json=medication_data,
-            headers={"Authorization": f"Bearer {api_key}"}
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "X-CSRF-Token": csrf_token
+            }
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Image size exceeds" in response.json()["detail"]
     
-    def test_medication_with_small_image(self, client, api_key):
+    def test_medication_with_small_image(self, client, api_key, csrf_token):
         """Testa criar medicamento com imagem pequena (deve passar)"""
         small_image = self.generate_large_base64_image(1.0)  # 1MB
         medication_data = {
@@ -119,11 +128,14 @@ class TestImageValidation:
         response = client.post(
             "/api/medications",
             json=medication_data,
-            headers={"Authorization": f"Bearer {api_key}"}
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "X-CSRF-Token": csrf_token
+            }
         )
         assert response.status_code == status.HTTP_200_OK
     
-    def test_emergency_contact_with_large_image(self, client, api_key):
+    def test_emergency_contact_with_large_image(self, client, api_key, csrf_token):
         """Testa criar contato com foto muito grande"""
         large_image = self.generate_large_base64_image(6.0)
         contact_data = {
@@ -136,7 +148,10 @@ class TestImageValidation:
         response = client.post(
             "/api/emergency-contacts",
             json=contact_data,
-            headers={"Authorization": f"Bearer {api_key}"}
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "X-CSRF-Token": csrf_token
+            }
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Image size exceeds" in response.json()["detail"]
@@ -145,7 +160,7 @@ class TestImageValidation:
 class TestStringSanitization:
     """Testes para sanitização de strings"""
     
-    def test_sanitize_string_removes_control_chars(self, client, api_key):
+    def test_sanitize_string_removes_control_chars(self, client, api_key, csrf_token):
         """Testa que caracteres de controle são removidos"""
         # Caracteres de controle (exceto \n\r\t) devem ser removidos
         medication_data = {
@@ -157,7 +172,10 @@ class TestStringSanitization:
         response = client.post(
             "/api/medications",
             json=medication_data,
-            headers={"Authorization": f"Bearer {api_key}"}
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "X-CSRF-Token": csrf_token
+            }
         )
         assert response.status_code == status.HTTP_200_OK
         # O nome deve ser sanitizado (caracteres de controle removidos)
@@ -166,7 +184,7 @@ class TestStringSanitization:
         assert "\x00" not in data["name"]
         assert "\x01" not in data["name"]
     
-    def test_sanitize_string_preserves_newlines(self, client, api_key):
+    def test_sanitize_string_preserves_newlines(self, client, api_key, csrf_token):
         """Testa que newlines são preservados"""
         medication_data = {
             "name": "Medicamento\ncom\nnewlines",
@@ -178,7 +196,10 @@ class TestStringSanitization:
         response = client.post(
             "/api/medications",
             json=medication_data,
-            headers={"Authorization": f"Bearer {api_key}"}
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "X-CSRF-Token": csrf_token
+            }
         )
         assert response.status_code == status.HTTP_200_OK
         data = response.json()

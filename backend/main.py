@@ -1532,6 +1532,199 @@ def delete_family_profile(
     return {"success": True, "message": "Perfil deletado com sucesso"}
 
 
+@app.post("/api/family/add-child", response_model=schemas.FamilyProfileResponse)
+@limiter.limit("10/minute")
+def add_family_child(
+    request: Request,
+    data: schemas.FamilyMemberCreate,
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db)
+):
+    """Adiciona uma criança à família (apenas family_admin)"""
+    user = get_user_from_token(db, credentials.credentials)
+    if user.account_type != "family_admin":
+        raise HTTPException(status_code=403, detail="Apenas administradores podem adicionar familiares")
+    
+    family = ensure_family_for_user(db, user)
+    
+    # Verificar limite de perfis por família
+    profile_count = db.query(models.FamilyProfile).filter(
+        models.FamilyProfile.family_id == family.id
+    ).count()
+    
+    if profile_count >= MAX_FAMILY_PROFILES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Limite de {MAX_FAMILY_PROFILES} perfis por família atingido"
+        )
+    
+    # Validar idade (deve ser menor de 18 anos)
+    age = calculate_age(data.birth_date)
+    if age >= 18:
+        raise HTTPException(status_code=400, detail="Criança deve ter menos de 18 anos")
+    
+    # Verificar duplicatas (mesmo nome e data de nascimento)
+    existing = db.query(models.FamilyProfile).filter(
+        models.FamilyProfile.family_id == family.id,
+        models.FamilyProfile.name == data.name.strip(),
+        models.FamilyProfile.birth_date == data.birth_date
+    ).first()
+    
+    if existing:
+        raise HTTPException(status_code=400, detail="Já existe um familiar com este nome e data de nascimento")
+    
+    # Criar perfil da criança
+    profile = models.FamilyProfile(
+        family_id=family.id,
+        name=data.name.strip(),
+        account_type="child",
+        birth_date=data.birth_date,
+        gender=data.gender.strip() if data.gender else None,
+        blood_type=data.blood_type.strip().upper() if data.blood_type else None,
+        created_by=user.id,
+        permissions=build_permissions("child"),
+        allow_quick_access=True  # Crianças podem ter acesso rápido por padrão
+    )
+    db.add(profile)
+    safe_db_commit(db)
+    db.refresh(profile)
+    
+    # Adicionar criador como cuidador com acesso 'full'
+    caregiver = models.FamilyCaregiver(
+        profile_id=profile.id,
+        caregiver_user_id=user.id,
+        access_level="full"
+    )
+    db.add(caregiver)
+    safe_db_commit(db)
+    
+    return profile
+
+
+@app.post("/api/family/add-adult", response_model=schemas.FamilyProfileResponse)
+@limiter.limit("10/minute")
+def add_family_adult(
+    request: Request,
+    data: schemas.FamilyMemberCreate,
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db)
+):
+    """Adiciona um adulto à família (apenas family_admin)"""
+    user = get_user_from_token(db, credentials.credentials)
+    if user.account_type != "family_admin":
+        raise HTTPException(status_code=403, detail="Apenas administradores podem adicionar familiares")
+    
+    family = ensure_family_for_user(db, user)
+    
+    # Verificar limite de perfis por família
+    profile_count = db.query(models.FamilyProfile).filter(
+        models.FamilyProfile.family_id == family.id
+    ).count()
+    
+    if profile_count >= MAX_FAMILY_PROFILES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Limite de {MAX_FAMILY_PROFILES} perfis por família atingido"
+        )
+    
+    # Validar idade (deve ser maior ou igual a 18 anos)
+    age = calculate_age(data.birth_date)
+    if age < 18:
+        raise HTTPException(status_code=400, detail="Adulto deve ter 18 anos ou mais")
+    
+    # Verificar duplicatas
+    existing = db.query(models.FamilyProfile).filter(
+        models.FamilyProfile.family_id == family.id,
+        models.FamilyProfile.name == data.name.strip(),
+        models.FamilyProfile.birth_date == data.birth_date
+    ).first()
+    
+    if existing:
+        raise HTTPException(status_code=400, detail="Já existe um familiar com este nome e data de nascimento")
+    
+    # Criar perfil do adulto
+    profile = models.FamilyProfile(
+        family_id=family.id,
+        name=data.name.strip(),
+        account_type="adult_member",
+        birth_date=data.birth_date,
+        gender=data.gender.strip() if data.gender else None,
+        blood_type=data.blood_type.strip().upper() if data.blood_type else None,
+        created_by=user.id,
+        permissions=build_permissions("adult_member"),
+        allow_quick_access=False
+    )
+    db.add(profile)
+    safe_db_commit(db)
+    db.refresh(profile)
+    
+    return profile
+
+
+@app.post("/api/family/add-elder", response_model=schemas.FamilyProfileResponse)
+@limiter.limit("10/minute")
+def add_family_elder(
+    request: Request,
+    data: schemas.FamilyMemberCreate,
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db)
+):
+    """Adiciona um idoso sob cuidados à família (apenas family_admin)"""
+    user = get_user_from_token(db, credentials.credentials)
+    if user.account_type != "family_admin":
+        raise HTTPException(status_code=403, detail="Apenas administradores podem adicionar familiares")
+    
+    family = ensure_family_for_user(db, user)
+    
+    # Verificar limite de perfis por família
+    profile_count = db.query(models.FamilyProfile).filter(
+        models.FamilyProfile.family_id == family.id
+    ).count()
+    
+    if profile_count >= MAX_FAMILY_PROFILES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Limite de {MAX_FAMILY_PROFILES} perfis por família atingido"
+        )
+    
+    # Verificar duplicatas
+    existing = db.query(models.FamilyProfile).filter(
+        models.FamilyProfile.family_id == family.id,
+        models.FamilyProfile.name == data.name.strip(),
+        models.FamilyProfile.birth_date == data.birth_date
+    ).first()
+    
+    if existing:
+        raise HTTPException(status_code=400, detail="Já existe um familiar com este nome e data de nascimento")
+    
+    # Criar perfil do idoso
+    profile = models.FamilyProfile(
+        family_id=family.id,
+        name=data.name.strip(),
+        account_type="elder_under_care",
+        birth_date=data.birth_date,
+        gender=data.gender.strip() if data.gender else None,
+        blood_type=data.blood_type.strip().upper() if data.blood_type else None,
+        created_by=user.id,
+        permissions=build_permissions("elder_under_care"),
+        allow_quick_access=False
+    )
+    db.add(profile)
+    safe_db_commit(db)
+    db.refresh(profile)
+    
+    # Adicionar criador como cuidador com acesso 'full'
+    caregiver = models.FamilyCaregiver(
+        profile_id=profile.id,
+        caregiver_user_id=user.id,
+        access_level="full"
+    )
+    db.add(caregiver)
+    safe_db_commit(db)
+    
+    return profile
+
+
 @app.post("/api/family/invite-adult", response_model=schemas.FamilyInviteResponse)
 @limiter.limit("5/minute")
 def create_family_invite(

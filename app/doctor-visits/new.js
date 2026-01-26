@@ -1,10 +1,12 @@
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, TextInput, Alert, Platform, KeyboardAvoidingView } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Alert, Platform, KeyboardAvoidingView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getProfileItem, setProfileItem } from '../../services/profileStorageManager';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { scheduleVisitAlarms } from '../../services/alarm';
+import VoiceTextInput from '../../components/VoiceTextInput';
+import { useProfileAuthGuard } from '../../hooks/useProfileAuthGuard';
 
 const specialties = [
   'Cardiologista',
@@ -20,6 +22,7 @@ const specialties = [
 
 export default function NewDoctorVisit() {
   const router = useRouter();
+  useProfileAuthGuard({ sensitive: true });
   const [doctorName, setDoctorName] = useState('');
   const [specialty, setSpecialty] = useState('');
   const [visitDate, setVisitDate] = useState(new Date());
@@ -63,7 +66,7 @@ export default function NewDoctorVisit() {
     }
 
     try {
-      const stored = await AsyncStorage.getItem('doctorVisits');
+      const stored = await getProfileItem('doctorVisits');
       const visits = stored ? JSON.parse(stored) : [];
       
       // Combinar data e hora
@@ -83,7 +86,7 @@ export default function NewDoctorVisit() {
       };
 
       visits.push(newVisit);
-      await AsyncStorage.setItem('doctorVisits', JSON.stringify(visits));
+      await setProfileItem('doctorVisits', JSON.stringify(visits));
       
       // Agendar alarmes para a consulta
       try {
@@ -135,12 +138,14 @@ export default function NewDoctorVisit() {
       <View style={styles.form}>
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Nome do Médico *</Text>
-          <TextInput
-            style={styles.input}
+          <VoiceTextInput
             value={doctorName}
             onChangeText={setDoctorName}
             placeholder="Dr. João Silva"
             placeholderTextColor="#999"
+            containerStyle={styles.inputRow}
+            inputStyle={styles.inputField}
+            helperText="Toque no microfone para ditar."
           />
         </View>
 
@@ -175,12 +180,14 @@ export default function NewDoctorVisit() {
             <View style={styles.customSpecialtyForm}>
               <Text style={styles.customSpecialtyLabel}>Digite a especialidade:</Text>
               <View style={styles.customSpecialtyInputContainer}>
-                <TextInput
-                  style={styles.customSpecialtyInput}
+                <VoiceTextInput
                   value={customSpecialty}
                   onChangeText={setCustomSpecialty}
                   placeholder="Ex: Geriatra, Urologista"
                   placeholderTextColor="#999"
+                  containerStyle={styles.customSpecialtyInputRow}
+                  inputStyle={styles.inputField}
+                  helperText="Toque no microfone para ditar."
                 />
                 <TouchableOpacity
                   style={styles.addCustomSpecialtyButton}
@@ -297,14 +304,16 @@ export default function NewDoctorVisit() {
 
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Observações</Text>
-          <TextInput
-            style={[styles.input, styles.textArea]}
+          <VoiceTextInput
             value={notes}
             onChangeText={setNotes}
             placeholder="Prescrições, recomendações, etc."
             placeholderTextColor="#999"
+            containerStyle={styles.inputRow}
+            inputStyle={[styles.inputField, styles.textArea]}
             multiline
             numberOfLines={6}
+            helperText="Toque no microfone para ditar."
           />
         </View>
 
@@ -357,6 +366,20 @@ const styles = StyleSheet.create({
     color: '#333',
     borderWidth: 2,
     borderColor: '#e0e0e0',
+  },
+  inputRow: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 20,
+    borderWidth: 2,
+    borderColor: '#e0e0e0',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  inputField: {
+    flex: 1,
+    fontSize: 22,
+    color: '#333',
   },
   textArea: {
     height: 150,
@@ -467,15 +490,15 @@ const styles = StyleSheet.create({
     gap: 12,
     alignItems: 'center',
   },
-  customSpecialtyInput: {
+  customSpecialtyInputRow: {
     flex: 1,
     backgroundColor: '#fff',
     borderRadius: 12,
     padding: 20,
-    fontSize: 22,
-    color: '#333',
     borderWidth: 2,
     borderColor: '#e0e0e0',
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   addCustomSpecialtyButton: {
     justifyContent: 'center',

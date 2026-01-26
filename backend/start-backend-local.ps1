@@ -81,6 +81,9 @@ Write-Host ""
 Write-Host "[INFO] Ativando ambiente virtual..." -ForegroundColor Yellow
 & .\venv\Scripts\Activate.ps1
 
+# Habilitar tokens de email em modo debug (ambiente local)
+$env:ALLOW_EMAIL_DEBUG = "true"
+
 # Verificar se uvicorn está instalado
 $uvicornInstalled = pip show uvicorn 2>&1
 if ($LASTEXITCODE -ne 0) {
