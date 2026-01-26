@@ -3,6 +3,430 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 
 
+# ========== CRIPTOGRAFIA ==========
+class EncryptedData(BaseModel):
+    """
+    Schema para dados criptografados (zero-knowledge).
+    Backend armazena sem descriptografar.
+    """
+    encrypted: str  # Dados criptografados (base64 ou string)
+    iv: str  # Initialization Vector (hex)
+
+
+# ========== USUARIOS E AUTENTICACAO ==========
+class DeviceInfo(BaseModel):
+    device_id: Optional[str] = None
+    device_name: Optional[str] = None
+    device_model: Optional[str] = None
+    os_name: Optional[str] = None
+    os_version: Optional[str] = None
+    app_version: Optional[str] = None
+    push_token: Optional[str] = None
+    location_lat: Optional[float] = None
+    location_lon: Optional[float] = None
+    location_accuracy_km: Optional[float] = None
+
+    @validator('device_id', 'device_name', 'device_model', 'os_name', 'os_version', 'app_version', 'push_token')
+    def validate_device_fields(cls, v):
+        if v is None:
+            return v
+        if len(v) > 255:
+            raise ValueError('Informacao de dispositivo muito longa')
+        return v.strip()
+
+
+class UserCreate(BaseModel):
+    email: str
+    password: str
+    device: Optional[DeviceInfo] = None
+
+    @validator('email')
+    def validate_email(cls, v):
+        email = v.strip().lower()
+        if '@' not in email or len(email) < 5:
+            raise ValueError('Email invalido')
+        if len(email) > 255:
+            raise ValueError('Email muito longo')
+        return email
+
+    @validator('password')
+    def validate_password(cls, v):
+        if len(v) < 8:
+            raise ValueError('Senha deve ter pelo menos 8 caracteres')
+        if len(v) > 255:
+            raise ValueError('Senha muito longa')
+        if not any(c.islower() for c in v):
+            raise ValueError('Senha deve conter letra minuscula')
+        if not any(c.isupper() for c in v):
+            raise ValueError('Senha deve conter letra maiuscula')
+        if not any(c.isdigit() for c in v):
+            raise ValueError('Senha deve conter numero')
+        if not any(c in "!@#$%^&*" for c in v):
+            raise ValueError('Senha deve conter caractere especial (!@#$%^&*)')
+        return v
+
+
+class UserLogin(BaseModel):
+    email: str
+    password: str
+    device: Optional[DeviceInfo] = None
+
+    @validator('email')
+    def normalize_login_email(cls, v):
+        return v.strip().lower()
+
+
+class UserResponse(BaseModel):
+    id: int
+    email: str
+    role: str
+    family_id: Optional[int] = None
+    account_type: Optional[str] = None
+    is_active: bool
+    email_verified: bool
+    created_at: datetime
+    last_login_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class AuthTokenResponse(BaseModel):
+    access_token: Optional[str] = None
+    refresh_token: Optional[str] = None
+    token_type: str = "bearer"
+    user: UserResponse
+    verification_required: bool = False
+    verification_token: Optional[str] = None
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+
+class SessionResponse(BaseModel):
+    id: int
+    device_id: str
+    device_name: Optional[str] = None
+    device_model: Optional[str] = None
+    os_name: Optional[str] = None
+    os_version: Optional[str] = None
+    app_version: Optional[str] = None
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+    trusted: bool
+    trust_expires_at: Optional[datetime] = None
+    blocked: bool = False
+    blocked_at: Optional[datetime] = None
+    last_activity_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    revoked_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class SessionRevokeRequest(BaseModel):
+    session_id: Optional[int] = None
+    device_id: Optional[str] = None
+
+
+class SessionTrustRequest(BaseModel):
+    session_id: Optional[int] = None
+    device_id: Optional[str] = None
+    trusted: bool = True
+
+
+class SessionBlockRequest(BaseModel):
+    session_id: Optional[int] = None
+    device_id: Optional[str] = None
+    blocked: bool = True
+
+
+class LoginEventResponse(BaseModel):
+    id: int
+    device_id: Optional[str] = None
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class RefreshTokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+
+
+class VerifyEmailRequest(BaseModel):
+    email: str
+    token: str
+
+
+class ResendVerificationRequest(BaseModel):
+    email: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    email: str
+    token: str
+    new_password: str
+
+    @validator('new_password')
+    def validate_new_password(cls, v):
+        if len(v) < 8:
+            raise ValueError('Senha deve ter pelo menos 8 caracteres')
+        if len(v) > 255:
+            raise ValueError('Senha muito longa')
+        if not any(c.islower() for c in v):
+            raise ValueError('Senha deve conter letra minuscula')
+        if not any(c.isupper() for c in v):
+            raise ValueError('Senha deve conter letra maiuscula')
+        if not any(c.isdigit() for c in v):
+            raise ValueError('Senha deve conter numero')
+        if not any(c in "!@#$%^&*" for c in v):
+            raise ValueError('Senha deve conter caractere especial (!@#$%^&*)')
+        return v
+
+
+# ========== FAMILIA E PERFIS ==========
+class FamilyProfileBase(BaseModel):
+    name: str
+    account_type: str
+    birth_date: Optional[datetime] = None
+    gender: Optional[str] = None
+    blood_type: Optional[str] = None
+    allow_quick_access: bool = False
+
+    @validator('name')
+    def validate_profile_name(cls, v):
+        name = v.strip()
+        if len(name) < 2:
+            raise ValueError('Nome muito curto')
+        if len(name) > 255:
+            raise ValueError('Nome muito longo')
+        return name
+
+    @validator('gender')
+    def validate_gender(cls, v):
+        if v is None:
+            return v
+        if len(v) > 50:
+            raise ValueError('Genero muito longo')
+        return v.strip()
+
+    @validator('blood_type')
+    def validate_blood_type(cls, v):
+        if v is None:
+            return v
+        if len(v) > 10:
+            raise ValueError('Tipo sanguineo muito longo')
+        return v.strip().upper()
+
+
+class FamilyProfileResponse(FamilyProfileBase):
+    id: int
+    family_id: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class FamilyMemberCreate(BaseModel):
+    name: str
+    birth_date: datetime
+    gender: Optional[str] = None
+    blood_type: Optional[str] = None
+    email: Optional[str] = None
+
+    @validator('name')
+    def validate_member_name(cls, v):
+        name = v.strip()
+        if len(name) < 2:
+            raise ValueError('Nome muito curto')
+        if len(name) > 255:
+            raise ValueError('Nome muito longo')
+        return name
+
+    @validator('email')
+    def validate_member_email(cls, v):
+        if v is None:
+            return v
+        email = v.strip().lower()
+        if len(email) > 255:
+            raise ValueError('Email muito longo')
+        if '@' not in email:
+            raise ValueError('Email invalido')
+        return email
+
+
+class FamilyLinkCreate(BaseModel):
+    target_profile_id: int
+
+
+class FamilyLinkResponse(BaseModel):
+    id: int
+    family_id: int
+    source_profile_id: int
+    target_profile_id: int
+    status: str
+    created_at: datetime
+    approved_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class FamilyDataShareCreate(BaseModel):
+    to_profile_id: int
+    permissions: Optional[dict] = None
+
+
+class FamilyDataShareResponse(BaseModel):
+    id: int
+    family_id: int
+    from_profile_id: int
+    to_profile_id: int
+    permissions: Optional[dict] = None
+    created_at: datetime
+    revoked_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class FamilyInviteCreate(BaseModel):
+    invitee_email: Optional[str] = None
+    permissions: Optional[dict] = None  # Permissões: {"can_view": True, "can_edit": True, "can_delete": False}
+
+    @validator('invitee_email')
+    def validate_invite_email(cls, v):
+        if v is None:
+            return v
+        # Tratar string vazia como None
+        if isinstance(v, str) and not v.strip():
+            return None
+        email = v.strip().lower()
+        if len(email) > 255:
+            raise ValueError('Email muito longo')
+        if '@' not in email:
+            raise ValueError('Email invalido')
+        return email
+
+
+class FamilyInviteAccept(BaseModel):
+    code: str
+
+    @validator('code')
+    def validate_code(cls, v):
+        code = v.strip()
+        if len(code) < 4:
+            raise ValueError('Codigo invalido')
+        return code
+
+
+class FamilyInviteResponse(BaseModel):
+    id: int
+    family_id: int
+    inviter_user_id: int
+    invitee_email: Optional[str] = None
+    invite_code: Optional[str] = None
+    status: str
+    expires_at: Optional[datetime] = None
+    accepted_at: Optional[datetime] = None
+    accepted_by_user_id: Optional[int] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ========== BIOMETRIA ==========
+class BiometricRegisterRequest(BaseModel):
+    device_id: str
+    public_key: str
+    device_name: Optional[str] = None
+
+    @validator('device_id')
+    def validate_biometric_device_id(cls, v):
+        if not v or len(v.strip()) < 4:
+            raise ValueError('ID do dispositivo invalido')
+        if len(v) > 255:
+            raise ValueError('ID do dispositivo muito longo')
+        return v.strip()
+
+    @validator('public_key')
+    def validate_public_key(cls, v):
+        if not v or len(v.strip()) < 32:
+            raise ValueError('Public key invalida')
+        return v.strip()
+
+    @validator('device_name')
+    def validate_device_name(cls, v):
+        if v is None:
+            return v
+        if len(v) > 255:
+            raise ValueError('Nome do dispositivo muito longo')
+        return v.strip()
+
+
+class BiometricDeviceResponse(BaseModel):
+    id: int
+    device_id: str
+    device_name: Optional[str] = None
+    created_at: datetime
+    revoked_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class BiometricChallengeResponse(BaseModel):
+    device_id: str
+    challenge: str
+    expires_in_minutes: int
+
+
+class BiometricChallengeRequest(BaseModel):
+    device_id: str
+
+    @validator('device_id')
+    def validate_challenge_device_id(cls, v):
+        if not v or len(v.strip()) < 4:
+            raise ValueError('ID do dispositivo invalido')
+        if len(v) > 255:
+            raise ValueError('ID do dispositivo muito longo')
+        return v.strip()
+
+
+class BiometricAuthRequest(BaseModel):
+    device_id: str
+    challenge: str
+    signature: str
+
+    @validator('device_id')
+    def validate_auth_device_id(cls, v):
+        if not v or len(v.strip()) < 4:
+            raise ValueError('ID do dispositivo invalido')
+        if len(v) > 255:
+            raise ValueError('ID do dispositivo muito longo')
+        return v.strip()
+
+    @validator('challenge', 'signature')
+    def validate_auth_fields(cls, v):
+        if not v or len(v.strip()) < 10:
+            raise ValueError('Valor invalido')
+        return v.strip()
+
+
 # ========== MEDICAMENTOS ==========
 class MedicationBase(BaseModel):
     name: str
@@ -11,6 +435,7 @@ class MedicationBase(BaseModel):
     image_base64: Optional[str] = None
     notes: Optional[str] = None
     active: bool = True
+    encrypted_data: Optional[EncryptedData] = None  # Dados criptografados (zero-knowledge)
 
 
 class MedicationCreate(MedicationBase):
@@ -57,6 +482,7 @@ class EmergencyContactBase(BaseModel):
     photo_base64: Optional[str] = None
     relation: Optional[str] = None
     order: int = 0
+    encrypted_data: Optional[EncryptedData] = None  # Dados criptografados (zero-knowledge)
 
 
 class EmergencyContactCreate(EmergencyContactBase):
@@ -79,6 +505,7 @@ class DoctorVisitBase(BaseModel):
     visit_date: datetime
     notes: Optional[str] = None
     prescription_image: Optional[str] = None
+    encrypted_data: Optional[EncryptedData] = None  # Dados criptografados (zero-knowledge)
 
 
 class DoctorVisitCreate(DoctorVisitBase):
@@ -98,6 +525,7 @@ class DoctorVisitResponse(DoctorVisitBase):
 class MedicalExamBase(BaseModel):
     exam_date: Optional[datetime] = None
     exam_type: Optional[str] = None
+    encrypted_data: Optional[EncryptedData] = None  # Dados criptografados (zero-knowledge)
 
 
 class MedicalExamCreate(MedicalExamBase):
@@ -157,9 +585,9 @@ class LicenseValidateRequest(BaseModel):
     device_id: Optional[str] = None
     
     class Config:
-        # Validação adicional
-        min_anystr_length = 1
-        max_anystr_length = 255
+        # Validação adicional (Pydantic V2)
+        str_min_length = 1
+        str_max_length = 255
     
     @validator('key')
     def validate_key_format(cls, v):

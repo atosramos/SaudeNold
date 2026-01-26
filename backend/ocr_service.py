@@ -6,8 +6,62 @@ from PIL import Image
 import io
 import base64
 import logging
+import shutil
+import os
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# Verificar se Tesseract está disponível
+TESSERACT_AVAILABLE = False
+TESSERACT_PATH = None
+
+def _find_tesseract():
+    """Tenta encontrar o executável do Tesseract em várias localizações"""
+    # 1. Verificar variável de ambiente
+    env_path = os.getenv('TESSERACT_CMD')
+    if env_path and Path(env_path).exists():
+        return env_path
+    
+    # 2. Verificar no PATH do sistema
+    tesseract_path = shutil.which('tesseract')
+    if tesseract_path:
+        return tesseract_path
+    
+    # 3. Tentar localizações comuns no Windows
+    common_paths = [
+        r'C:\Program Files\Tesseract-OCR\tesseract.exe',
+        r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
+        r'C:\Users\{}\AppData\Local\Tesseract-OCR\tesseract.exe'.format(os.getenv('USERNAME', '')),
+    ]
+    
+    for path in common_paths:
+        if Path(path).exists():
+            return path
+    
+    return None
+
+try:
+    # Tentar encontrar o executável do Tesseract
+    tesseract_path = _find_tesseract()
+    if tesseract_path:
+        # Configurar o caminho do Tesseract se não estiver no PATH
+        if not shutil.which('tesseract'):
+            pytesseract.pytesseract.tesseract_cmd = tesseract_path
+            logger.info(f"Tesseract configurado manualmente: {tesseract_path}")
+        
+        # Tentar executar para verificar se funciona
+        pytesseract.get_tesseract_version()
+        TESSERACT_AVAILABLE = True
+        TESSERACT_PATH = tesseract_path
+        logger.info(f"Tesseract encontrado e funcionando: {tesseract_path}")
+    else:
+        logger.warning("Tesseract não encontrado. Instale o Tesseract OCR ou configure TESSERACT_CMD no .env")
+        logger.warning("Para instalar no Windows: winget install UB-Mannheim.TesseractOCR")
+        logger.warning("Ou baixe de: https://github.com/UB-Mannheim/tesseract/wiki")
+except Exception as e:
+    logger.warning(f"Tesseract não disponível: {str(e)}")
+    TESSERACT_AVAILABLE = False
 
 try:
     import fitz  # PyMuPDF
@@ -75,7 +129,17 @@ def perform_ocr(image_base64: str, file_type: str = 'image', language: str = 'po
     
     Returns:
         Texto extraído do OCR (todas as páginas se for PDF)
+    
+    Raises:
+        Exception: Se Tesseract não estiver disponível ou ocorrer erro no processamento
     """
+    # Verificar se Tesseract está disponível
+    if not TESSERACT_AVAILABLE:
+        # OCR não disponível - retornar erro mais amigável
+        # Não usar Tesseract se não estiver instalado - usar OCR online ou Gemini
+        logger.warning("Tesseract OCR não está disponível. O sistema deve usar OCR online ou Gemini AI.")
+        raise Exception("OCR Tesseract não está instalado. Use OCR online ou Gemini AI para processar exames. Para instalar Tesseract, veja: https://github.com/UB-Mannheim/tesseract/wiki")
+    
     try:
         all_text = []
         

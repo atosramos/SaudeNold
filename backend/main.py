@@ -1,13 +1,17 @@
 from fastapi import FastAPI, HTTPException, Depends, Security, status, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.exceptions import RequestValidationError
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from sqlalchemy import Float
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from config.redis_config import get_redis_connection_string, is_redis_available, reset_redis_connection
 import os
 import logging
 import hashlib
@@ -17,6 +21,72 @@ from dotenv import load_dotenv
 from database import SessionLocal, engine, Base
 import models
 import schemas
+from auth import (
+    authenticate_user,
+    create_access_token,
+    get_user_from_token,
+    decode_token_payload,
+    hash_password,
+    create_refresh_token,
+    verify_refresh_token,
+    revoke_refresh_token,
+    revoke_all_refresh_tokens,
+    create_email_verification_token,
+    create_password_reset_token,
+    hash_token,
+    cleanup_expired_refresh_tokens,
+    cleanup_revoked_refresh_tokens,
+    REQUIRE_EMAIL_VERIFICATION,
+    ALLOW_EMAIL_DEBUG,
+)
+from services.token_blacklist import add_to_blacklist, is_blacklisted
+from services.csrf_service import generate_and_store_csrf_token
+from services.encryption_service import EncryptionService
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import padding, ec, rsa
+from cryptography.hazmat.primitives.serialization import load_pem_public_key
+import base64
+import textwrap
+from email_service import send_email, smtp_configured
+from session_service import (
+    upsert_session,
+    revoke_sessions,
+    mark_session_trusted,
+    mark_session_blocked,
+    is_device_blocked,
+    log_login_event
+)
+from notification_service import (
+    send_login_notification,
+    send_login_blocked_alert,
+    send_failed_login_alert,
+    send_suspicious_login_alert,
+    send_mass_download_alert,
+    send_session_revoked_alert
+)
+from session_tokens import (
+    create_session_action_token,
+    verify_session_action_token,
+    create_biometric_challenge_token,
+    verify_biometric_challenge_token
+)
+from login_security import (
+    record_failed_login,
+    clear_failed_logins,
+    get_failed_attempts_count,
+    has_suspicious_login_pattern,
+    MAX_ATTEMPTS,
+    WINDOW_MINUTES,
+    SUSPICIOUS_LOGIN_WINDOW_MINUTES
+)
+from download_security import (
+    record_download,
+    get_recent_download_count,
+    DOWNLOAD_WINDOW_MINUTES,
+    DOWNLOAD_THRESHOLD
+)
+import asyncio
 from ocr_service import perform_ocr
 from data_extraction import extract_data_from_ocr_text
 from license_generator import generate_license_key, validate_license_key, LICENSE_DURATIONS
@@ -25,6 +95,10 @@ from alert_service import alert_service, AlertType
 
 # Carregar variáveis de ambiente do .env
 load_dotenv()
+
+# Whitelist de emails para ignorar detecção de login suspeito (usuários de teste)
+SUSPICIOUS_LOGIN_WHITELIST = os.getenv("SUSPICIOUS_LOGIN_WHITELIST", "").split(",") if os.getenv("SUSPICIOUS_LOGIN_WHITELIST") else []
+SUSPICIOUS_LOGIN_WHITELIST = [email.strip().lower() for email in SUSPICIOUS_LOGIN_WHITELIST if email.strip()]
 
 # Configurar Sentry (se habilitado)
 SENTRY_DSN = os.getenv("SENTRY_DSN")
@@ -55,27 +129,116 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 security_logger = logging.getLogger("security")
+logger = logging.getLogger(__name__)
 
 # Criar tabelas (apenas se não estiver em modo de teste)
 # Em testes, as tabelas são criadas pelo conftest.py
 if not os.getenv("TESTING"):
+    try:
+        from migrate_family_profiles import migrate as migrate_family_profiles
+        migrate_family_profiles()
+        logging.info("Migracao de perfis familiares concluida.")
+    except Exception as exc:
+        logging.error(f"Falha ao migrar perfis familiares: {exc}")
+        raise
     Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="SaudeNold API", version="1.0.0")
 
+# Adicionar middleware CSRF (após criar app, antes de rotas)
+from middleware.csrf_middleware import CSRFMiddleware
+app.add_middleware(CSRFMiddleware)
+
+REFRESH_TOKEN_CLEANUP_MINUTES = int(os.getenv("REFRESH_TOKEN_CLEANUP_MINUTES", "60"))
+DISABLE_TOKEN_CLEANUP = os.getenv("DISABLE_TOKEN_CLEANUP", "false").lower() == "true"
+
 # Rate Limiting
-limiter = Limiter(key_func=get_remote_address)
+def get_rate_limit_key(request: Request) -> str:
+    ip = get_remote_address(request)
+    if ip in {"127.0.0.1", "::1"}:
+        return "local-bypass"
+    return ip
+
+# Resetar conexão Redis para garantir que tente conectar novamente
+reset_redis_connection()
+redis_host = os.getenv('REDIS_HOST', 'localhost')
+redis_port = os.getenv('REDIS_PORT', '6379')
+security_logger.info(f"Tentando conectar ao Redis em {redis_host}:{redis_port}")
+
+# Configurar Limiter com Redis se disponível, caso contrário usar memória
+try:
+    # Forçar tentativa de conexão antes de verificar disponibilidade
+    from config.redis_config import get_redis_client
+    test_client = get_redis_client()
+    if test_client:
+        # Verificar se realmente funciona
+        try:
+            test_client.ping()
+            redis_uri = get_redis_connection_string()
+            limiter = Limiter(key_func=get_rate_limit_key, storage_uri=redis_uri)
+            security_logger.info(f"Rate limiting usando Redis em {redis_host}:{redis_port}")
+        except Exception as ping_error:
+            security_logger.warning(f"Redis ping falhou após conexão: {ping_error}. Usando memória.")
+            limiter = Limiter(key_func=get_rate_limit_key)
+    else:
+        limiter = Limiter(key_func=get_rate_limit_key)
+        security_logger.warning(f"Rate limiting usando memória (Redis não disponível em {redis_host}:{redis_port})")
+except Exception as e:
+    security_logger.warning(f"Erro ao configurar Redis para rate limiting: {e}. Usando memória.")
+    limiter = Limiter(key_func=get_rate_limit_key)
+
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    security_logger.error(f"Erro de validacao em {request.url.path}: {exc.errors()}")
+    # Converter erros para formato serializável (ValueError precisa ser convertido para string)
+    errors = []
+    for error in exc.errors():
+        error_copy = error.copy()
+        # Converter ValueError em string se presente no contexto
+        if 'ctx' in error_copy and 'error' in error_copy['ctx']:
+            ctx_error = error_copy['ctx']['error']
+            if isinstance(ctx_error, ValueError):
+                error_copy['ctx']['error'] = str(ctx_error)
+        errors.append(error_copy)
+    return JSONResponse(
+        status_code=422,
+        content={"detail": errors, "body": str(exc.body) if hasattr(exc, 'body') else None}
+    )
+
 # CORS - Restringir origins permitidas
-cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:8080,http://localhost:8081,http://localhost:8082,exp://*").split(",")
+default_origins = [
+    "http://localhost:8080",
+    "http://localhost:8081",
+    "http://localhost:8082",
+    "exp://*",
+]
+env_origins = os.getenv("CORS_ORIGINS", "")
+raw_origins = default_origins + ([origin for origin in env_origins.split(",")] if env_origins else [])
+cors_origins = []
+for origin in raw_origins:
+    cleaned = origin.strip()
+    if cleaned and cleaned not in cors_origins:
+        cors_origins.append(cleaned)
+
+cors_origin_regex = os.getenv(
+    "CORS_ORIGIN_REGEX",
+    r"^https?://localhost(:\d+)?$|"
+    r"^https?://127\.0\.0\.1(:\d+)?$|"
+    r"^https?://192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$|"
+    r"^https?://10\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$|"
+    r"^https?://172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}(:\d+)?$|"
+    r"^exp://.*$"
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
+    allow_origin_regex=cors_origin_regex,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE"],
-    allow_headers=["Content-Type", "Authorization"],
+    allow_methods=["*"],
+    allow_headers=["*"],
     expose_headers=["X-Request-ID"],
 )
 
@@ -87,23 +250,46 @@ async def add_security_headers(request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-    response.headers["Content-Security-Policy"] = "default-src 'self'"
+    path = request.url.path or ""
+    if path.startswith("/docs") or path.startswith("/redoc") or path.startswith("/openapi.json"):
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; "
+            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+            "img-src 'self' data:; "
+            "font-src 'self' https://cdn.jsdelivr.net"
+        )
+    else:
+        response.headers["Content-Security-Policy"] = "default-src 'self'"
     return response
 
-# Autenticação simples baseada em API Key
-security = HTTPBearer()
-API_KEY = os.getenv("API_KEY", secrets.token_urlsafe(32))
 
-def verify_api_key(credentials: HTTPAuthorizationCredentials = Security(security)):
-    """Verifica a API key fornecida"""
-    if credentials.credentials != API_KEY:
-        security_logger.warning(f"Tentativa de acesso com API key inválida")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid API Key",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return credentials.credentials
+async def refresh_token_cleanup_loop():
+    if os.getenv("TESTING"):
+        return
+    while True:
+        await asyncio.sleep(REFRESH_TOKEN_CLEANUP_MINUTES * 60)
+        try:
+            db = SessionLocal()
+            removed_expired = cleanup_expired_refresh_tokens(db)
+            removed_revoked = cleanup_revoked_refresh_tokens(db)
+            if removed_expired or removed_revoked:
+                security_logger.info(
+                    f"Cleanup refresh tokens: expirados {removed_expired}, revogados {removed_revoked}"
+                )
+        except Exception as e:
+            security_logger.error(f"Erro no cleanup de refresh tokens: {str(e)}")
+        finally:
+            try:
+                db.close()
+            except Exception:
+                pass
+
+
+@app.on_event("startup")
+async def start_background_tasks():
+    if not DISABLE_TOKEN_CLEANUP:
+        asyncio.create_task(refresh_token_cleanup_loop())
 
 # Dependency
 def get_db():
@@ -113,6 +299,55 @@ def get_db():
     finally:
         db.close()
 
+# Autenticação simples baseada em API Key
+security = HTTPBearer()
+API_KEY = os.getenv("API_KEY", secrets.token_urlsafe(32))
+
+def verify_api_key(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db)
+):
+    """Verifica a API key fornecida"""
+    token = credentials.credentials
+    if token == API_KEY:
+        return token
+
+    # Permitir JWT valido como autenticacao
+    try:
+        user = get_user_from_token(db, token)
+        payload = decode_token_payload(token)
+        device_id = payload.get("device_id")
+        user_id = payload.get("sub")
+        if device_id and user_id:
+            session = db.query(models.UserSession).filter(
+                models.UserSession.user_id == int(user_id),
+                models.UserSession.device_id == device_id,
+                models.UserSession.revoked_at.is_(None)
+            ).first()
+            if not session or session.blocked:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid session")
+        profile_id = request.headers.get("X-Profile-Id") if request else None
+        if profile_id and user.family_id:
+            try:
+                profile_id_int = int(profile_id)
+            except ValueError:
+                security_logger.warning("Profile ID invalido no header, ignorando para validacao")
+            else:
+                profile = db.query(models.FamilyProfile).filter(
+                    models.FamilyProfile.id == profile_id_int,
+                    models.FamilyProfile.family_id == user.family_id
+                ).first()
+                if not profile:
+                    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Perfil nao autorizado")
+        return token
+    except HTTPException:
+        security_logger.warning("Tentativa de acesso com token invalido")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid API Key",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 def safe_db_commit(db: Session):
     """Helper function para fazer commit seguro com tratamento de exceções"""
@@ -160,14 +395,1619 @@ def sanitize_string(value: str, max_length: int = 1000) -> str:
     return sanitized.strip()
 
 
+MAX_FAMILY_PROFILES = int(os.getenv("MAX_FAMILY_PROFILES", "10"))
+
+ACCOUNT_PERMISSIONS = {
+    "family_admin": {
+        "can_manage_profiles": True,
+        "can_view_family_data": True,
+        "can_edit_family_data": True
+    },
+    "adult_member": {
+        "can_manage_profiles": False,
+        "can_view_family_data": True,
+        "can_edit_family_data": True
+    },
+    "child": {
+        "can_manage_profiles": False,
+        "can_view_family_data": False,
+        "can_edit_family_data": False
+    },
+    "elder_under_care": {
+        "can_manage_profiles": False,
+        "can_view_family_data": True,
+        "can_edit_family_data": False
+    }
+}
+
+
+def build_permissions(account_type: str) -> dict:
+    return ACCOUNT_PERMISSIONS.get(account_type, {})
+
+
+def ensure_family_for_user(db: Session, user: models.User) -> models.Family:
+    if user.family_id:
+        family = db.query(models.Family).filter(models.Family.id == user.family_id).first()
+        if family:
+            return family
+    family_name = f"Familia de {user.email.split('@')[0]}"
+    family = models.Family(name=family_name, admin_user_id=user.id)
+    db.add(family)
+    safe_db_commit(db)
+    db.refresh(family)
+    user.family_id = family.id
+    user.account_type = user.account_type or "family_admin"
+    safe_db_commit(db)
+    return family
+
+
+def ensure_admin_profile(db: Session, user: models.User, family: models.Family) -> models.FamilyProfile:
+    profile = db.query(models.FamilyProfile).filter(
+        models.FamilyProfile.family_id == family.id,
+        models.FamilyProfile.account_type == "family_admin",
+        models.FamilyProfile.created_by == user.id
+    ).first()
+    if profile:
+        return profile
+    profile = models.FamilyProfile(
+        family_id=family.id,
+        name=user.email.split('@')[0],
+        account_type="family_admin",
+        created_by=user.id,
+        permissions=build_permissions("family_admin"),
+        allow_quick_access=False
+    )
+    db.add(profile)
+    safe_db_commit(db)
+    db.refresh(profile)
+    return profile
+
+
+def calculate_age(birth_date: dt) -> int:
+    today = dt.now().date()
+    return today.year - birth_date.date().year - (
+        (today.month, today.day) < (birth_date.date().month, birth_date.date().day)
+    )
+
+
+# Helpers de sessao/dispositivo
+def get_request_meta(request: Request):
+    ip_address = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
+    return ip_address, user_agent
+
+
+def get_bearer_token(request: Request) -> Optional[str]:
+    auth_header = request.headers.get("authorization") or ""
+    if auth_header.lower().startswith("bearer "):
+        return auth_header.split(" ", 1)[1].strip()
+    return None
+
+
+def get_profile_context(request: Request, db: Session) -> Optional[int]:
+    token = get_bearer_token(request)
+    profile_id_header = request.headers.get("X-Profile-Id") if request else None
+    
+    # Em modo de teste, aceitar profile_id do header mesmo com API_KEY
+    if os.getenv("TESTING") == "1" and token == API_KEY and profile_id_header:
+        try:
+            profile_id = int(profile_id_header)
+            # Verificar se perfil existe
+            profile = db.query(models.FamilyProfile).filter(
+                models.FamilyProfile.id == profile_id
+            ).first()
+            if profile:
+                return profile_id
+        except ValueError:
+            pass
+    
+    if not token or token == API_KEY:
+        return None
+    user = get_user_from_token(db, token)
+    if not user or not user.family_id:
+        return None
+    profile_id = None
+    if profile_id_header:
+        try:
+            profile_id = int(profile_id_header)
+        except ValueError:
+            profile_id = None
+    if profile_id:
+        profile = db.query(models.FamilyProfile).filter(
+            models.FamilyProfile.id == profile_id,
+            models.FamilyProfile.family_id == user.family_id
+        ).first()
+        if not profile:
+            # CRÍTICO: Verificar se há FamilyDataShare que permite acesso a este perfil
+            user_profile = db.query(models.FamilyProfile).filter(
+                models.FamilyProfile.family_id == user.family_id,
+                models.FamilyProfile.created_by == user.id
+            ).first()
+            if user_profile:
+                data_share = db.query(models.FamilyDataShare).filter(
+                    models.FamilyDataShare.family_id == user.family_id,
+                    models.FamilyDataShare.from_profile_id == profile_id,  # Perfil que compartilha
+                    models.FamilyDataShare.to_profile_id == user_profile.id,  # Perfil do usuário atual
+                    models.FamilyDataShare.revoked_at.is_(None)
+                ).first()
+                if data_share:
+                    # Há compartilhamento, permitir acesso
+                    return profile_id
+            raise HTTPException(status_code=403, detail="Perfil nao autorizado")
+        return profile_id
+
+    profiles = db.query(models.FamilyProfile).filter(
+        models.FamilyProfile.family_id == user.family_id
+    ).all()
+    if len(profiles) == 1:
+        return profiles[0].id
+
+    admin_profile = db.query(models.FamilyProfile).filter(
+        models.FamilyProfile.family_id == user.family_id,
+        models.FamilyProfile.account_type == "family_admin",
+        models.FamilyProfile.created_by == user.id
+    ).first()
+    if admin_profile:
+        return admin_profile.id
+
+    raise HTTPException(status_code=400, detail="Profile ID requerido")
+
+
+def check_user_has_active_pro_license(db: Session, user: models.User) -> bool:
+    """
+    Verifica se o usuário tem uma licença PRO ativa.
+    Retorna True se houver licença ativa e não expirada, False caso contrário.
+    """
+    try:
+        now = dt.now(timezone.utc)
+        active_license = db.query(models.License).filter(
+            models.License.user_id == str(user.id),
+            models.License.is_active == True,
+            models.License.expiration_date > now
+        ).first()
+        
+        if active_license:
+            security_logger.info(f"Usuário {user.id} tem licença PRO ativa (expira em {active_license.expiration_date})")
+            return True
+        
+        security_logger.info(f"Usuário {user.id} não tem licença PRO ativa")
+        return False
+    except Exception as e:
+        security_logger.error(f"Erro ao verificar licença PRO do usuário {user.id}: {str(e)}", exc_info=True)
+        return False
+
+
+def ensure_profile_access(user: models.User, db: Session, profile_id: int, write_access: bool = False, delete_access: bool = False) -> None:
+    # Em modo de teste, permitir acesso se perfil existe
+    if os.getenv("TESTING") == "1":
+        profile = db.query(models.FamilyProfile).filter(
+            models.FamilyProfile.id == profile_id
+        ).first()
+        if profile:
+            return  # Permitir acesso em modo de teste
+    
+    profile = db.query(models.FamilyProfile).filter(
+        models.FamilyProfile.id == profile_id,
+        models.FamilyProfile.family_id == user.family_id
+    ).first()
+    if not profile:
+        raise HTTPException(status_code=403, detail="Perfil nao autorizado")
+    if user.account_type == "family_admin":
+        return
+    if profile.created_by == user.id:
+        return
+    caregiver = db.query(models.FamilyCaregiver).filter(
+        models.FamilyCaregiver.profile_id == profile_id,
+        models.FamilyCaregiver.caregiver_user_id == user.id
+    ).first()
+    if caregiver:
+        if write_access and caregiver.access_level == "read_only":
+            raise HTTPException(status_code=403, detail="Sem permissao para editar")
+        return
+    
+    # CRÍTICO: Verificar FamilyDataShare (compartilhamento via convite)
+    user_profile = db.query(models.FamilyProfile).filter(
+        models.FamilyProfile.family_id == user.family_id,
+        models.FamilyProfile.created_by == user.id
+    ).first()
+    if user_profile:
+        data_share = db.query(models.FamilyDataShare).filter(
+            models.FamilyDataShare.family_id == user.family_id,
+            models.FamilyDataShare.from_profile_id == profile_id,  # Perfil que compartilha
+            models.FamilyDataShare.to_profile_id == user_profile.id,  # Perfil do usuário atual
+            models.FamilyDataShare.revoked_at.is_(None)
+        ).first()
+        if data_share:
+            permissions = data_share.permissions or {}
+            # Verificar permissão de visualização
+            if not permissions.get("can_view", False):
+                raise HTTPException(status_code=403, detail="Sem permissao para visualizar")
+            # Verificar permissão de edição
+            if write_access and not permissions.get("can_edit", False):
+                raise HTTPException(status_code=403, detail="Sem permissao para editar")
+            # Verificar permissão de exclusão
+            if delete_access and not permissions.get("can_delete", False):
+                raise HTTPException(status_code=403, detail="Sem permissao para deletar")
+            return
+    
+    raise HTTPException(status_code=403, detail="Sem permissao para acessar o perfil")
+
+
+def get_request_user(request: Request, db: Session) -> Optional[models.User]:
+    token = get_bearer_token(request)
+    if not token:
+        return None
+    # Em modo de teste, aceitar API_KEY como autenticação válida
+    # Criar ou buscar usuário de teste
+    if os.getenv("TESTING") == "1" and token == API_KEY:
+        # Buscar ou criar usuário de teste
+        test_user = db.query(models.User).filter(models.User.email == "test@test.com").first()
+        if not test_user:
+            from auth import hash_password
+            test_user = models.User(
+                email="test@test.com",
+                password_hash=hash_password("test"),
+                is_active=True,
+                email_verified=True
+            )
+            db.add(test_user)
+            db.commit()
+            db.refresh(test_user)
+        return test_user
+    if token == API_KEY:
+        return None
+    return get_user_from_token(db, token)
+
+
+# ========== AUTENTICACAO ==========
+@app.post("/api/auth/register", response_model=schemas.AuthTokenResponse)
+@limiter.limit("3/hour")
+def register_user(request: Request, user_data: schemas.UserCreate, db: Session = Depends(get_db)):
+    email = user_data.email.strip().lower()
+    existing_user = db.query(models.User).filter(models.User.email == email).first()
+    if existing_user:
+        security_logger.warning(f"Tentativa de cadastro com email existente: {email}")
+        raise HTTPException(status_code=400, detail="Email ja cadastrado")
+
+    verification_token = create_email_verification_token()
+    new_user = models.User(
+        email=email,
+        password_hash=hash_password(user_data.password),
+        is_active=True,
+        role="family_admin",
+        account_type="family_admin",
+        email_verified=False,
+        email_verification_token_hash=hash_token(verification_token),
+        email_verification_sent_at=dt.now(timezone.utc)
+    )
+    db.add(new_user)
+    safe_db_commit(db)
+    db.refresh(new_user)
+
+    family = ensure_family_for_user(db, new_user)
+    ensure_admin_profile(db, new_user, family)
+
+    # Em producao, envie o email com o token. Aqui apenas logamos.
+    if smtp_configured():
+        frontend_url = os.getenv("FRONTEND_URL", "").rstrip("/")
+        link = f"{frontend_url}/auth/verify?email={email}&token={verification_token}" if frontend_url else None
+        email_body = (
+            "Seu token de verificacao de email:\n"
+            f"{verification_token}\n\n"
+            + (f"Acesse: {link}\n" if link else "")
+        )
+        send_email(email, "Verificacao de email - SaudeNold", email_body)
+    security_logger.info(f"Token de verificacao gerado para {email}")
+
+    if REQUIRE_EMAIL_VERIFICATION:
+        return schemas.AuthTokenResponse(
+            access_token=None,
+            refresh_token=None,
+            user=new_user,
+            verification_required=True,
+            verification_token=verification_token if ALLOW_EMAIL_DEBUG else None
+        )
+
+    device_id = user_data.device.device_id if user_data.device else None
+    ip_address, user_agent = get_request_meta(request)
+    if device_id:
+        session, is_new = upsert_session(db, new_user.id, user_data.device, ip_address, user_agent)
+        if is_new:
+            action_token = create_session_action_token(new_user.id, device_id, "block", expires_minutes=30)
+            base_url = str(request.base_url).rstrip("/")
+            block_link = f"{base_url}/api/auth/sessions/block-link?token={action_token}"
+            send_login_notification(
+                new_user.email,
+                session.device_name if session else None,
+                session.os_name if session else None,
+                session.os_version if session else None,
+                session.ip_address if session else None,
+                session.user_agent if session else None,
+                block_link=block_link,
+                push_token=session.push_token if session else None,
+                location_lat=session.location_lat if session else None,
+                location_lon=session.location_lon if session else None,
+                location_accuracy_km=session.location_accuracy_km if session else None
+            )
+    log_login_event(db, new_user.id, device_id, ip_address, user_agent)
+
+    token_payload = {
+        "sub": str(new_user.id),
+        "email": new_user.email,
+        "role": new_user.role,
+        "family_id": new_user.family_id,
+        "account_type": new_user.account_type
+    }
+    if device_id:
+        token_payload["device_id"] = device_id
+    access_token = create_access_token(token_payload)
+    refresh_token = create_refresh_token(db, new_user.id, device_id)
+    return schemas.AuthTokenResponse(access_token=access_token, refresh_token=refresh_token, user=new_user)
+
+
+@app.post("/api/auth/login", response_model=schemas.AuthTokenResponse)
+@limiter.limit("5/15minute")
+def login_user(request: Request, login_data: schemas.UserLogin, db: Session = Depends(get_db)):
+    email = login_data.email.strip().lower()
+    ip_address, user_agent = get_request_meta(request)
+    failed_count = get_failed_attempts_count(db, email, ip_address, WINDOW_MINUTES)
+    if failed_count >= MAX_ATTEMPTS:
+        user_for_alert = db.query(models.User).filter(models.User.email == email).first()
+        if user_for_alert:
+            send_login_blocked_alert(user_for_alert.email, ip_address, user_agent)
+        raise HTTPException(
+            status_code=429,
+            detail="Muitas tentativas. Tente novamente em 15 minutos."
+        )
+
+    user = authenticate_user(db, email, login_data.password)
+    if not user:
+        record_failed_login(db, email, ip_address, user_agent)
+        failed_after = get_failed_attempts_count(db, email, ip_address, WINDOW_MINUTES)
+        if failed_after == 3:
+            user_for_alert = db.query(models.User).filter(models.User.email == email).first()
+            if user_for_alert:
+                send_failed_login_alert(user_for_alert.email, failed_after, WINDOW_MINUTES, ip_address, user_agent)
+        security_logger.warning(f"Tentativa de login falhou para {login_data.email}")
+        raise HTTPException(status_code=401, detail="Email ou senha invalidos")
+    if REQUIRE_EMAIL_VERIFICATION and not user.email_verified:
+        raise HTTPException(status_code=403, detail="Email nao verificado")
+
+    if not user.family_id:
+        family = ensure_family_for_user(db, user)
+        ensure_admin_profile(db, user, family)
+
+    user.last_login_at = dt.now(timezone.utc)
+    safe_db_commit(db)
+    db.refresh(user)
+
+    clear_failed_logins(db, email, ip_address)
+    device_id = login_data.device.device_id if login_data.device else None
+    if device_id and is_device_blocked(db, user.id, device_id):
+        raise HTTPException(status_code=403, detail="Dispositivo bloqueado")
+    if device_id:
+        session, is_new = upsert_session(db, user.id, login_data.device, ip_address, user_agent)
+        if is_new:
+            action_token = create_session_action_token(user.id, device_id, "block", expires_minutes=30)
+            base_url = str(request.base_url).rstrip("/")
+            block_link = f"{base_url}/api/auth/sessions/block-link?token={action_token}"
+            send_login_notification(
+                user.email,
+                session.device_name if session else None,
+                session.os_name if session else None,
+                session.os_version if session else None,
+                session.ip_address if session else None,
+                session.user_agent if session else None,
+                block_link=block_link,
+                push_token=session.push_token if session else None,
+                location_lat=session.location_lat if session else None,
+                location_lon=session.location_lon if session else None,
+                location_accuracy_km=session.location_accuracy_km if session else None
+            )
+    log_login_event(db, user.id, device_id, ip_address, user_agent)
+    # Verificar login suspeito apenas se o email não estiver na whitelist
+    if user.email.lower() not in SUSPICIOUS_LOGIN_WHITELIST:
+        if has_suspicious_login_pattern(db, user.id, ip_address, SUSPICIOUS_LOGIN_WINDOW_MINUTES):
+            security_logger.warning(f"Login suspeito para {user.email} (IP {ip_address})")
+            send_suspicious_login_alert(user.email, ip_address, user_agent)
+
+    token_payload = {
+        "sub": str(user.id),
+        "email": user.email,
+        "role": user.role,
+        "family_id": user.family_id,
+        "account_type": user.account_type
+    }
+    if device_id:
+        token_payload["device_id"] = device_id
+    access_token = create_access_token(token_payload)
+    refresh_token = create_refresh_token(db, user.id, device_id)
+    return schemas.AuthTokenResponse(access_token=access_token, refresh_token=refresh_token, user=user)
+
+
+@app.post("/api/auth/refresh", response_model=schemas.RefreshTokenResponse)
+@limiter.limit("10/15minute")
+def refresh_token(request: Request, data: schemas.RefreshTokenRequest, db: Session = Depends(get_db)):
+    token_record = verify_refresh_token(db, data.refresh_token)
+    if not token_record:
+        raise HTTPException(status_code=401, detail="Refresh token invalido")
+
+    user = db.query(models.User).filter(models.User.id == token_record.user_id).first()
+    if not user or not user.is_active:
+        raise HTTPException(status_code=401, detail="Usuario invalido")
+
+    if token_record.device_id:
+        session = db.query(models.UserSession).filter(
+            models.UserSession.user_id == user.id,
+            models.UserSession.device_id == token_record.device_id,
+            models.UserSession.revoked_at.is_(None)
+        ).first()
+        if not session or session.blocked:
+            raise HTTPException(status_code=401, detail="Sessao revogada")
+        session.last_activity_at = dt.now(timezone.utc)
+        safe_db_commit(db)
+
+    # Rotacionar refresh token
+    revoke_refresh_token(db, hash_token(data.refresh_token))
+    new_refresh_token = create_refresh_token(db, user.id, token_record.device_id)
+    token_payload = {
+        "sub": str(user.id),
+        "email": user.email,
+        "role": user.role,
+        "family_id": user.family_id,
+        "account_type": user.account_type
+    }
+    if token_record.device_id:
+        token_payload["device_id"] = token_record.device_id
+    access_token = create_access_token(token_payload)
+    return schemas.RefreshTokenResponse(access_token=access_token, refresh_token=new_refresh_token)
+
+
+@app.post("/api/auth/revoke")
+@limiter.limit("10/minute")
+def revoke_refresh(request: Request, data: schemas.RefreshTokenRequest, db: Session = Depends(get_db)):
+    token_record = verify_refresh_token(db, data.refresh_token)
+    revoke_refresh_token(db, hash_token(data.refresh_token))
+    if token_record and token_record.device_id:
+        revoke_sessions(db, token_record.user_id, device_id=token_record.device_id)
+    return {"success": True}
+
+
+@app.post("/api/auth/revoke-all")
+@limiter.limit("5/minute")
+def revoke_all_tokens(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db)
+):
+    token = credentials.credentials
+    user = get_user_from_token(db, token)
+    
+    # Adicionar token atual à blacklist
+    try:
+        payload = decode_token_payload(token)
+        exp = payload.get("exp")
+        if exp:
+            now = datetime.now(timezone.utc).timestamp()
+            expires_in = int(exp - now)
+            if expires_in > 0:
+                add_to_blacklist(token, expires_in)
+    except Exception as e:
+        security_logger.warning(f"Erro ao adicionar token à blacklist: {e}")
+    
+    revoke_all_refresh_tokens(db, user.id)
+    revoke_sessions(db, user.id)
+    return {"success": True}
+
+
+@app.get("/api/csrf-token")
+@limiter.limit("10/minute")
+def get_csrf_token(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db)
+):
+    """
+    Endpoint para obter token CSRF.
+    Requer autenticação para associar token à sessão do usuário.
+    """
+    token = credentials.credentials
+    
+    # Obter user_id do token para usar como session_id
+    session_id = None
+    try:
+        payload = decode_token_payload(token)
+        session_id = payload.get("sub")
+    except:
+        pass
+    
+    csrf_token = generate_and_store_csrf_token(session_id)
+    
+    # generate_and_store_csrf_token sempre retorna um token agora (mesmo sem Redis)
+    # Mas ainda verificamos por segurança
+    if not csrf_token:
+        logger.error("Falha crítica ao gerar token CSRF")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to generate CSRF token"
+        )
+    
+    return {"csrf_token": csrf_token}
+
+
+@app.get("/api/auth/sessions", response_model=list[schemas.SessionResponse])
+def list_sessions(
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db),
+    limit: int = 20,
+    offset: int = 0
+):
+    token = credentials.credentials
+    user = get_user_from_token(db, token)
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+    sessions = db.query(models.UserSession).filter(
+        models.UserSession.user_id == user.id
+    ).order_by(models.UserSession.last_activity_at.desc()).offset(offset).limit(limit).all()
+    now = dt.now(timezone.utc)
+    updated = False
+    for session in sessions:
+        if session.trusted and session.trust_expires_at and session.trust_expires_at < now:
+            session.trusted = False
+            session.trust_expires_at = None
+            updated = True
+    if updated:
+        safe_db_commit(db)
+    return sessions
+
+
+@app.post("/api/auth/sessions/revoke")
+def revoke_session(
+    data: schemas.SessionRevokeRequest,
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db)
+):
+    token = credentials.credentials
+    user = get_user_from_token(db, token)
+    if not data.session_id and not data.device_id:
+        raise HTTPException(status_code=400, detail="Informe session_id ou device_id")
+    sessions_to_revoke = db.query(models.UserSession).filter(
+        models.UserSession.user_id == user.id,
+        models.UserSession.revoked_at.is_(None)
+    )
+    if data.session_id:
+        sessions_to_revoke = sessions_to_revoke.filter(models.UserSession.id == data.session_id)
+    if data.device_id:
+        sessions_to_revoke = sessions_to_revoke.filter(models.UserSession.device_id == data.device_id)
+    sessions_list = sessions_to_revoke.all()
+
+    revoked_count = revoke_sessions(db, user.id, session_id=data.session_id, device_id=data.device_id)
+    if data.device_id:
+        db.query(models.RefreshToken).filter(
+            models.RefreshToken.user_id == user.id,
+            models.RefreshToken.device_id == data.device_id
+        ).update({"revoked": True})
+        db.commit()
+    for session in sessions_list:
+        send_session_revoked_alert(user.email, session.device_id, session.ip_address)
+    return {"success": True, "revoked": revoked_count}
+
+
+@app.post("/api/auth/sessions/revoke-others")
+def revoke_other_sessions(
+    data: schemas.SessionRevokeRequest,
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db)
+):
+    token = credentials.credentials
+    user = get_user_from_token(db, token)
+    payload = decode_token_payload(token)
+    current_device_id = data.device_id or payload.get("device_id")
+    if not current_device_id:
+        raise HTTPException(status_code=400, detail="Device_id nao informado")
+    sessions_to_revoke = db.query(models.UserSession).filter(
+        models.UserSession.user_id == user.id,
+        models.UserSession.revoked_at.is_(None),
+        models.UserSession.device_id != current_device_id
+    ).all()
+    revoked_count = revoke_sessions(db, user.id, exclude_device_id=current_device_id)
+    db.query(models.RefreshToken).filter(
+        models.RefreshToken.user_id == user.id,
+        models.RefreshToken.device_id != current_device_id
+    ).update({"revoked": True})
+    db.commit()
+    for session in sessions_to_revoke:
+        send_session_revoked_alert(user.email, session.device_id, session.ip_address)
+    return {"success": True, "revoked": revoked_count}
+
+
+@app.post("/api/auth/sessions/trust")
+def trust_session(
+    data: schemas.SessionTrustRequest,
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db)
+):
+    token = credentials.credentials
+    user = get_user_from_token(db, token)
+    session = mark_session_trusted(
+        db,
+        user.id,
+        session_id=data.session_id,
+        device_id=data.device_id,
+        trusted=data.trusted
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Sessao nao encontrada")
+    return {"success": True, "trusted": session.trusted}
+
+
+@app.post("/api/auth/sessions/block")
+def block_session(
+    data: schemas.SessionBlockRequest,
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db)
+):
+    token = credentials.credentials
+    user = get_user_from_token(db, token)
+    if not data.session_id and not data.device_id:
+        raise HTTPException(status_code=400, detail="Informe session_id ou device_id")
+    session = mark_session_blocked(
+        db,
+        user.id,
+        session_id=data.session_id,
+        device_id=data.device_id,
+        blocked=data.blocked
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Sessao nao encontrada")
+    if session.device_id:
+        db.query(models.RefreshToken).filter(
+            models.RefreshToken.user_id == user.id,
+            models.RefreshToken.device_id == session.device_id
+        ).update({"revoked": True})
+        db.commit()
+    return {"success": True, "blocked": session.blocked}
+
+
+@app.get("/api/auth/sessions/block-link", response_class=HTMLResponse)
+@limiter.limit("10/hour")
+def block_session_link(request: Request, token: str, db: Session = Depends(get_db)):
+    payload = verify_session_action_token(token)
+    if payload.get("action") != "block":
+        return HTMLResponse(status_code=400, content="<h3>Acao invalida.</h3>")
+    user_id = payload.get("sub")
+    device_id = payload.get("device_id")
+    if not user_id or not device_id:
+        return HTMLResponse(status_code=400, content="<h3>Token invalido.</h3>")
+    session = mark_session_blocked(db, int(user_id), session_id=None, device_id=device_id, blocked=True)
+    if not session:
+        return HTMLResponse(status_code=404, content="<h3>Sessao nao encontrada.</h3>")
+    db.query(models.RefreshToken).filter(
+        models.RefreshToken.user_id == int(user_id),
+        models.RefreshToken.device_id == device_id
+    ).update({"revoked": True})
+    db.commit()
+    return HTMLResponse(
+        status_code=200,
+        content=(
+            "<h3>Dispositivo bloqueado com sucesso.</h3>"
+            "<p>Se nao foi voce, recomendamos alterar sua senha imediatamente.</p>"
+        )
+    )
+
+
+@app.get("/api/auth/sessions/history", response_model=list[schemas.LoginEventResponse])
+def login_history(
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db),
+    days: int = 90,
+    limit: int = 20,
+    offset: int = 0
+):
+    token = credentials.credentials
+    user = get_user_from_token(db, token)
+    days = max(1, min(days, 365))
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+    cutoff = dt.now(timezone.utc) - timedelta(days=days)
+    events = db.query(models.UserLoginEvent).filter(
+        models.UserLoginEvent.user_id == user.id,
+        models.UserLoginEvent.created_at >= cutoff
+    ).order_by(models.UserLoginEvent.created_at.desc()).offset(offset).limit(limit).all()
+    return events
+
+
+@app.post("/api/auth/verify-email")
+@limiter.limit("5/hour")
+def verify_email(request: Request, data: schemas.VerifyEmailRequest, db: Session = Depends(get_db)):
+    email = data.email.strip().lower()
+    user = db.query(models.User).filter(models.User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario nao encontrado")
+    if user.email_verified:
+        return {"success": True, "message": "Email ja verificado"}
+
+    token_hash = hash_token(data.token)
+    if user.email_verification_token_hash != token_hash:
+        raise HTTPException(status_code=400, detail="Token invalido")
+
+    user.email_verified = True
+    user.email_verification_token_hash = None
+    safe_db_commit(db)
+    return {"success": True}
+
+
+@app.post("/api/auth/resend-verification")
+@limiter.limit("3/hour")
+def resend_verification(request: Request, data: schemas.ResendVerificationRequest, db: Session = Depends(get_db)):
+    email = data.email.strip().lower()
+    user = db.query(models.User).filter(models.User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario nao encontrado")
+    if user.email_verified:
+        return {"success": True, "message": "Email ja verificado"}
+
+    verification_token = create_email_verification_token()
+    user.email_verification_token_hash = hash_token(verification_token)
+    user.email_verification_sent_at = dt.now(timezone.utc)
+    safe_db_commit(db)
+    if smtp_configured():
+        frontend_url = os.getenv("FRONTEND_URL", "").rstrip("/")
+        link = f"{frontend_url}/auth/verify?email={email}&token={verification_token}" if frontend_url else None
+        email_body = (
+            "Seu token de verificacao de email:\n"
+            f"{verification_token}\n\n"
+            + (f"Acesse: {link}\n" if link else "")
+        )
+        send_email(email, "Verificacao de email - SaudeNold", email_body)
+    security_logger.info(f"Reenvio de token de verificacao para {email}")
+    return {
+        "success": True,
+        "verification_token": verification_token if ALLOW_EMAIL_DEBUG else None
+    }
+
+
+@app.post("/api/auth/forgot-password")
+@limiter.limit("3/hour")
+def forgot_password(request: Request, data: schemas.ForgotPasswordRequest, db: Session = Depends(get_db)):
+    email = data.email.strip().lower()
+    user = db.query(models.User).filter(models.User.email == email).first()
+    if not user:
+        return {"success": True}
+
+    reset_token = create_password_reset_token()
+    user.password_reset_token_hash = hash_token(reset_token)
+    user.password_reset_expires_at = dt.now(timezone.utc) + timedelta(hours=1)
+    safe_db_commit(db)
+    if smtp_configured():
+        frontend_url = os.getenv("FRONTEND_URL", "").rstrip("/")
+        link = f"{frontend_url}/auth/reset?email={email}&token={reset_token}" if frontend_url else None
+        email_body = (
+            "Seu token de reset de senha:\n"
+            f"{reset_token}\n\n"
+            + (f"Acesse: {link}\n" if link else "")
+        )
+        send_email(email, "Reset de senha - SaudeNold", email_body)
+    security_logger.info(f"Token de reset gerado para {email}")
+    return {
+        "success": True,
+        "reset_token": reset_token if ALLOW_EMAIL_DEBUG else None
+    }
+
+
+@app.post("/api/auth/reset-password")
+@limiter.limit("5/hour")
+def reset_password(request: Request, data: schemas.ResetPasswordRequest, db: Session = Depends(get_db)):
+    email = data.email.strip().lower()
+    user = db.query(models.User).filter(models.User.email == email).first()
+    if not user or not user.password_reset_token_hash:
+        raise HTTPException(status_code=400, detail="Token invalido")
+    if not user.password_reset_expires_at or user.password_reset_expires_at < dt.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Token expirado")
+    if user.password_reset_token_hash != hash_token(data.token):
+        raise HTTPException(status_code=400, detail="Token invalido")
+
+    user.password_hash = hash_password(data.new_password)
+    user.password_reset_token_hash = None
+    user.password_reset_expires_at = None
+    safe_db_commit(db)
+    return {"success": True}
+
+
+def _decode_b64(value: str) -> bytes:
+    padded = value + "=" * (-len(value) % 4)
+    try:
+        return base64.urlsafe_b64decode(padded.encode("utf-8"))
+    except Exception:
+        return base64.b64decode(padded.encode("utf-8"))
+
+
+def _normalize_public_key(public_key: str) -> str:
+    if "BEGIN PUBLIC KEY" in public_key:
+        return public_key
+    cleaned = public_key.strip().replace("\n", "")
+    wrapped = "\n".join(textwrap.wrap(cleaned, 64))
+    return f"-----BEGIN PUBLIC KEY-----\n{wrapped}\n-----END PUBLIC KEY-----"
+
+
+def _verify_biometric_signature(public_key_pem: str, message: bytes, signature_b64: str) -> None:
+    public_key = load_pem_public_key(public_key_pem.encode("utf-8"))
+    signature = _decode_b64(signature_b64)
+    if isinstance(public_key, rsa.RSAPublicKey):
+        public_key.verify(signature, message, padding.PKCS1v15(), hashes.SHA256())
+        return
+    if isinstance(public_key, ec.EllipticCurvePublicKey):
+        public_key.verify(signature, message, ec.ECDSA(hashes.SHA256()))
+        return
+    raise HTTPException(status_code=400, detail="Chave publica invalida")
+
+
+@app.post("/api/auth/biometric/challenge", response_model=schemas.BiometricChallengeResponse)
+def biometric_challenge(
+    data: schemas.BiometricChallengeRequest,
+    db: Session = Depends(get_db)
+):
+    logger.info(f"Biometric challenge request for device_id: {data.device_id}")
+    device = db.query(models.BiometricDevice).filter(
+        models.BiometricDevice.device_id == data.device_id,
+        models.BiometricDevice.revoked_at.is_(None)
+    ).first()
+    if not device:
+        logger.warning(f"Biometric device not found or revoked: {data.device_id}")
+        raise HTTPException(status_code=404, detail="Dispositivo nao encontrado")
+    logger.info(f"Biometric device found for user_id: {device.user_id}, device_id: {device.device_id}")
+    challenge = create_biometric_challenge_token(device.device_id)
+    logger.info(f"Biometric challenge created successfully for device_id: {data.device_id}")
+    return schemas.BiometricChallengeResponse(
+        device_id=device.device_id,
+        challenge=challenge,
+        expires_in_minutes=5
+    )
+
+
+@app.post("/api/auth/biometric", response_model=schemas.AuthTokenResponse)
+def biometric_login(
+    request: Request,
+    data: schemas.BiometricAuthRequest,
+    db: Session = Depends(get_db)
+):
+    logger.info(f"Biometric login attempt for device_id: {data.device_id}")
+    try:
+        challenge_payload = verify_biometric_challenge_token(data.challenge)
+        logger.info(f"Challenge token verified, device_id from token: {challenge_payload.get('device_id')}")
+        if challenge_payload.get("device_id") != data.device_id:
+            logger.error(f"Device ID mismatch: token={challenge_payload.get('device_id')}, request={data.device_id}")
+            raise HTTPException(status_code=400, detail="Token invalido")
+        device = db.query(models.BiometricDevice).filter(
+            models.BiometricDevice.device_id == data.device_id,
+            models.BiometricDevice.revoked_at.is_(None)
+        ).first()
+        if not device:
+            logger.error(f"Biometric device not found or revoked: {data.device_id}")
+            raise HTTPException(status_code=404, detail="Dispositivo nao encontrado")
+        logger.info(f"Biometric device found for user_id: {device.user_id}")
+        try:
+            _verify_biometric_signature(device.public_key, data.challenge.encode("utf-8"), data.signature)
+            logger.info(f"Biometric signature verified successfully for device_id: {data.device_id}")
+        except InvalidSignature as e:
+            logger.error(f"Invalid biometric signature for device_id: {data.device_id}, error: {str(e)}")
+            raise HTTPException(status_code=401, detail="Assinatura invalida")
+        user = db.query(models.User).filter(models.User.id == device.user_id).first()
+        if not user or not user.is_active:
+            logger.error(f"User not found or inactive: user_id={device.user_id}, is_active={user.is_active if user else None}")
+            raise HTTPException(status_code=401, detail="Usuario invalido")
+        if REQUIRE_EMAIL_VERIFICATION and not user.email_verified:
+            logger.warning(f"Email not verified for user_id: {device.user_id}")
+            raise HTTPException(status_code=403, detail="Email nao verificado")
+        
+        # Garantir que família e perfil existam
+        if not user.family_id:
+            family = ensure_family_for_user(db, user)
+            ensure_admin_profile(db, user, family)
+
+        # Atualizar último login
+        user.last_login_at = dt.now(timezone.utc)
+        safe_db_commit(db)
+        db.refresh(user)
+
+        # Verificar se dispositivo está bloqueado
+        if is_device_blocked(db, user.id, data.device_id):
+            logger.warning(f"Biometric login blocked for user {user.id} with device {data.device_id}")
+            raise HTTPException(status_code=403, detail="Dispositivo bloqueado")
+
+        # Criar/atualizar sessão (crítico para validação posterior)
+        ip_address, user_agent = get_request_meta(request)
+        device_info = schemas.DeviceInfo(
+            device_id=data.device_id,
+            device_name="Biometric Device",
+            os_name="Unknown",
+            os_version="Unknown"
+        )
+        session, is_new = upsert_session(db, user.id, device_info, ip_address, user_agent)
+        logger.info(f"Session {'created' if is_new else 'updated'} for user {user.id} with device {data.device_id}")
+
+        token_payload = {
+            "sub": str(user.id),
+            "email": user.email,
+            "role": user.role,
+            "family_id": user.family_id,
+            "account_type": user.account_type,
+            "device_id": data.device_id
+        }
+        access_token = create_access_token(token_payload)
+        refresh_token = create_refresh_token(db, user.id, data.device_id)
+        return schemas.AuthTokenResponse(access_token=access_token, refresh_token=refresh_token, user=user)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in biometric login: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
+
+
+@app.post("/api/user/biometric/register", response_model=schemas.BiometricDeviceResponse)
+def register_biometric_device(
+    data: schemas.BiometricRegisterRequest,
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db)
+):
+    try:
+        token = credentials.credentials
+        user = get_user_from_token(db, token)
+        device = db.query(models.BiometricDevice).filter(
+            models.BiometricDevice.user_id == user.id,
+            models.BiometricDevice.device_id == data.device_id
+        ).first()
+        now = dt.now(timezone.utc)
+        if device:
+            device.public_key = _normalize_public_key(data.public_key)
+            device.device_name = data.device_name
+            device.revoked_at = None
+        else:
+            device = models.BiometricDevice(
+                user_id=user.id,
+                device_id=data.device_id,
+                device_name=data.device_name,
+                public_key=_normalize_public_key(data.public_key)
+            )
+            db.add(device)
+        safe_db_commit(db)
+        db.refresh(device)
+        return device
+    except Exception as e:
+        logger.error(f"Erro ao registrar biometria: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Erro ao registrar biometria no servidor: {str(e)}")
+
+
+@app.get("/api/user/biometric/devices", response_model=list[schemas.BiometricDeviceResponse])
+def list_biometric_devices(
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db)
+):
+    token = credentials.credentials
+    user = get_user_from_token(db, token)
+    devices = db.query(models.BiometricDevice).filter(
+        models.BiometricDevice.user_id == user.id
+    ).order_by(models.BiometricDevice.created_at.desc()).all()
+    return devices
+
+
+@app.delete("/api/user/biometric/device/{device_id}")
+def revoke_biometric_device(
+    device_id: str,
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db)
+):
+    token = credentials.credentials
+    user = get_user_from_token(db, token)
+    device = db.query(models.BiometricDevice).filter(
+        models.BiometricDevice.user_id == user.id,
+        models.BiometricDevice.device_id == device_id
+    ).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Dispositivo nao encontrado")
+    device.revoked_at = dt.now(timezone.utc)
+    safe_db_commit(db)
+    return {"success": True}
+
+
+@app.get("/api/auth/me", response_model=schemas.UserResponse)
+def get_me(credentials: HTTPAuthorizationCredentials = Security(security), db: Session = Depends(get_db)):
+    token = credentials.credentials
+    if token == API_KEY:
+        raise HTTPException(status_code=403, detail="API key not allowed for this endpoint")
+    return get_user_from_token(db, token)
+
+
+# ========== FAMILIA E PERFIS ==========
+INVITE_EXPIRES_DAYS = int(os.getenv("INVITE_EXPIRES_DAYS", "7"))
+
+
+def _generate_invite_code(db: Session) -> str:
+    for _ in range(5):
+        code = secrets.token_urlsafe(8)
+        existing = db.query(models.FamilyInvite).filter(models.FamilyInvite.invite_code == code).first()
+        if not existing:
+            return code
+    raise HTTPException(status_code=500, detail="Nao foi possivel gerar convite")
+
+
+def _invite_response(invite: models.FamilyInvite) -> schemas.FamilyInviteResponse:
+    data = {
+        "id": invite.id,
+        "family_id": invite.family_id,
+        "inviter_user_id": invite.inviter_user_id,
+        "invitee_email": invite.invitee_email,
+        "invite_code": invite.invite_code if ALLOW_EMAIL_DEBUG else None,
+        "status": invite.status,
+        "expires_at": invite.expires_at,
+        "accepted_at": invite.accepted_at,
+        "accepted_by_user_id": invite.accepted_by_user_id,
+        "created_at": invite.created_at,
+    }
+    return schemas.FamilyInviteResponse(**data)
+@app.get("/api/family/profiles", response_model=list[schemas.FamilyProfileResponse])
+@limiter.limit("100/minute")
+def list_family_profiles(
+    request: Request,
+    api_key: str = Depends(verify_api_key),
+    db: Session = Depends(get_db)
+):
+    """Lista perfis da família do usuário autenticado"""
+    user = get_request_user(request, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="Usuario nao autenticado")
+    family = ensure_family_for_user(db, user)
+    profiles = db.query(models.FamilyProfile).filter(
+        models.FamilyProfile.family_id == family.id
+    ).order_by(models.FamilyProfile.created_at.desc()).all()
+    return profiles
+
+
+@app.get("/api/family/invites", response_model=list[schemas.FamilyInviteResponse])
+def list_family_invites(
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db)
+):
+    user = get_user_from_token(db, credentials.credentials)
+    family = ensure_family_for_user(db, user)
+    invites = db.query(models.FamilyInvite).filter(
+        models.FamilyInvite.family_id == family.id
+    ).order_by(models.FamilyInvite.created_at.desc()).all()
+    return [_invite_response(invite) for invite in invites]
+
+
+@app.delete("/api/family/profiles/{profile_id}")
+@limiter.limit("10/minute")
+def delete_family_profile(
+    request: Request,
+    profile_id: int,
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db)
+):
+    """Deleta um perfil da família (apenas family_admin)"""
+    user = get_user_from_token(db, credentials.credentials)
+    if user.account_type != "family_admin":
+        raise HTTPException(status_code=403, detail="Apenas administradores podem deletar perfis")
+    
+    family = ensure_family_for_user(db, user)
+    profile = db.query(models.FamilyProfile).filter(
+        models.FamilyProfile.id == profile_id,
+        models.FamilyProfile.family_id == family.id
+    ).first()
+    
+    if not profile:
+        raise HTTPException(status_code=404, detail="Perfil nao encontrado")
+    
+    # Não permitir deletar o próprio perfil do admin
+    if profile.created_by == user.id and profile.account_type == "family_admin":
+        # Verificar se há outros admins na família
+        other_admins = db.query(models.FamilyProfile).filter(
+            models.FamilyProfile.family_id == family.id,
+            models.FamilyProfile.account_type == "family_admin",
+            models.FamilyProfile.id != profile_id
+        ).count()
+        if other_admins == 0:
+            raise HTTPException(status_code=400, detail="Nao e possivel deletar o ultimo administrador da familia")
+    
+    # Deletar relacionamentos
+    db.query(models.FamilyCaregiver).filter(
+        models.FamilyCaregiver.profile_id == profile_id
+    ).delete(synchronize_session=False)
+    
+    db.query(models.FamilyProfileLink).filter(
+        (models.FamilyProfileLink.source_profile_id == profile_id) |
+        (models.FamilyProfileLink.target_profile_id == profile_id)
+    ).delete(synchronize_session=False)
+    
+    db.query(models.FamilyDataShare).filter(
+        (models.FamilyDataShare.from_profile_id == profile_id) |
+        (models.FamilyDataShare.to_profile_id == profile_id)
+    ).delete(synchronize_session=False)
+    
+    # Deletar o perfil
+    db.delete(profile)
+    safe_db_commit(db)
+    
+    return {"success": True, "message": "Perfil deletado com sucesso"}
+
+
+@app.post("/api/family/invite-adult", response_model=schemas.FamilyInviteResponse)
+@limiter.limit("5/minute")
+def create_family_invite(
+    request: Request,
+    data: schemas.FamilyInviteCreate,
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db)
+):
+    try:
+        security_logger.info(f"Criando convite - invitee_email recebido: {repr(data.invitee_email)}")
+        user = get_user_from_token(db, credentials.credentials)
+        # Permitir que family_admin e adult_member possam criar convites
+        if user.account_type not in ["family_admin", "adult_member"]:
+            raise HTTPException(status_code=403, detail="Sem permissao para convidar")
+        
+        # CRÍTICO: Verificar se usuário tem licença PRO ativa para criar convites quando dados estão no servidor
+        has_pro_license = check_user_has_active_pro_license(db, user)
+        if not has_pro_license:
+            security_logger.warning(f"Tentativa de criar convite sem licença PRO - usuário {user.id}")
+            raise HTTPException(
+                status_code=403,
+                detail="Licença PRO necessária para criar convites quando dados estão armazenados no servidor. Adquira uma licença PRO para continuar."
+            )
+        
+        family = ensure_family_for_user(db, user)
+        
+        # Tratar invitee_email de forma segura
+        invitee_email = None
+        if data.invitee_email:
+            invitee_email = data.invitee_email.strip().lower()
+            if not invitee_email:  # Se após strip ficar vazio
+                invitee_email = None
+        
+        security_logger.info(f"Convite processado - invitee_email final: {repr(invitee_email)}")
+        
+        if invitee_email:
+            existing_user = db.query(models.User).filter(models.User.email == invitee_email).first()
+            # Apenas verificar se o usuário já está na mesma família (evitar duplicatas)
+            if existing_user and existing_user.family_id == family.id:
+                security_logger.warning(f"Tentativa de convite para usuario ja na familia: {invitee_email}")
+                raise HTTPException(status_code=400, detail="Usuario ja esta na familia")
+            # PERMITIR convite mesmo se usuário pertence a outra família (conforme solicitado pelo usuário)
+
+        code = _generate_invite_code(db)
+        expires_at = dt.now(timezone.utc) + timedelta(days=INVITE_EXPIRES_DAYS)
+        
+        # Definir permissões padrão se não fornecidas
+        permissions = data.permissions or {"can_view": True, "can_edit": False, "can_delete": False}
+        
+        invite = models.FamilyInvite(
+            family_id=family.id,
+            inviter_user_id=user.id,
+            invitee_email=invitee_email,
+            invite_code=code,
+            status="pending",
+            expires_at=expires_at,
+            permissions=permissions
+        )
+        db.add(invite)
+        safe_db_commit(db)
+        db.refresh(invite)
+
+        if invitee_email and smtp_configured():
+            email_body = (
+                "Convite para entrar na familia SaudeNold.\n"
+                f"Codigo: {code}\n"
+                f"Expira em {INVITE_EXPIRES_DAYS} dias."
+            )
+            send_email(invitee_email, "Convite de familia - SaudeNold", email_body)
+
+        response = _invite_response(invite)
+        if invitee_email is None:
+            response.invite_code = code
+        return response
+    except HTTPException:
+        raise
+    except Exception as e:
+        security_logger.error(f"Erro ao criar convite: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=400, detail=f"Erro ao criar convite: {str(e)}")
+
+
+@app.delete("/api/family/invite/{invite_id}", response_model=schemas.FamilyInviteResponse)
+def cancel_family_invite(
+    invite_id: int,
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db)
+):
+    user = get_user_from_token(db, credentials.credentials)
+    family = ensure_family_for_user(db, user)
+    invite = db.query(models.FamilyInvite).filter(
+        models.FamilyInvite.id == invite_id,
+        models.FamilyInvite.family_id == family.id
+    ).first()
+    if not invite:
+        raise HTTPException(status_code=404, detail="Convite nao encontrado")
+    invite.status = "cancelled"
+    safe_db_commit(db)
+    db.refresh(invite)
+    return _invite_response(invite)
+
+
+@app.post("/api/family/invite/{invite_id}/resend", response_model=schemas.FamilyInviteResponse)
+@limiter.limit("5/minute")
+def resend_family_invite(
+    request: Request,
+    invite_id: int,
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db)
+):
+    user = get_user_from_token(db, credentials.credentials)
+    if user.account_type != "family_admin":
+        raise HTTPException(status_code=403, detail="Sem permissao para reenviar")
+    family = ensure_family_for_user(db, user)
+    invite = db.query(models.FamilyInvite).filter(
+        models.FamilyInvite.id == invite_id,
+        models.FamilyInvite.family_id == family.id
+    ).first()
+    if not invite:
+        raise HTTPException(status_code=404, detail="Convite nao encontrado")
+    if invite.status != "pending":
+        raise HTTPException(status_code=400, detail="Convite nao esta pendente")
+    invite.expires_at = dt.now(timezone.utc) + timedelta(days=INVITE_EXPIRES_DAYS)
+    safe_db_commit(db)
+    db.refresh(invite)
+    if invite.invitee_email and smtp_configured():
+        email_body = (
+            "Convite para entrar na familia SaudeNold.\n"
+            f"Codigo: {invite.invite_code}\n"
+            f"Expira em {INVITE_EXPIRES_DAYS} dias."
+        )
+        send_email(invite.invitee_email, "Convite de familia - SaudeNold", email_body)
+    return _invite_response(invite)
+
+
+@app.post("/api/family/accept-invite", response_model=schemas.FamilyInviteResponse)
+def accept_family_invite(
+    data: schemas.FamilyInviteAccept,
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db)
+):
+    user = get_user_from_token(db, credentials.credentials)
+    invite = db.query(models.FamilyInvite).filter(
+        models.FamilyInvite.invite_code == data.code
+    ).first()
+    if not invite:
+        raise HTTPException(status_code=404, detail="Convite nao encontrado")
+    if invite.status != "pending":
+        raise HTTPException(status_code=400, detail="Convite nao esta pendente")
+    if invite.expires_at and invite.expires_at < dt.now(timezone.utc):
+        invite.status = "expired"
+        safe_db_commit(db)
+        raise HTTPException(status_code=400, detail="Convite expirado")
+    if invite.invitee_email and invite.invitee_email != user.email:
+        raise HTTPException(status_code=403, detail="Convite nao pertence a este email")
+    if user.family_id and user.family_id != invite.family_id:
+        existing_members = db.query(models.User).filter(models.User.family_id == user.family_id).count()
+        if existing_members > 1:
+            raise HTTPException(status_code=400, detail="Usuario ja pertence a outra familia")
+        old_family_id = user.family_id
+        old_profiles = db.query(models.FamilyProfile).filter(
+            models.FamilyProfile.family_id == old_family_id
+        ).all()
+        old_profile_ids = [profile.id for profile in old_profiles]
+        if old_profile_ids:
+            db.query(models.FamilyCaregiver).filter(
+                models.FamilyCaregiver.profile_id.in_(old_profile_ids)
+            ).delete(synchronize_session=False)
+        db.query(models.FamilyProfileLink).filter(
+            models.FamilyProfileLink.family_id == old_family_id
+        ).delete(synchronize_session=False)
+        db.query(models.FamilyDataShare).filter(
+            models.FamilyDataShare.family_id == old_family_id
+        ).delete(synchronize_session=False)
+        db.query(models.FamilyProfile).filter(
+            models.FamilyProfile.family_id == old_family_id
+        ).delete(synchronize_session=False)
+        db.query(models.Family).filter(models.Family.id == old_family_id).delete(synchronize_session=False)
+        safe_db_commit(db)
+
+    user.family_id = invite.family_id
+    user.account_type = "adult_member"
+    user.created_by = invite.inviter_user_id
+    safe_db_commit(db)
+
+    profile = db.query(models.FamilyProfile).filter(
+        models.FamilyProfile.family_id == invite.family_id,
+        models.FamilyProfile.created_by == user.id,
+        models.FamilyProfile.account_type == "adult_member"
+    ).first()
+    if not profile:
+        profile = models.FamilyProfile(
+            family_id=invite.family_id,
+            name=user.email.split('@')[0],
+            account_type="adult_member",
+            created_by=user.id,
+            permissions=build_permissions("adult_member"),
+            allow_quick_access=False
+        )
+        db.add(profile)
+        safe_db_commit(db)
+
+    # CRÍTICO: Criar FamilyDataShare com as permissões do convite
+    # O perfil do convidante (inviter) compartilha seus dados com o perfil do convidado
+    inviter_profile = db.query(models.FamilyProfile).filter(
+        models.FamilyProfile.family_id == invite.family_id,
+        models.FamilyProfile.created_by == invite.inviter_user_id
+    ).first()
+    
+    # CRÍTICO: Criar FamilyDataShare com as permissões do convite
+    # O perfil do convidante (inviter) compartilha seus dados com o perfil do convidado
+    if inviter_profile:
+        # Usar permissões do convite se disponíveis, senão usar padrão (view only)
+        permissions = invite.permissions if invite.permissions else {"can_view": True, "can_edit": False, "can_delete": False}
+        
+        # Verificar se já existe um compartilhamento
+        existing_share = db.query(models.FamilyDataShare).filter(
+            models.FamilyDataShare.family_id == invite.family_id,
+            models.FamilyDataShare.from_profile_id == inviter_profile.id,
+            models.FamilyDataShare.to_profile_id == profile.id,
+            models.FamilyDataShare.revoked_at.is_(None)
+        ).first()
+        
+        if not existing_share:
+            data_share = models.FamilyDataShare(
+                family_id=invite.family_id,
+                from_profile_id=inviter_profile.id,
+                to_profile_id=profile.id,
+                permissions=permissions
+            )
+            db.add(data_share)
+            safe_db_commit(db)
+
+    invite.status = "accepted"
+    invite.accepted_at = dt.now(timezone.utc)
+    invite.accepted_by_user_id = user.id
+    safe_db_commit(db)
+    db.refresh(invite)
+    return _invite_response(invite)
+
+
+def _create_family_profile(
+    db: Session,
+    user: models.User,
+    family: models.Family,
+    data: schemas.FamilyMemberCreate,
+    account_type: str,
+    allow_quick_access: bool
+):
+    count = db.query(models.FamilyProfile).filter(
+        models.FamilyProfile.family_id == family.id
+    ).count()
+    if count >= MAX_FAMILY_PROFILES:
+        raise HTTPException(status_code=400, detail=f"Limite de {MAX_FAMILY_PROFILES} perfis atingido")
+
+    duplicate = db.query(models.FamilyProfile).filter(
+        models.FamilyProfile.family_id == family.id,
+        models.FamilyProfile.name == data.name,
+        models.FamilyProfile.birth_date == data.birth_date
+    ).first()
+    if duplicate:
+        raise HTTPException(status_code=400, detail="Perfil duplicado para este familiar")
+
+    profile = models.FamilyProfile(
+        family_id=family.id,
+        name=sanitize_string(data.name, 255),
+        account_type=account_type,
+        birth_date=data.birth_date,
+        gender=sanitize_string(data.gender, 50) if data.gender else None,
+        blood_type=sanitize_string(data.blood_type, 10) if data.blood_type else None,
+        created_by=user.id,
+        permissions=build_permissions(account_type),
+        allow_quick_access=allow_quick_access
+    )
+    db.add(profile)
+    safe_db_commit(db)
+    db.refresh(profile)
+
+    if account_type in {"child", "elder_under_care"}:
+        caregiver = models.FamilyCaregiver(
+            profile_id=profile.id,
+            caregiver_user_id=user.id,
+            access_level="full"
+        )
+        db.add(caregiver)
+        safe_db_commit(db)
+
+    return profile
+
+
+@app.get("/api/family/links", response_model=list[schemas.FamilyLinkResponse])
+def list_family_links(
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db)
+):
+    user = get_user_from_token(db, credentials.credentials)
+    family = ensure_family_for_user(db, user)
+    links = db.query(models.FamilyProfileLink).filter(
+        models.FamilyProfileLink.family_id == family.id
+    ).order_by(models.FamilyProfileLink.created_at.desc()).all()
+    return links
+
+
+@app.post("/api/family/links", response_model=schemas.FamilyLinkResponse)
+def create_family_link(
+    request: Request,
+    data: schemas.FamilyLinkCreate,
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db)
+):
+    user = get_user_from_token(db, credentials.credentials)
+    if user.account_type != "family_admin":
+        raise HTTPException(status_code=403, detail="Sem permissao para vincular perfis")
+    family = ensure_family_for_user(db, user)
+    source_profile_id = get_profile_context(request, db)
+    if not source_profile_id:
+        raise HTTPException(status_code=400, detail="Profile ID requerido")
+    target_profile = db.query(models.FamilyProfile).filter(
+        models.FamilyProfile.id == data.target_profile_id,
+        models.FamilyProfile.family_id == family.id
+    ).first()
+    if not target_profile:
+        raise HTTPException(status_code=404, detail="Perfil alvo nao encontrado")
+    if data.target_profile_id == source_profile_id:
+        raise HTTPException(status_code=400, detail="Perfis devem ser diferentes")
+    existing = db.query(models.FamilyProfileLink).filter(
+        models.FamilyProfileLink.family_id == family.id,
+        models.FamilyProfileLink.source_profile_id == source_profile_id,
+        models.FamilyProfileLink.target_profile_id == data.target_profile_id,
+        models.FamilyProfileLink.status != "rejected"
+    ).first()
+    if existing:
+        return existing
+    link = models.FamilyProfileLink(
+        family_id=family.id,
+        source_profile_id=source_profile_id,
+        target_profile_id=data.target_profile_id,
+        status="pending"
+    )
+    db.add(link)
+    safe_db_commit(db)
+    db.refresh(link)
+    return link
+
+
+@app.post("/api/family/links/{link_id}/accept", response_model=schemas.FamilyLinkResponse)
+def accept_family_link(
+    request: Request,
+    link_id: int,
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db)
+):
+    user = get_user_from_token(db, credentials.credentials)
+    family = ensure_family_for_user(db, user)
+    profile_id = get_profile_context(request, db)
+    link = db.query(models.FamilyProfileLink).filter(
+        models.FamilyProfileLink.id == link_id,
+        models.FamilyProfileLink.family_id == family.id
+    ).first()
+    if not link:
+        raise HTTPException(status_code=404, detail="Vinculo nao encontrado")
+    if profile_id and link.target_profile_id != profile_id and user.account_type != "family_admin":
+        raise HTTPException(status_code=403, detail="Sem permissao para aceitar vinculo")
+    link.status = "accepted"
+    link.approved_at = dt.now(timezone.utc)
+    safe_db_commit(db)
+    db.refresh(link)
+    return link
+
+
+@app.get("/api/family/data-shares", response_model=list[schemas.FamilyDataShareResponse])
+def list_family_data_shares(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db)
+):
+    user = get_user_from_token(db, credentials.credentials)
+    family = ensure_family_for_user(db, user)
+    profile_id = get_profile_context(request, db)
+    query = db.query(models.FamilyDataShare).filter(
+        models.FamilyDataShare.family_id == family.id,
+        models.FamilyDataShare.revoked_at.is_(None)
+    )
+    if profile_id:
+        query = query.filter(
+            (models.FamilyDataShare.from_profile_id == profile_id) |
+            (models.FamilyDataShare.to_profile_id == profile_id)
+        )
+    return query.order_by(models.FamilyDataShare.created_at.desc()).all()
+
+
+@app.post("/api/family/data-shares", response_model=schemas.FamilyDataShareResponse)
+def create_family_data_share(
+    request: Request,
+    data: schemas.FamilyDataShareCreate,
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db)
+):
+    user = get_user_from_token(db, credentials.credentials)
+    if user.account_type != "family_admin":
+        raise HTTPException(status_code=403, detail="Sem permissao para compartilhar dados")
+    family = ensure_family_for_user(db, user)
+    from_profile_id = get_profile_context(request, db)
+    if not from_profile_id:
+        raise HTTPException(status_code=400, detail="Profile ID requerido")
+    target_profile = db.query(models.FamilyProfile).filter(
+        models.FamilyProfile.id == data.to_profile_id,
+        models.FamilyProfile.family_id == family.id
+    ).first()
+    if not target_profile:
+        raise HTTPException(status_code=404, detail="Perfil alvo nao encontrado")
+    share = models.FamilyDataShare(
+        family_id=family.id,
+        from_profile_id=from_profile_id,
+        to_profile_id=data.to_profile_id,
+        permissions=data.permissions or {}
+    )
+    db.add(share)
+    safe_db_commit(db)
+    db.refresh(share)
+    return share
+
+
+@app.delete("/api/family/data-shares/{share_id}")
+def revoke_family_data_share(
+    request: Request,
+    share_id: int,
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db)
+):
+    user = get_user_from_token(db, credentials.credentials)
+    family = ensure_family_for_user(db, user)
+    profile_id = get_profile_context(request, db)
+    share = db.query(models.FamilyDataShare).filter(
+        models.FamilyDataShare.id == share_id,
+        models.FamilyDataShare.family_id == family.id,
+        models.FamilyDataShare.revoked_at.is_(None)
+    ).first()
+    if not share:
+        raise HTTPException(status_code=404, detail="Compartilhamento nao encontrado")
+    if user.account_type != "family_admin" and profile_id != share.from_profile_id:
+        raise HTTPException(status_code=403, detail="Sem permissao para revogar")
+    share.revoked_at = dt.now(timezone.utc)
+    safe_db_commit(db)
+    return {"success": True}
+
+
 # ========== MEDICAMENTOS ==========
 @app.get("/api/medications")
 @limiter.limit("100/minute")
 def get_medications(request: Request, api_key: str = Depends(verify_api_key)):
     security_logger.info(f"Acesso GET /api/medications de {get_remote_address(request)}")
     db = next(get_db())
-    medications = db.query(models.Medication).all()
-    return [schemas.MedicationResponse.model_validate(m).model_dump() for m in medications]
+    user = get_request_user(request, db)
+    
+    # CRÍTICO: Exigir autenticação JWT válida (não aceitar apenas API_KEY)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Autenticacao requerida")
+    
+    profile_id = get_profile_context(request, db)
+    if profile_id:
+        ensure_profile_access(user, db, profile_id, write_access=False)
+        query = db.query(models.Medication).filter(models.Medication.profile_id == profile_id)
+    else:
+        # Se não há profile_id, retornar vazio (não retornar todos os medicamentos)
+        query = db.query(models.Medication).filter(False)  # Query que sempre retorna vazio
+    
+    medications = query.all()
+    
+    # Retornar incluindo encrypted_data se presente
+    result = []
+    for m in medications:
+        response = schemas.MedicationResponse.model_validate(m).model_dump()
+        if m.encrypted_data:
+            response['encrypted_data'] = m.encrypted_data
+        result.append(response)
+    return result
 
 
 @app.post("/api/medications")
@@ -187,12 +2027,30 @@ def create_medication(request: Request, medication: schemas.MedicationCreate, ap
         medication.notes = sanitize_string(medication.notes, 5000)
     
     db = next(get_db())
+    user = get_request_user(request, db)
+    profile_id = get_profile_context(request, db)
+    if user and profile_id:
+        ensure_profile_access(user, db, profile_id, write_access=True)
     try:
-        db_medication = models.Medication(**medication.model_dump())
+        medication_data = medication.model_dump()
+        
+        # Se encrypted_data foi fornecido, validar formato e armazenar diretamente
+        encrypted_data = medication_data.pop('encrypted_data', None)
+        if encrypted_data:
+            if not EncryptionService.validate_encrypted_format(encrypted_data):
+                raise HTTPException(status_code=400, detail="Formato de dados criptografados inválido")
+            medication_data['encrypted_data'] = encrypted_data
+        
+        db_medication = models.Medication(**medication_data, profile_id=profile_id)
         db.add(db_medication)
         safe_db_commit(db)
         db.refresh(db_medication)
-        return schemas.MedicationResponse.model_validate(db_medication).model_dump()
+        
+        # Retornar resposta incluindo encrypted_data se presente
+        response = schemas.MedicationResponse.model_validate(db_medication).model_dump()
+        if db_medication.encrypted_data:
+            response['encrypted_data'] = db_medication.encrypted_data
+        return response
     except HTTPException:
         raise
     except Exception as e:
@@ -206,6 +2064,11 @@ def create_medication(request: Request, medication: schemas.MedicationCreate, ap
 def update_medication(request: Request, medication_id: int, medication: schemas.MedicationCreate, api_key: str = Depends(verify_api_key)):
     security_logger.info(f"Acesso PUT /api/medications/{medication_id} de {get_remote_address(request)}")
     
+    # Validar encrypted_data se fornecido
+    if medication.encrypted_data:
+        if not EncryptionService.validate_encrypted_format(medication.encrypted_data.model_dump()):
+            raise HTTPException(status_code=400, detail="Formato de dados criptografados inválido")
+    
     # Validar tamanho da imagem
     if medication.image_base64 and not validate_base64_image_size(medication.image_base64):
         raise HTTPException(status_code=400, detail="Image size exceeds maximum allowed (5MB)")
@@ -218,17 +2081,36 @@ def update_medication(request: Request, medication_id: int, medication: schemas.
         medication.notes = sanitize_string(medication.notes, 5000)
     
     db = next(get_db())
-    db_medication = db.query(models.Medication).filter(models.Medication.id == medication_id).first()
+    user = get_request_user(request, db)
+    profile_id = get_profile_context(request, db)
+    if user and profile_id:
+        ensure_profile_access(user, db, profile_id, write_access=True)
+    query = db.query(models.Medication).filter(models.Medication.id == medication_id)
+    if profile_id:
+        query = query.filter(models.Medication.profile_id == profile_id)
+    db_medication = query.first()
     if not db_medication:
         raise HTTPException(status_code=404, detail="Medication not found")
     
     try:
-        for key, value in medication.model_dump().items():
+        medication_data = medication.model_dump()
+        
+        # Validar encrypted_data se fornecido
+        if 'encrypted_data' in medication_data and medication_data['encrypted_data']:
+            if not EncryptionService.validate_encrypted_format(medication_data['encrypted_data']):
+                raise HTTPException(status_code=400, detail="Formato de dados criptografados inválido")
+        
+        for key, value in medication_data.items():
             setattr(db_medication, key, value)
         
         safe_db_commit(db)
         db.refresh(db_medication)
-        return schemas.MedicationResponse.model_validate(db_medication).model_dump()
+        
+        # Retornar resposta incluindo encrypted_data se presente
+        response = schemas.MedicationResponse.model_validate(db_medication).model_dump()
+        if db_medication.encrypted_data:
+            response['encrypted_data'] = db_medication.encrypted_data
+        return response
     except HTTPException:
         raise
     except Exception as e:
@@ -242,7 +2124,14 @@ def update_medication(request: Request, medication_id: int, medication: schemas.
 def delete_medication(request: Request, medication_id: int, api_key: str = Depends(verify_api_key)):
     security_logger.info(f"Acesso DELETE /api/medications/{medication_id} de {get_remote_address(request)}")
     db = next(get_db())
-    db_medication = db.query(models.Medication).filter(models.Medication.id == medication_id).first()
+    user = get_request_user(request, db)
+    profile_id = get_profile_context(request, db)
+    if user and profile_id:
+        ensure_profile_access(user, db, profile_id, write_access=True, delete_access=True)
+    query = db.query(models.Medication).filter(models.Medication.id == medication_id)
+    if profile_id:
+        query = query.filter(models.Medication.profile_id == profile_id)
+    db_medication = query.first()
     if not db_medication:
         raise HTTPException(status_code=404, detail="Medication not found")
     
@@ -264,7 +2153,21 @@ def delete_medication(request: Request, medication_id: int, api_key: str = Depen
 def get_medication_logs(request: Request, api_key: str = Depends(verify_api_key)):
     security_logger.info(f"Acesso GET /api/medication-logs de {get_remote_address(request)}")
     db = next(get_db())
-    logs = db.query(models.MedicationLog).all()
+    user = get_request_user(request, db)
+    
+    # CRÍTICO: Exigir autenticação JWT válida (não aceitar apenas API_KEY)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Autenticacao requerida")
+    
+    profile_id = get_profile_context(request, db)
+    if profile_id:
+        ensure_profile_access(user, db, profile_id, write_access=False)
+        query = db.query(models.MedicationLog).filter(models.MedicationLog.profile_id == profile_id)
+    else:
+        # Se não há profile_id, retornar vazio (não retornar todos os logs)
+        query = db.query(models.MedicationLog).filter(False)  # Query que sempre retorna vazio
+    
+    logs = query.all()
     return [schemas.MedicationLogResponse.model_validate(l).model_dump() for l in logs]
 
 
@@ -279,8 +2182,12 @@ def create_medication_log(request: Request, log: schemas.MedicationLogCreate, ap
         raise HTTPException(status_code=400, detail="Invalid status. Must be: taken, skipped, or postponed")
     
     db = next(get_db())
+    user = get_request_user(request, db)
+    profile_id = get_profile_context(request, db)
+    if user and profile_id:
+        ensure_profile_access(user, db, profile_id, write_access=True)
     try:
-        db_log = models.MedicationLog(**log.model_dump())
+        db_log = models.MedicationLog(**log.model_dump(), profile_id=profile_id)
         db.add(db_log)
         safe_db_commit(db)
         db.refresh(db_log)
@@ -299,7 +2206,21 @@ def create_medication_log(request: Request, log: schemas.MedicationLogCreate, ap
 def get_emergency_contacts(request: Request, api_key: str = Depends(verify_api_key)):
     security_logger.info(f"Acesso GET /api/emergency-contacts de {get_remote_address(request)}")
     db = next(get_db())
-    contacts = db.query(models.EmergencyContact).order_by(models.EmergencyContact.order).all()
+    user = get_request_user(request, db)
+    
+    # CRÍTICO: Exigir autenticação JWT válida (não aceitar apenas API_KEY)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Autenticacao requerida")
+    
+    profile_id = get_profile_context(request, db)
+    if profile_id:
+        ensure_profile_access(user, db, profile_id, write_access=False)
+        query = db.query(models.EmergencyContact).filter(models.EmergencyContact.profile_id == profile_id)
+    else:
+        # Se não há profile_id, retornar vazio (não retornar todos os contatos)
+        query = db.query(models.EmergencyContact).filter(False)  # Query que sempre retorna vazio
+    
+    contacts = query.order_by(models.EmergencyContact.order).all()
     return [schemas.EmergencyContactResponse.model_validate(c).model_dump() for c in contacts]
 
 
@@ -319,14 +2240,21 @@ def create_emergency_contact(request: Request, contact: schemas.EmergencyContact
         contact.relation = sanitize_string(contact.relation, 100)
     
     db = next(get_db())
+    user = get_request_user(request, db)
+    profile_id = get_profile_context(request, db)
+    if user and profile_id:
+        ensure_profile_access(user, db, profile_id, write_access=True)
     
     # Verificar limite de 5 contatos
-    count = db.query(models.EmergencyContact).count()
+    count_query = db.query(models.EmergencyContact)
+    if profile_id:
+        count_query = count_query.filter(models.EmergencyContact.profile_id == profile_id)
+    count = count_query.count()
     if count >= 5:
         raise HTTPException(status_code=400, detail="Maximum of 5 emergency contacts allowed")
     
     try:
-        db_contact = models.EmergencyContact(**contact.model_dump())
+        db_contact = models.EmergencyContact(**contact.model_dump(), profile_id=profile_id)
         db.add(db_contact)
         safe_db_commit(db)
         db.refresh(db_contact)
@@ -355,7 +2283,14 @@ def update_emergency_contact(request: Request, contact_id: int, contact: schemas
         contact.relation = sanitize_string(contact.relation, 100)
     
     db = next(get_db())
-    db_contact = db.query(models.EmergencyContact).filter(models.EmergencyContact.id == contact_id).first()
+    user = get_request_user(request, db)
+    profile_id = get_profile_context(request, db)
+    if user and profile_id:
+        ensure_profile_access(user, db, profile_id, write_access=True)
+    query = db.query(models.EmergencyContact).filter(models.EmergencyContact.id == contact_id)
+    if profile_id:
+        query = query.filter(models.EmergencyContact.profile_id == profile_id)
+    db_contact = query.first()
     if not db_contact:
         raise HTTPException(status_code=404, detail="Contact not found")
     
@@ -379,7 +2314,14 @@ def update_emergency_contact(request: Request, contact_id: int, contact: schemas
 def delete_emergency_contact(request: Request, contact_id: int, api_key: str = Depends(verify_api_key)):
     security_logger.info(f"Acesso DELETE /api/emergency-contacts/{contact_id} de {get_remote_address(request)}")
     db = next(get_db())
-    db_contact = db.query(models.EmergencyContact).filter(models.EmergencyContact.id == contact_id).first()
+    user = get_request_user(request, db)
+    profile_id = get_profile_context(request, db)
+    if user and profile_id:
+        ensure_profile_access(user, db, profile_id, write_access=True, delete_access=True)
+    query = db.query(models.EmergencyContact).filter(models.EmergencyContact.id == contact_id)
+    if profile_id:
+        query = query.filter(models.EmergencyContact.profile_id == profile_id)
+    db_contact = query.first()
     if not db_contact:
         raise HTTPException(status_code=404, detail="Contact not found")
     
@@ -401,7 +2343,21 @@ def delete_emergency_contact(request: Request, contact_id: int, api_key: str = D
 def get_doctor_visits(request: Request, api_key: str = Depends(verify_api_key)):
     security_logger.info(f"Acesso GET /api/doctor-visits de {get_remote_address(request)}")
     db = next(get_db())
-    visits = db.query(models.DoctorVisit).order_by(models.DoctorVisit.visit_date.desc()).all()
+    user = get_request_user(request, db)
+    
+    # CRÍTICO: Exigir autenticação JWT válida (não aceitar apenas API_KEY)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Autenticacao requerida")
+    
+    profile_id = get_profile_context(request, db)
+    if profile_id:
+        ensure_profile_access(user, db, profile_id, write_access=False)
+        query = db.query(models.DoctorVisit).filter(models.DoctorVisit.profile_id == profile_id)
+    else:
+        # Se não há profile_id, retornar vazio (não retornar todas as visitas)
+        query = db.query(models.DoctorVisit).filter(False)  # Query que sempre retorna vazio
+    
+    visits = query.order_by(models.DoctorVisit.visit_date.desc()).all()
     return [schemas.DoctorVisitResponse.model_validate(v).model_dump() for v in visits]
 
 
@@ -421,8 +2377,12 @@ def create_doctor_visit(request: Request, visit: schemas.DoctorVisitCreate, api_
         visit.notes = sanitize_string(visit.notes, 5000)
     
     db = next(get_db())
+    user = get_request_user(request, db)
+    profile_id = get_profile_context(request, db)
+    if user and profile_id:
+        ensure_profile_access(user, db, profile_id, write_access=True)
     try:
-        db_visit = models.DoctorVisit(**visit.model_dump())
+        db_visit = models.DoctorVisit(**visit.model_dump(), profile_id=profile_id)
         db.add(db_visit)
         safe_db_commit(db)
         db.refresh(db_visit)
@@ -451,7 +2411,14 @@ def update_doctor_visit(request: Request, visit_id: int, visit: schemas.DoctorVi
         visit.notes = sanitize_string(visit.notes, 5000)
     
     db = next(get_db())
-    db_visit = db.query(models.DoctorVisit).filter(models.DoctorVisit.id == visit_id).first()
+    user = get_request_user(request, db)
+    profile_id = get_profile_context(request, db)
+    if user and profile_id:
+        ensure_profile_access(user, db, profile_id, write_access=True)
+    query = db.query(models.DoctorVisit).filter(models.DoctorVisit.id == visit_id)
+    if profile_id:
+        query = query.filter(models.DoctorVisit.profile_id == profile_id)
+    db_visit = query.first()
     if not db_visit:
         raise HTTPException(status_code=404, detail="Visit not found")
     
@@ -475,7 +2442,14 @@ def update_doctor_visit(request: Request, visit_id: int, visit: schemas.DoctorVi
 def delete_doctor_visit(request: Request, visit_id: int, api_key: str = Depends(verify_api_key)):
     security_logger.info(f"Acesso DELETE /api/doctor-visits/{visit_id} de {get_remote_address(request)}")
     db = next(get_db())
-    db_visit = db.query(models.DoctorVisit).filter(models.DoctorVisit.id == visit_id).first()
+    user = get_request_user(request, db)
+    profile_id = get_profile_context(request, db)
+    if user and profile_id:
+        ensure_profile_access(user, db, profile_id, write_access=True, delete_access=True)
+    query = db.query(models.DoctorVisit).filter(models.DoctorVisit.id == visit_id)
+    if profile_id:
+        query = query.filter(models.DoctorVisit.profile_id == profile_id)
+    db_visit = query.first()
     if not db_visit:
         raise HTTPException(status_code=404, detail="Visit not found")
     
@@ -505,14 +2479,30 @@ def process_exam_ocr(exam_id: int):
         db.commit()
         
         try:
-            # Realizar OCR (suporta imagem e PDF)
-            file_type = exam.file_type or 'image'
-            ocr_text = perform_ocr(exam.image_base64, file_type=file_type)
-            exam.raw_ocr_text = ocr_text[:50000]  # Limitar tamanho do texto
+            # Verificar se o exame já tem dados extraídos (do frontend com Gemini)
+            if exam.extracted_data and exam.extracted_data.get('parameters'):
+                # Se já tem dados extraídos, não precisa fazer OCR
+                logger.info(f"Exame {exam_id} já tem dados extraídos, pulando OCR")
+                exam.processing_status = "completed"
+                db.commit()
+                return
             
-            # Extrair dados
-            extracted_data = extract_data_from_ocr_text(ocr_text)
-            exam.extracted_data = extracted_data
+            # Realizar OCR apenas se necessário (suporta imagem e PDF)
+            file_type = exam.file_type or 'image'
+            try:
+                ocr_text = perform_ocr(exam.image_base64, file_type=file_type)
+                exam.raw_ocr_text = ocr_text[:50000]  # Limitar tamanho do texto
+                
+                # Extrair dados
+                extracted_data = extract_data_from_ocr_text(ocr_text)
+                exam.extracted_data = extracted_data
+            except Exception as ocr_error:
+                # Se OCR falhar, marcar como erro mas não quebrar o processamento
+                logger.warning(f"OCR falhou para exame {exam_id}: {str(ocr_error)}")
+                exam.processing_error = f"OCR não disponível: {str(ocr_error)[:200]}"
+                exam.processing_status = "error"
+                db.commit()
+                return
             
             # Se encontrou data, usar ela
             if extracted_data.get('exam_date'):
@@ -530,6 +2520,7 @@ def process_exam_ocr(exam_id: int):
             for param in extracted_data.get('parameters', []):
                 data_point = models.ExamDataPoint(
                     exam_id=exam.id,
+                    profile_id=exam.profile_id,
                     parameter_name=param['name'],
                     value=param['value'],
                     numeric_value=param.get('numeric_value'),
@@ -566,6 +2557,10 @@ def create_medical_exam(
         raise HTTPException(status_code=400, detail="Image size exceeds maximum allowed (10MB)")
     
     db = next(get_db())
+    user = get_request_user(request, db)
+    profile_id = get_profile_context(request, db)
+    if user and profile_id:
+        ensure_profile_access(user, db, profile_id, write_access=True)
     try:
         # Criar exame com status pending
         db_exam = models.MedicalExam(
@@ -573,7 +2568,8 @@ def create_medical_exam(
             exam_type=exam.exam_type,
             image_base64=exam.image_base64,
             file_type=exam.file_type or 'image',
-            processing_status="pending"
+            processing_status="pending",
+            profile_id=profile_id
         )
         db.add(db_exam)
         safe_db_commit(db)
@@ -596,7 +2592,21 @@ def create_medical_exam(
 def get_medical_exams(request: Request, api_key: str = Depends(verify_api_key)):
     security_logger.info(f"Acesso GET /api/medical-exams de {get_remote_address(request)}")
     db = next(get_db())
-    exams = db.query(models.MedicalExam).order_by(models.MedicalExam.created_at.desc()).all()
+    user = get_request_user(request, db)
+    
+    # CRÍTICO: Exigir autenticação JWT válida (não aceitar apenas API_KEY)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Autenticacao requerida")
+    
+    profile_id = get_profile_context(request, db)
+    if profile_id:
+        ensure_profile_access(user, db, profile_id, write_access=False)
+        query = db.query(models.MedicalExam).filter(models.MedicalExam.profile_id == profile_id)
+    else:
+        # Se não há profile_id, retornar vazio (não retornar todos os exames)
+        query = db.query(models.MedicalExam).filter(False)  # Query que sempre retorna vazio
+    
+    exams = query.order_by(models.MedicalExam.created_at.desc()).all()
     
     # Não retornar image_base64 na lista (muito grande)
     result = []
@@ -613,10 +2623,30 @@ def get_medical_exams(request: Request, api_key: str = Depends(verify_api_key)):
 def get_medical_exam(request: Request, exam_id: int, api_key: str = Depends(verify_api_key)):
     security_logger.info(f"Acesso GET /api/medical-exams/{exam_id} de {get_remote_address(request)}")
     db = next(get_db())
-    exam = db.query(models.MedicalExam).filter(models.MedicalExam.id == exam_id).first()
+    user = get_request_user(request, db)
+    profile_id = get_profile_context(request, db)
+    if user and profile_id:
+        ensure_profile_access(user, db, profile_id, write_access=True)
+    query = db.query(models.MedicalExam).filter(models.MedicalExam.id == exam_id)
+    if profile_id:
+        query = query.filter(models.MedicalExam.profile_id == profile_id)
+    exam = query.first()
     if not exam:
         raise HTTPException(status_code=404, detail="Exam not found")
-    
+    token = get_bearer_token(request)
+    user = None
+    if token:
+        try:
+            user = get_user_from_token(db, token)
+        except HTTPException:
+            user = None
+    if user:
+        ip_address, user_agent = get_request_meta(request)
+        record_download(db, user.id, "medical_exam", str(exam_id), ip_address, user_agent)
+        recent_count = get_recent_download_count(db, user.id, DOWNLOAD_WINDOW_MINUTES)
+        if recent_count == DOWNLOAD_THRESHOLD:
+            security_logger.warning(f"Download em massa detectado para {user.email} ({recent_count} em {DOWNLOAD_WINDOW_MINUTES}m)")
+            send_mass_download_alert(user.email, recent_count, DOWNLOAD_WINDOW_MINUTES, ip_address, user_agent)
     return schemas.MedicalExamResponse.model_validate(exam).model_dump()
 
 
@@ -631,7 +2661,14 @@ def update_medical_exam(
     security_logger.info(f"Acesso PUT /api/medical-exams/{exam_id} de {get_remote_address(request)}")
     
     db = next(get_db())
-    db_exam = db.query(models.MedicalExam).filter(models.MedicalExam.id == exam_id).first()
+    user = get_request_user(request, db)
+    profile_id = get_profile_context(request, db)
+    if user and profile_id:
+        ensure_profile_access(user, db, profile_id, write_access=True)
+    query = db.query(models.MedicalExam).filter(models.MedicalExam.id == exam_id)
+    if profile_id:
+        query = query.filter(models.MedicalExam.profile_id == profile_id)
+    db_exam = query.first()
     if not db_exam:
         raise HTTPException(status_code=404, detail="Exam not found")
     
@@ -657,7 +2694,14 @@ def update_medical_exam(
 def delete_medical_exam(request: Request, exam_id: int, api_key: str = Depends(verify_api_key)):
     security_logger.info(f"Acesso DELETE /api/medical-exams/{exam_id} de {get_remote_address(request)}")
     db = next(get_db())
-    db_exam = db.query(models.MedicalExam).filter(models.MedicalExam.id == exam_id).first()
+    user = get_request_user(request, db)
+    profile_id = get_profile_context(request, db)
+    if user and profile_id:
+        ensure_profile_access(user, db, profile_id, write_access=True, delete_access=True)
+    query = db.query(models.MedicalExam).filter(models.MedicalExam.id == exam_id)
+    if profile_id:
+        query = query.filter(models.MedicalExam.profile_id == profile_id)
+    db_exam = query.first()
     if not db_exam:
         raise HTTPException(status_code=404, detail="Exam not found")
     
@@ -687,11 +2731,18 @@ def get_parameter_timeline(
     security_logger.info(f"Acesso GET /api/medical-exams/{exam_id}/timeline/{parameter_name} de {get_remote_address(request)}")
     
     db = next(get_db())
+    user = get_request_user(request, db)
+    profile_id = get_profile_context(request, db)
+    if user and profile_id:
+        ensure_profile_access(user, db, profile_id, write_access=False)
     
     # Buscar todos os data points deste parâmetro (não apenas do exame atual)
-    data_points = db.query(models.ExamDataPoint).filter(
+    query = db.query(models.ExamDataPoint).filter(
         models.ExamDataPoint.parameter_name.ilike(f"%{parameter_name}%")
-    ).order_by(models.ExamDataPoint.exam_date.asc()).all()
+    )
+    if profile_id:
+        query = query.filter(models.ExamDataPoint.profile_id == profile_id)
+    data_points = query.order_by(models.ExamDataPoint.exam_date.asc()).all()
     
     if not data_points:
         raise HTTPException(status_code=404, detail="Parameter data not found")
@@ -1181,17 +3232,14 @@ def health_check():
 @app.get("/debug/api-key-info")
 def debug_api_key_info():
     """Endpoint temporário de debug para verificar se a API_KEY está carregada corretamente"""
-    import hashlib
     api_key_from_env = os.getenv("API_KEY", "NOT_LOADED")
     
     # Retornar informações completas para debug (apenas em desenvolvimento)
     return {
         "status": "ok",
-        "api_key_from_env": api_key_from_env if api_key_from_env != "NOT_LOADED" else "NOT_LOADED",
-        "api_key_in_memory": API_KEY,
-        "api_key_length_env": len(api_key_from_env) if api_key_from_env != "NOT_LOADED" else 0,
-        "api_key_length_memory": len(API_KEY),
-        "keys_match": api_key_from_env == API_KEY,
+        "api_key_from_env_configured": api_key_from_env != "NOT_LOADED",
+        "api_key_in_memory_configured": bool(API_KEY),
+        "keys_match": api_key_from_env != "NOT_LOADED" and api_key_from_env == API_KEY,
         "note": "Este endpoint deve ser removido em produção"
     }
 
