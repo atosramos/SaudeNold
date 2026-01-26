@@ -197,6 +197,20 @@ SaudeNold/
 
 ## 📚 Documentação
 
+### Sistema Multiempresa (Perfis Familiares)
+
+Documentação completa do sistema multiempresa está disponível em [`docs/multiempresa/`](./docs/multiempresa/README.md):
+
+- **[Arquitetura](./docs/multiempresa/ARQUITETURA.md)** - Visão geral e diagramas
+- **[API](./docs/multiempresa/API.md)** - Documentação completa de endpoints
+- **[Modelos de Dados](./docs/multiempresa/MODELOS.md)** - Estrutura de dados
+- **[Guia de Migração](./docs/multiempresa/MIGRACAO.md)** - Processo de migração
+- **[Testes](./docs/multiempresa/TESTES.md)** - Suite de testes
+- **[Guia do Usuário](./docs/multiempresa/GUIA-USUARIO.md)** - Como usar o sistema
+- **[Segurança](./docs/multiempresa/SEGURANCA.md)** - Segurança e conformidade
+
+### Outra Documentação
+
 A documentação completa está organizada na pasta `docs/`:
 
 - **Setup**: Guias de instalação e configuração
