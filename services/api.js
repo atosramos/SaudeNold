@@ -3,7 +3,7 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import { getAuthToken, getRefreshToken, setStoredAuth, clearStoredAuth } from './authStorage';
 import { getDeviceId } from './deviceInfo';
-import { getActiveProfileId } from './profileStorageManager';
+import { getActiveProfileId, getActiveProfileRemoteId } from './profileStorageManager';
 
 const RAW_API_URL = Constants.expoConfig?.extra?.apiUrl || process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000';
 const API_URL = Platform.OS === 'android'
@@ -12,8 +12,26 @@ const API_URL = Platform.OS === 'android'
       .replace('http://127.0.0.1', 'http://10.0.2.2')
   : RAW_API_URL;
 const API_KEY = Constants.expoConfig?.extra?.apiKey || process.env.EXPO_PUBLIC_API_KEY || '';
+
+// Verificar se está em produção
+const isProduction = !__DEV__ && 
+  !API_URL.includes('localhost') && 
+  !API_URL.includes('127.0.0.1') && 
+  !API_URL.includes('10.0.2.2') &&
+  !API_URL.includes('192.168.');
+
+// Enforcement de HTTPS em produção
+if (isProduction && !API_URL.startsWith('https://')) {
+  const errorMsg = 'HTTPS é obrigatório em produção para segurança dos dados médicos. Configure EXPO_PUBLIC_API_URL com https://';
+  console.error('[API] ERRO DE SEGURANÇA:', errorMsg);
+  throw new Error(errorMsg);
+}
+
 if (__DEV__) {
   console.warn('API_URL em runtime:', API_URL);
+  if (!API_URL.startsWith('https://') && !API_URL.includes('localhost') && !API_URL.includes('127.0.0.1')) {
+    console.warn('[API] AVISO: Usando HTTP. Em produção, HTTPS é obrigatório para segurança dos dados médicos.');
+  }
 }
 const runtimeApiKeyState = {
   value: null,
@@ -57,9 +75,96 @@ const api = axios.create({
   timeout: 10000,
 });
 
+// Flag para rastrear se logout foi feito (evita usar token após logout)
+let logoutFlag = false;
+
+// Função para definir flag de logout (chamada por logoutUser)
+api.setLogoutFlag = (value) => {
+  logoutFlag = value;
+};
+
+// Gerenciamento de token CSRF
+let csrfToken = null;
+let csrfTokenPromise = null;
+
+// Endpoints que não precisam de token CSRF
+const CSRF_EXEMPT_PATHS = [
+  '/api/auth/login',
+  '/api/auth/register',
+  '/api/auth/refresh',
+  '/api/auth/revoke',  // Endpoint de logout
+  '/api/auth/reset-password',
+  '/api/auth/forgot-password',
+  '/api/auth/verify-email',
+  '/api/auth/biometric/challenge',  // Endpoint de autenticação biométrica
+  '/api/auth/biometric',  // Endpoint de autenticação biométrica
+  '/api/csrf-token',
+  '/health',
+  '/debug/',
+];
+
+// Função para obter token CSRF
+const getCsrfToken = async () => {
+  // Se já temos um token, retornar
+  if (csrfToken) {
+    return csrfToken;
+  }
+  
+  // Se já há uma requisição em andamento, aguardar
+  if (csrfTokenPromise) {
+    return csrfTokenPromise;
+  }
+  
+  // Obter token do backend
+  const authToken = await getAuthToken();
+  if (!authToken) {
+    return null;
+  }
+  
+  csrfTokenPromise = axios
+    .get(`${API_URL}/api/csrf-token`, {
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+      },
+      timeout: 5000,
+    })
+    .then((response) => {
+      const token = response?.data?.csrf_token;
+      if (token) {
+        csrfToken = token;
+      }
+      return token;
+    })
+    .catch((error) => {
+      console.warn('[API] Erro ao obter token CSRF:', error?.message);
+      return null;
+    })
+    .finally(() => {
+      csrfTokenPromise = null;
+    });
+  
+  return csrfTokenPromise;
+};
+
+// Função para limpar token CSRF (chamada após logout)
+const clearCsrfToken = () => {
+  csrfToken = null;
+  csrfTokenPromise = null;
+};
+
+api.clearCsrfToken = clearCsrfToken;
+
 // Interceptor para adicionar token em todas as requisições
 api.interceptors.request.use(
   async (config) => {
+    // Se logout foi feito, NÃO usar token mesmo se encontrar um
+    if (logoutFlag) {
+      // Limpar flag após usar (permite novo login)
+      logoutFlag = false;
+      // Não adicionar Authorization header - deixar backend rejeitar
+      return config;
+    }
+    
     const authToken = await getAuthToken();
     if (authToken) {
       config.headers.Authorization = `Bearer ${authToken}`;
@@ -67,18 +172,58 @@ api.interceptors.request.use(
       if (deviceId) {
         config.headers['X-Device-Id'] = deviceId;
       }
-      const profileId = await getActiveProfileId();
-      if (profileId) {
-        config.headers['X-Profile-Id'] = profileId;
+      // CRÍTICO: Backend espera X-Profile-Id como número inteiro (remote_id)
+      // NÃO enviar profileId local (ex: "profile_1234567890") pois não é um número
+      const remoteProfileId = await getActiveProfileRemoteId();
+      if (remoteProfileId && Number.isInteger(Number(remoteProfileId))) {
+        config.headers['X-Profile-Id'] = String(remoteProfileId);
+        // #region agent log
+        console.log('[API] X-Profile-Id header definido:', remoteProfileId);
+        // #endregion
+      } else {
+        // #region agent log
+        console.log('[API] X-Profile-Id NÃO definido - remoteProfileId:', remoteProfileId, 'tipo:', typeof remoteProfileId);
+        // #endregion
+        // Não enviar header se não houver remote_id válido
+        // Backend vai usar o perfil padrão do usuário
       }
-    } else if (API_KEY) {
-      config.headers.Authorization = `Bearer ${API_KEY}`;
-    } else if (__DEV__) {
-      const runtimeApiKey = await fetchRuntimeApiKey();
-      if (runtimeApiKey) {
-        config.headers.Authorization = `Bearer ${runtimeApiKey}`;
-        console.warn('⚠️ Usando API Key obtida via debug endpoint.');
+      
+      // Adicionar token CSRF para métodos que modificam dados
+      const method = config.method?.toUpperCase();
+      const url = config.url || '';
+      const needsCsrf = ['POST', 'PUT', 'DELETE', 'PATCH'].includes(method) &&
+                       !CSRF_EXEMPT_PATHS.some(path => url.includes(path));
+      
+      if (needsCsrf) {
+        const csrf = await getCsrfToken();
+        if (csrf) {
+          config.headers['X-CSRF-Token'] = csrf;
+        }
       }
+    } else if (api.defaults.headers.common.Authorization && !api.defaults.headers.common.Authorization.includes('Bearer ' + API_KEY)) {
+      // Só usar header do axios se não for API_KEY (pode ser token JWT válido)
+      config.headers.Authorization = api.defaults.headers.common.Authorization;
+    } else {
+      // CRÍTICO: NÃO enviar API_KEY para endpoints protegidos
+      // Se não há token JWT, não adicionar Authorization header
+      // Backend deve rejeitar com 401 se não houver token válido
+      // API_KEY só deve ser usada para endpoints públicos (como /health)
+      const isPublicEndpoint = config.url?.includes('/health') || 
+                               config.url?.includes('/debug/') ||
+                               config.url?.includes('/api/auth/register') ||
+                               config.url?.includes('/api/auth/login');
+      
+      if (isPublicEndpoint && API_KEY) {
+        config.headers.Authorization = `Bearer ${API_KEY}`;
+      } else if (__DEV__ && isPublicEndpoint) {
+        const runtimeApiKey = await fetchRuntimeApiKey();
+        if (runtimeApiKey) {
+          config.headers.Authorization = `Bearer ${runtimeApiKey}`;
+          console.warn('⚠️ Usando API Key obtida via debug endpoint (apenas para endpoints públicos).');
+        }
+      }
+      // Se não é endpoint público e não há token, não adicionar Authorization
+      // Backend vai retornar 401, que é o comportamento correto
     }
     return config;
   },
