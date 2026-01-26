@@ -23,18 +23,18 @@
 ## 🔴 PRIORIDADE ALTA - Próximas Issues Críticas
 
 ### 1. Issue #21 - Adição de Familiares
-**Status:** ❌ Não iniciado  
+**Status:** ✅ **COMPLETA**  
 **Prioridade:** 🔴 Alta (MVP)
 
-**O que falta:**
-- [ ] Implementar telas de adição (criança, adulto, idoso)
-- [ ] Endpoints backend para adicionar familiares
-- [ ] Validações de idade e permissões
-- [ ] UI/UX para formulários
+**O que foi implementado:**
+- [x] Implementar telas de adição (criança, adulto, idoso)
+- [x] Endpoints backend para adicionar familiares
+- [x] Validações de idade e permissões
+- [x] UI/UX para formulários
 
-**Impacto:** Sem esta funcionalidade, usuários não conseguem adicionar familiares diretamente no app.
+**Impacto:** Usuários agora podem adicionar familiares diretamente no app.
 
-**Estimativa:** 3-4 dias
+**Conclusão:** 2026-01-26
 
 ---
 
@@ -140,11 +140,11 @@
 ## 📋 Recomendações de Priorização
 
 ### Sprint 1 (Próximas 2 semanas) - MVP Completo
-1. **Issue #21** - Adição de Familiares (3-4 dias)
+1. ✅ **Issue #21** - Adição de Familiares (COMPLETA)
 2. **Issue #23** - RBAC Completo (4-5 dias)
 3. **Issue #22** - UI de Convites (2-3 dias)
 
-**Total:** ~10-12 dias úteis
+**Total:** ~7-8 dias úteis restantes
 
 ### Sprint 2 (Seguinte) - Segurança e Melhorias
 1. **Issue #33** - Zero-Knowledge Backend (3-4 dias)
