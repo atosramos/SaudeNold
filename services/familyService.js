@@ -70,3 +70,18 @@ export const deleteFamilyProfile = async (profileId) => {
   const response = await api.delete(`/api/family/profiles/${profileId}`);
   return response.data;
 };
+
+export const addFamilyChild = async (memberData) => {
+  const response = await api.post('/api/family/add-child', memberData);
+  return response.data;
+};
+
+export const addFamilyAdult = async (memberData) => {
+  const response = await api.post('/api/family/add-adult', memberData);
+  return response.data;
+};
+
+export const addFamilyElder = async (memberData) => {
+  const response = await api.post('/api/family/add-elder', memberData);
+  return response.data;
+};

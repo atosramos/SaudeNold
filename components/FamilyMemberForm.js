@@ -15,15 +15,7 @@ export default function FamilyMemberForm({ values, onChange, showEmail, errors =
       />
       {errors.name ? <Text style={styles.errorText}>{errors.name}</Text> : null}
 
-      <Text style={styles.label}>Data de nascimento</Text>
-      <TextInput
-        style={styles.input}
-        value={values.birth_date}
-        onChangeText={(value) => onChange('birth_date', value)}
-        placeholder="AAAA-MM-DD"
-        placeholderTextColor="#999"
-      />
-      {errors.birth_date ? <Text style={styles.errorText}>{errors.birth_date}</Text> : null}
+      {/* Data de nascimento será gerenciada pela tela com DateTimePicker */}
 
       <Text style={styles.label}>Gênero</Text>
       <VoiceTextInput

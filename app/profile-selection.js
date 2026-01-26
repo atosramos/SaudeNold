@@ -508,6 +508,16 @@ export default function ProfileSelectionScreen() {
         <View style={styles.modalBackdrop}>
           <View style={styles.modal}>
             <Text style={styles.modalTitle}>Adicionar familiar</Text>
+            <TouchableOpacity style={styles.option} onPress={() => handleAddMember('/family/add-child')}>
+              <Text style={styles.optionText}>Adicionar criança</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.option} onPress={() => handleAddMember('/family/add-adult')}>
+              <Text style={styles.optionText}>Adicionar adulto</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.option} onPress={() => handleAddMember('/family/add-elder')}>
+              <Text style={styles.optionText}>Adicionar idoso</Text>
+            </TouchableOpacity>
+            <View style={styles.divider} />
             <TouchableOpacity style={styles.option} onPress={() => handleAddMember('/family/create-invite')}>
               <Text style={styles.optionText}>Criar convite</Text>
             </TouchableOpacity>
@@ -699,6 +709,11 @@ const styles = StyleSheet.create({
   optionText: {
     fontSize: 16,
     color: '#333',
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#e0e0e0',
+    marginVertical: 8,
   },
   contextMenu: {
     position: 'absolute',
