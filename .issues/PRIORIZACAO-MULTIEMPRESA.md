@@ -11,9 +11,9 @@ Este documento prioriza as issues relacionadas ao sistema multiempresa (perfis f
 
 | Prioridade | Issue | Título | Status | Estimativa |
 |------------|-------|--------|--------|------------|
-| 🔴 **CRÍTICA** | #34 | Migração de Dados Multiempresa | ⚠️ Parcial | 2-3 dias |
-| 🟡 **ALTA** | #35 | Testes Multiempresa | ❌ Não iniciado | 3-4 dias |
-| 🟢 **MÉDIA** | #36 | Documentação Multiempresa | ⚠️ Parcial | 2-3 dias |
+| 🔴 **CRÍTICA** | #34 | Migração de Dados Multiempresa | ✅ **COMPLETA** | 2-3 dias |
+| 🟡 **ALTA** | #35 | Testes Multiempresa | ✅ **COMPLETA** | 3-4 dias |
+| 🟢 **MÉDIA** | #36 | Documentação Multiempresa | ✅ **COMPLETA** | 2-3 dias |
 
 **Ordem de Execução Recomendada:**
 1. **FASE 1**: Issue #34 (Migração) - **BLOQUEIA produção**
