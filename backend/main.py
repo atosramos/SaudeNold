@@ -2187,6 +2187,18 @@ def create_family_data_share(
     db.add(share)
     safe_db_commit(db)
     db.refresh(share)
+    
+    # Log de auditoria - compartilhamento
+    if user:
+        try:
+            log_share_action(
+                db, user, "family_data_share", share.id, share.from_profile_id, request,
+                shared_with=share.to_profile_id,
+                permissions=share.permissions
+            )
+        except Exception as e:
+            security_logger.warning(f"Erro ao registrar log de auditoria: {e}")
+    
     return share
 
 
@@ -2650,6 +2662,14 @@ def get_doctor_visits(request: Request, api_key: str = Depends(verify_api_key)):
         query = db.query(models.DoctorVisit).filter(False)  # Query que sempre retorna vazio
     
     visits = query.order_by(models.DoctorVisit.visit_date.desc()).all()
+    
+    # Log de auditoria - visualização
+    if user and profile_id:
+        try:
+            log_view_action(db, user, RESOURCE_VISIT, None, profile_id, request)
+        except Exception as e:
+            security_logger.warning(f"Erro ao registrar log de auditoria: {e}")
+    
     return [schemas.DoctorVisitResponse.model_validate(v).model_dump() for v in visits]
 
 
@@ -2678,6 +2698,25 @@ def create_doctor_visit(request: Request, visit: schemas.DoctorVisitCreate, api_
         db.add(db_visit)
         safe_db_commit(db)
         db.refresh(db_visit)
+        
+        # Log de auditoria - criação
+        if user and profile_id:
+            try:
+                from services.audit_service import log_audit_event, ACTION_CREATE
+                log_audit_event(
+                    db=db,
+                    user_id=user.id,
+                    action_type=ACTION_CREATE,
+                    resource_type=RESOURCE_VISIT,
+                    resource_id=db_visit.id,
+                    profile_id=profile_id,
+                    ip_address=get_remote_address(request),
+                    user_agent=request.headers.get("user-agent"),
+                    device_id=request.headers.get("x-device-id")
+                )
+            except Exception as e:
+                security_logger.warning(f"Erro ao registrar log de auditoria: {e}")
+        
         return schemas.DoctorVisitResponse.model_validate(db_visit).model_dump()
     except HTTPException:
         raise
@@ -2867,6 +2906,24 @@ def create_medical_exam(
         safe_db_commit(db)
         db.refresh(db_exam)
         
+        # Log de auditoria - criação
+        if user and profile_id:
+            try:
+                from services.audit_service import log_audit_event, ACTION_CREATE
+                log_audit_event(
+                    db=db,
+                    user_id=user.id,
+                    action_type=ACTION_CREATE,
+                    resource_type=RESOURCE_EXAM,
+                    resource_id=db_exam.id,
+                    profile_id=profile_id,
+                    ip_address=get_remote_address(request),
+                    user_agent=request.headers.get("user-agent"),
+                    device_id=request.headers.get("x-device-id")
+                )
+            except Exception as e:
+                security_logger.warning(f"Erro ao registrar log de auditoria: {e}")
+        
         # Adicionar tarefa de processamento em background
         background_tasks.add_task(process_exam_ocr, db_exam.id)
         
@@ -2899,6 +2956,13 @@ def get_medical_exams(request: Request, api_key: str = Depends(verify_api_key)):
         query = db.query(models.MedicalExam).filter(False)  # Query que sempre retorna vazio
     
     exams = query.order_by(models.MedicalExam.created_at.desc()).all()
+    
+    # Log de auditoria - visualização
+    if user and profile_id:
+        try:
+            log_view_action(db, user, RESOURCE_EXAM, None, profile_id, request)
+        except Exception as e:
+            security_logger.warning(f"Erro ao registrar log de auditoria: {e}")
     
     # Não retornar image_base64 na lista (muito grande)
     result = []
