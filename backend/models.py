@@ -330,6 +330,74 @@ class EmergencyContact(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
 
+class EmergencyProfile(Base):
+    """
+    Configurações do Modo de Emergência para um perfil.
+    Permite acesso rápido a informações críticas sem desbloquear o aparelho.
+    """
+    __tablename__ = "emergency_profiles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    profile_id = Column(Integer, nullable=False, index=True, unique=True)
+    
+    # Emergency PIN (hash do PIN de 6 dígitos)
+    emergency_pin_hash = Column(String(255))  # Hash do PIN de 6 dígitos
+    emergency_pin_enabled = Column(Boolean, default=False, index=True)
+    
+    # Configurações de privacidade - quais dados exibir
+    show_blood_type = Column(Boolean, default=True)
+    show_allergies = Column(Boolean, default=True)
+    show_chronic_conditions = Column(Boolean, default=True)
+    show_medications = Column(Boolean, default=True)
+    show_emergency_contacts = Column(Boolean, default=True)
+    show_health_insurance = Column(Boolean, default=True)
+    show_advance_directives = Column(Boolean, default=False)
+    show_full_name = Column(Boolean, default=False)  # Se False, mostra apenas iniciais
+    
+    # Informações adicionais
+    health_insurance_name = Column(String(255))
+    health_insurance_number = Column(String(100))
+    advance_directives = Column(Text)  # Diretivas antecipadas
+    
+    # Recursos especiais
+    qr_code_enabled = Column(Boolean, default=True)
+    share_location_enabled = Column(Boolean, default=False)
+    notify_contacts_on_access = Column(Boolean, default=True)
+    
+    # Status
+    is_active = Column(Boolean, default=True, index=True)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class EmergencyAccessLog(Base):
+    """
+    Log de acessos ao modo de emergência.
+    Registra quando o modo emergência foi ativado.
+    """
+    __tablename__ = "emergency_access_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    profile_id = Column(Integer, nullable=False, index=True)
+    
+    # Rastreabilidade
+    accessed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    ip_address = Column(String(45), index=True)
+    device_id = Column(String(255), index=True)
+    location_lat = Column(Float)
+    location_lon = Column(Float)
+    
+    # Detalhes do acesso
+    access_method = Column(String(20), default="pin")  # pin, qr_code
+    contacts_notified = Column(Boolean, default=False)
+    location_shared = Column(Boolean, default=False)
+    
+    # Metadados
+    user_agent = Column(String(500))
+    notes = Column(Text)  # Notas adicionais sobre o acesso
+
+
 class DailyTracking(Base):
     __tablename__ = "daily_tracking"
 

@@ -800,3 +800,85 @@ class DataDeletionRequestResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
+# ========== MODO DE EMERGÊNCIA ==========
+class EmergencyProfileBase(BaseModel):
+    show_blood_type: bool = True
+    show_allergies: bool = True
+    show_chronic_conditions: bool = True
+    show_medications: bool = True
+    show_emergency_contacts: bool = True
+    show_health_insurance: bool = True
+    show_advance_directives: bool = False
+    show_full_name: bool = False
+    health_insurance_name: Optional[str] = None
+    health_insurance_number: Optional[str] = None
+    advance_directives: Optional[str] = None
+    qr_code_enabled: bool = True
+    share_location_enabled: bool = False
+    notify_contacts_on_access: bool = True
+
+
+class EmergencyProfileResponse(EmergencyProfileBase):
+    id: int
+    profile_id: int
+    emergency_pin_enabled: bool
+    is_active: bool
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class EmergencyPinSetRequest(BaseModel):
+    pin: str  # PIN de 6 dígitos
+
+    @validator('pin')
+    def validate_pin(cls, v):
+        if len(v) != 6 or not v.isdigit():
+            raise ValueError('PIN deve ter exatamente 6 dígitos numéricos')
+        return v
+
+
+class EmergencyPinVerifyRequest(BaseModel):
+    pin: str  # PIN de 6 dígitos
+
+    @validator('pin')
+    def validate_pin(cls, v):
+        if len(v) != 6 or not v.isdigit():
+            raise ValueError('PIN deve ter exatamente 6 dígitos numéricos')
+        return v
+
+
+class EmergencyInfoResponse(BaseModel):
+    profile_id: int
+    name: str
+    blood_type: Optional[str] = None
+    allergies: Optional[List[str]] = None
+    medications: Optional[List[Dict[str, Any]]] = None
+    emergency_contacts: Optional[List[Dict[str, Any]]] = None
+    health_insurance: Optional[Dict[str, Any]] = None
+    advance_directives: Optional[str] = None
+
+
+class EmergencyAccessLogResponse(BaseModel):
+    id: int
+    profile_id: int
+    accessed_at: datetime
+    access_method: str
+    ip_address: Optional[str] = None
+    device_id: Optional[str] = None
+    location_lat: Optional[float] = None
+    location_lon: Optional[float] = None
+    contacts_notified: bool
+    location_shared: bool
+
+    class Config:
+        from_attributes = True
+
+
+class EmergencyQRCodeResponse(BaseModel):
+    qr_data: str
+    expires_at: datetime
+

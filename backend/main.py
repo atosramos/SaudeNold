@@ -48,7 +48,16 @@ from services.rate_limit_service import (
     check_user_email_daily_limit,
 )
 from middleware.validation_middleware import ValidationMiddleware
-from routes.audit_routes import router as compliance_router
+try:
+    from routes.audit_routes import router as compliance_router
+    app.include_router(compliance_router)
+except ImportError:
+    pass
+try:
+    from routes.emergency_routes import router as emergency_router
+    app.include_router(emergency_router)
+except ImportError:
+    pass
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, ec, rsa
@@ -157,6 +166,19 @@ from middleware.csrf_middleware import CSRFMiddleware
 from middleware.validation_middleware import ValidationMiddleware
 app.add_middleware(CSRFMiddleware)
 app.add_middleware(ValidationMiddleware)
+
+# Incluir routers (se disponíveis)
+try:
+    from routes.audit_routes import router as compliance_router
+    app.include_router(compliance_router)
+except ImportError:
+    pass
+
+try:
+    from routes.emergency_routes import router as emergency_router
+    app.include_router(emergency_router)
+except ImportError:
+    pass
 
 REFRESH_TOKEN_CLEANUP_MINUTES = int(os.getenv("REFRESH_TOKEN_CLEANUP_MINUTES", "60"))
 DISABLE_TOKEN_CLEANUP = os.getenv("DISABLE_TOKEN_CLEANUP", "false").lower() == "true"
