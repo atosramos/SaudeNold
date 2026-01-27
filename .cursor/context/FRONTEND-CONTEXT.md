@@ -162,6 +162,81 @@ try {
 - **Loading States**: Show progress indicators
 - **Error States**: Clear error messages
 
+## Code Examples
+
+### Complete Screen Component
+```javascript
+import React, { useState, useEffect } from 'react';
+import { View, Text, Button } from 'react-native';
+import { useRouter } from 'expo-router';
+import { getMedications } from '../services/medications';
+import { getActiveProfile } from '../services/profile';
+
+export default function MedicationsScreen() {
+  const router = useRouter();
+  const [medications, setMedications] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadMedications();
+  }, []);
+
+  const loadMedications = async () => {
+    try {
+      const profile = await getActiveProfile();
+      if (!profile) {
+        router.push('/profile/select');
+        return;
+      }
+      const data = await getMedications(profile.id);
+      setMedications(data);
+    } catch (err) {
+      console.error('Error:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) return <Text>Carregando...</Text>;
+
+  return (
+    <View>
+      {medications.map(med => (
+        <View key={med.id}>
+          <Text>{med.name}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+```
+
+### Token Refresh Loop
+```javascript
+// services/tokenManager.js
+import { refreshAccessToken } from './auth';
+
+let refreshInterval = null;
+
+export const startTokenRefreshLoop = async () => {
+  if (refreshInterval) clearInterval(refreshInterval);
+  
+  await refreshTokenIfNeeded();
+  refreshInterval = setInterval(refreshTokenIfNeeded, 780000); // 13 min
+};
+
+const refreshTokenIfNeeded = async () => {
+  try {
+    const refreshToken = await SecureStore.getItemAsync('refreshToken');
+    if (refreshToken) {
+      await refreshAccessToken(refreshToken);
+    }
+  } catch (error) {
+    console.error('Token refresh failed:', error);
+  }
+};
+```
+
 ## Common Patterns
 
 ### API Calls with Profile

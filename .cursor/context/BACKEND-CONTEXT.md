@@ -213,6 +213,82 @@ REQUIRE_EMAIL_VERIFICATION=true
 ALLOW_EMAIL_DEBUG=false
 ```
 
+## Code Examples
+
+### Complete Endpoint Example
+```python
+from fastapi import APIRouter, Depends, HTTPException, Security, Request
+from fastapi.security import HTTPAuthorizationCredentials
+from sqlalchemy.orm import Session
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+
+router = APIRouter()
+limiter = Limiter(key_func=get_remote_address)
+
+@router.post("/api/medications")
+@limiter.limit("10/minute")
+async def create_medication(
+    medication_data: MedicationCreate,
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db),
+    request: Request = None
+):
+    # 1. Authenticate user
+    user = get_user_from_token(db, credentials.credentials)
+    if not user:
+        raise HTTPException(401, "Invalid token")
+    
+    # 2. Get profile_id from header
+    profile_id = request.headers.get('X-Profile-Id')
+    if not profile_id:
+        raise HTTPException(400, "X-Profile-Id header required")
+    
+    # 3. Validate profile access
+    profile = db.query(FamilyProfile).filter(
+        FamilyProfile.id == profile_id,
+        FamilyProfile.family_id == user.family_id
+    ).first()
+    if not profile:
+        raise HTTPException(403, "Access denied")
+    
+    # 4. Create medication with profile_id
+    medication = Medication(
+        profile_id=profile_id,
+        name=medication_data.name,
+        dosage=medication_data.dosage
+    )
+    db.add(medication)
+    db.commit()
+    return medication
+```
+
+### Token Refresh Example
+```python
+@app.post("/api/auth/refresh")
+async def refresh_token(
+    refresh_token_data: RefreshTokenRequest,
+    db: Session = Depends(get_db)
+):
+    # Verify refresh token
+    token_data = verify_refresh_token(db, refresh_token_data.refresh_token)
+    if not token_data:
+        raise HTTPException(401, "Invalid refresh token")
+    
+    # Get user and create new tokens
+    user = db.query(User).filter(User.id == token_data.user_id).first()
+    new_access_token = create_access_token(user.id)
+    new_refresh_token = create_refresh_token(db, user.id)
+    
+    # Revoke old refresh token (rotation)
+    revoke_refresh_token(db, refresh_token_data.refresh_token)
+    
+    return {
+        "access_token": new_access_token,
+        "refresh_token": new_refresh_token
+    }
+```
+
 ## Common Patterns
 
 ### Error Handling
