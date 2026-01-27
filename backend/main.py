@@ -405,32 +405,49 @@ def sanitize_string(value: str, max_length: int = 1000) -> str:
 
 MAX_FAMILY_PROFILES = int(os.getenv("MAX_FAMILY_PROFILES", "10"))
 
-ACCOUNT_PERMISSIONS = {
-    "family_admin": {
-        "can_manage_profiles": True,
-        "can_view_family_data": True,
-        "can_edit_family_data": True
-    },
-    "adult_member": {
-        "can_manage_profiles": False,
-        "can_view_family_data": True,
-        "can_edit_family_data": True
-    },
-    "child": {
-        "can_manage_profiles": False,
-        "can_view_family_data": False,
-        "can_edit_family_data": False
-    },
-    "elder_under_care": {
-        "can_manage_profiles": False,
-        "can_view_family_data": True,
-        "can_edit_family_data": False
+# Import RBAC utilities
+try:
+    from utils.rbac import ACCOUNT_PERMISSIONS, build_permissions
+    from services.permission_service import check_permission, check_profile_access
+except ImportError:
+    # Fallback for backward compatibility
+    ACCOUNT_PERMISSIONS = {
+        "family_admin": {
+            "can_manage_profiles": True,
+            "can_view_family_data": True,
+            "can_edit_family_data": True
+        },
+        "adult_member": {
+            "can_manage_profiles": False,
+            "can_view_family_data": True,
+            "can_edit_family_data": True
+        },
+        "child": {
+            "can_manage_profiles": False,
+            "can_view_family_data": False,
+            "can_edit_family_data": False
+        },
+        "elder_under_care": {
+            "can_manage_profiles": False,
+            "can_view_family_data": True,
+            "can_edit_family_data": False
+        }
     }
-}
-
-
-def build_permissions(account_type: str) -> dict:
-    return ACCOUNT_PERMISSIONS.get(account_type, {})
+    
+    def build_permissions(account_type: str) -> dict:
+        return ACCOUNT_PERMISSIONS.get(account_type, {})
+    
+    def check_permission(user, action, resource_owner_id, db, resource_type=None):
+        # Fallback to old ensure_profile_access
+        from fastapi import HTTPException
+        ensure_profile_access(user, db, resource_owner_id, 
+                            write_access=(action == "edit"), 
+                            delete_access=(action == "delete"))
+        return True
+    
+    def check_profile_access(user, profile_id, db, write_access=False, delete_access=False):
+        ensure_profile_access(user, db, profile_id, write_access, delete_access)
+        return True
 
 
 def ensure_family_for_user(db: Session, user: models.User) -> models.Family:
@@ -586,6 +603,10 @@ def check_user_has_active_pro_license(db: Session, user: models.User) -> bool:
 
 
 def ensure_profile_access(user: models.User, db: Session, profile_id: int, write_access: bool = False, delete_access: bool = False) -> None:
+    """
+    Backward compatibility wrapper for check_profile_access.
+    Now uses the centralized permission service.
+    """
     # Em modo de teste, permitir acesso se perfil existe
     if os.getenv("TESTING") == "1":
         profile = db.query(models.FamilyProfile).filter(
@@ -594,51 +615,8 @@ def ensure_profile_access(user: models.User, db: Session, profile_id: int, write
         if profile:
             return  # Permitir acesso em modo de teste
     
-    profile = db.query(models.FamilyProfile).filter(
-        models.FamilyProfile.id == profile_id,
-        models.FamilyProfile.family_id == user.family_id
-    ).first()
-    if not profile:
-        raise HTTPException(status_code=403, detail="Perfil nao autorizado")
-    if user.account_type == "family_admin":
-        return
-    if profile.created_by == user.id:
-        return
-    caregiver = db.query(models.FamilyCaregiver).filter(
-        models.FamilyCaregiver.profile_id == profile_id,
-        models.FamilyCaregiver.caregiver_user_id == user.id
-    ).first()
-    if caregiver:
-        if write_access and caregiver.access_level == "read_only":
-            raise HTTPException(status_code=403, detail="Sem permissao para editar")
-        return
-    
-    # CRÍTICO: Verificar FamilyDataShare (compartilhamento via convite)
-    user_profile = db.query(models.FamilyProfile).filter(
-        models.FamilyProfile.family_id == user.family_id,
-        models.FamilyProfile.created_by == user.id
-    ).first()
-    if user_profile:
-        data_share = db.query(models.FamilyDataShare).filter(
-            models.FamilyDataShare.family_id == user.family_id,
-            models.FamilyDataShare.from_profile_id == profile_id,  # Perfil que compartilha
-            models.FamilyDataShare.to_profile_id == user_profile.id,  # Perfil do usuário atual
-            models.FamilyDataShare.revoked_at.is_(None)
-        ).first()
-        if data_share:
-            permissions = data_share.permissions or {}
-            # Verificar permissão de visualização
-            if not permissions.get("can_view", False):
-                raise HTTPException(status_code=403, detail="Sem permissao para visualizar")
-            # Verificar permissão de edição
-            if write_access and not permissions.get("can_edit", False):
-                raise HTTPException(status_code=403, detail="Sem permissao para editar")
-            # Verificar permissão de exclusão
-            if delete_access and not permissions.get("can_delete", False):
-                raise HTTPException(status_code=403, detail="Sem permissao para deletar")
-            return
-    
-    raise HTTPException(status_code=403, detail="Sem permissao para acessar o perfil")
+    # Use centralized permission service
+    check_profile_access(user, profile_id, db, write_access, delete_access)
 
 
 def get_request_user(request: Request, db: Session) -> Optional[models.User]:
