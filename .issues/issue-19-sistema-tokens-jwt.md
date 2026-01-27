@@ -1,0 +1,61 @@
+## Objetivo
+Implementar sistema completo de tokens JWT com access tokens de curta duração e refresh tokens de longa duração, incluindo renovação automática.
+
+## Contexto Atual
+App mobile (Expo/React Native) offline-first. Backend é opcional e pode ser usado apenas para sincronização. Tokens devem considerar modo offline e reconexão segura.
+
+## Tarefas
+- [x] Implementar geração de tokens no backend
+  - [x] Função `create_access_token()` - token de 15 a 30 minutos (configurável) ✅ `auth.py`
+  - [x] Função `create_refresh_token()` - token de 30 dias ✅ `auth.py`
+  - [x] Incluir user_id, email, role no payload ✅
+  - [x] Gerar token_id único para refresh tokens ✅
+  - [x] Armazenar refresh tokens no banco de dados ✅ `models.RefreshToken`
+  - [x] Campos: token_id, user_id, created_at, expires_at, revoked ✅
+- [x] Implementar renovação de tokens
+  - [x] Endpoint `/api/auth/refresh` para renovar access token ✅
+  - [x] Validar refresh token ✅ `verify_refresh_token()`
+  - [x] Verificar se token não foi revogado ✅
+  - [x] Verificar se token não expirou ✅
+  - [x] Gerar novo access token ✅
+  - [x] Opcionalmente gerar novo refresh token (rotacionar) ✅
+- [x] Implementar gerenciamento de tokens no frontend
+  - [x] Classe `TokenManager` para gerenciar tokens ✅ `services/tokenManager.js`
+  - [x] Armazenar tokens no SecureStore (React Native) ✅ `authStorage.js`
+  - [x] Implementar renovação automática antes da expiração ✅ `startTokenRefreshLoop()`
+  - [x] Agendar renovação em 13 minutos (antes dos 15) ✅
+  - [x] Interceptar requisições para adicionar token ✅ `api.js` interceptors
+  - [x] Tratar erro 401 e tentar renovar token ✅ `api.js` response interceptor
+  - [x] Logout automático se refresh falhar ✅
+- [x] Implementar revogação de tokens
+  - [x] Endpoint para revogar refresh token (`POST /api/auth/revoke`) ✅
+  - [x] Endpoint para revogar todos os tokens do usuário (`POST /api/auth/revoke-all`) ✅
+  - [x] Marcar tokens como revoked no banco ✅
+  - [x] Limpar tokens revogados periodicamente (job em background) ✅ `cleanup_revoked_refresh_tokens()`
+- [x] Implementar blacklist de tokens (opcional, para logout imediato)
+  - [x] Armazenar tokens revogados em cache (Redis) ✅ `services/token_blacklist.py`
+  - [x] Verificar blacklist em middleware de autenticação ✅ `get_user_from_token()` verifica blacklist
+  - [x] TTL igual ao tempo de expiração do token ✅
+
+## Arquivos Criados/Modificados
+- ✅ `backend/auth.py` - Funções de geração e validação de tokens
+- ✅ `backend/main.py` - Endpoints de refresh e revogação
+- ✅ `backend/models.py` - Modelo RefreshToken
+- ✅ `backend/services/token_blacklist.py` - Blacklist de tokens em Redis
+- ✅ `services/tokenManager.js` - Gerenciador de tokens (renovação automática)
+- ✅ `services/api.js` - Cliente HTTP com interceptors
+- ✅ `services/auth.js` - Funções de autenticação
+- ✅ `services/authStorage.js` - Armazenamento seguro de tokens
+
+## Variáveis de Ambiente
+- `JWT_SECRET_KEY` - Chave secreta para assinar tokens ✅
+- `ACCESS_TOKEN_EXPIRE_MINUTES` - Tempo de expiração (padrão: 30; faixa recomendada 15-30) ✅
+- `REFRESH_TOKEN_EXPIRE_DAYS` - Tempo de expiração (padrão: 30) ✅
+
+## Referências
+- Especificação técnica: Seção 1.2 - Sistema de Tokens JWT
+- [JWT RFC 7519](https://tools.ietf.org/html/rfc7519)
+- [PyJWT documentation](https://pyjwt.readthedocs.io/)
+
+## Prioridade
+🔴 Alta (MVP)
