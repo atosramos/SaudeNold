@@ -715,3 +715,88 @@ class DashboardResponse(BaseModel):
     purchase_stats: PurchaseStatsResponse
     last_updated: datetime
 
+
+# ========== AUDITORIA E CONFORMIDADE (LGPD/HIPAA) ==========
+class AuditLogResponse(BaseModel):
+    id: int
+    user_id: int
+    profile_id: Optional[int] = None
+    action_type: str
+    resource_type: Optional[str] = None
+    resource_id: Optional[int] = None
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+    device_id: Optional[str] = None
+    action_details: Optional[Dict[str, Any]] = None
+    old_values: Optional[Dict[str, Any]] = None
+    new_values: Optional[Dict[str, Any]] = None
+    success: bool
+    error_message: Optional[str] = None
+    created_at: datetime
+    log_hash: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class AuditLogFilter(BaseModel):
+    profile_id: Optional[int] = None
+    action_type: Optional[str] = None
+    resource_type: Optional[str] = None
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    limit: int = 100
+    offset: int = 0
+
+
+class AccessReportResponse(BaseModel):
+    user_id: int
+    period_months: int
+    start_date: str
+    end_date: str
+    total_accesses: int
+    by_action: Dict[str, int]
+    by_resource: Dict[str, int]
+    by_ip: Dict[str, int]
+    by_device: Dict[str, int]
+    logs: List[Dict[str, Any]]
+
+
+class DataExportRequest(BaseModel):
+    export_type: str = "full"  # full, partial, access_report
+    format: str = "json"  # json, csv, pdf
+    include_audit_logs: bool = True
+
+
+class DataExportResponse(BaseModel):
+    id: int
+    export_type: str
+    format: str
+    file_path: Optional[str] = None
+    download_url: Optional[str] = None
+    expires_at: Optional[datetime] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class DataDeletionRequestCreate(BaseModel):
+    request_type: str = "full"  # full, partial, account_only
+    reason: Optional[str] = None
+    scheduled_at: Optional[datetime] = None
+
+
+class DataDeletionRequestResponse(BaseModel):
+    id: int
+    user_id: int
+    request_type: str
+    reason: Optional[str] = None
+    status: str
+    scheduled_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+

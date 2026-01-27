@@ -49,80 +49,10 @@ class BiometricDevice(Base):
     device_id = Column(String(255), nullable=False, index=True)
     device_name = Column(String(255))
     public_key = Column(Text, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    is_active = Column(Boolean, default=True, index=True)
     revoked_at = Column(DateTime(timezone=True))
-
-
-class RefreshToken(Base):
-    __tablename__ = "refresh_tokens"
-
-    id = Column(Integer, primary_key=True, index=True)
-    token_id = Column(String(64), unique=True, nullable=False, index=True)
-    token_hash = Column(String(128), nullable=False, index=True)
-    user_id = Column(Integer, nullable=False, index=True)
-    device_id = Column(String(255), index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
-    revoked = Column(Boolean, default=False, index=True)
-
-
-class UserSession(Base):
-    __tablename__ = "user_sessions"
-
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, nullable=False, index=True)
-    device_id = Column(String(255), nullable=False, index=True)
-    device_name = Column(String(255))
-    device_model = Column(String(255))
-    os_name = Column(String(100))
-    os_version = Column(String(100))
-    app_version = Column(String(50))
-    push_token = Column(String(255))
-    location_lat = Column(Float)
-    location_lon = Column(Float)
-    location_accuracy_km = Column(Float)
-    user_agent = Column(String(500))
-    ip_address = Column(String(45))
-    trusted = Column(Boolean, default=False, index=True)
-    trust_expires_at = Column(DateTime(timezone=True))
-    blocked = Column(Boolean, default=False, index=True)
-    blocked_at = Column(DateTime(timezone=True))
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    last_activity_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    revoked_at = Column(DateTime(timezone=True))
-
-
-class UserLoginEvent(Base):
-    __tablename__ = "user_login_events"
-
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, nullable=False, index=True)
-    device_id = Column(String(255), index=True)
-    ip_address = Column(String(45))
-    user_agent = Column(String(500))
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
-
-
-class UserLoginAttempt(Base):
-    __tablename__ = "user_login_attempts"
-
-    id = Column(Integer, primary_key=True, index=True)
-    email = Column(String(255), nullable=False, index=True)
-    ip_address = Column(String(45), index=True)
-    user_agent = Column(String(500))
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
-
-
-class UserDownloadEvent(Base):
-    __tablename__ = "user_download_events"
-
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, nullable=False, index=True)
-    resource_type = Column(String(50), nullable=False, index=True)
-    resource_id = Column(String(100))
-    ip_address = Column(String(45))
-    user_agent = Column(String(500))
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
 
 class MedicationLog(Base):
@@ -130,27 +60,13 @@ class MedicationLog(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     profile_id = Column(Integer, index=True)
-    medication_id = Column(Integer)
+    medication_id = Column(Integer, index=True)
     medication_name = Column(String, nullable=False)
-    scheduled_time = Column(DateTime(timezone=True), nullable=False)
-    taken_at = Column(DateTime(timezone=True))
+    scheduled_time = Column(DateTime(timezone=True))
+    taken_time = Column(DateTime(timezone=True))
     status = Column(String, nullable=False)  # taken, skipped, postponed
+    notes = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-
-class EmergencyContact(Base):
-    __tablename__ = "emergency_contacts"
-
-    id = Column(Integer, primary_key=True, index=True)
-    profile_id = Column(Integer, index=True)
-    name = Column(String, nullable=False)
-    phone = Column(String, nullable=False)
-    photo_base64 = Column(Text)
-    relation = Column(String)
-    order = Column(Integer, default=0)
-    encrypted_data = Column(JSON)  # Dados criptografados (zero-knowledge)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
 
 class DoctorVisit(Base):
@@ -159,10 +75,9 @@ class DoctorVisit(Base):
     id = Column(Integer, primary_key=True, index=True)
     profile_id = Column(Integer, index=True)
     doctor_name = Column(String, nullable=False)
-    specialty = Column(String, nullable=False)
-    visit_date = Column(DateTime(timezone=True), nullable=False)
+    specialty = Column(String)
+    date = Column(DateTime(timezone=True), nullable=False)
     notes = Column(Text)
-    prescription_image = Column(Text)
     encrypted_data = Column(JSON)  # Dados criptografados (zero-knowledge)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -173,15 +88,14 @@ class MedicalExam(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     profile_id = Column(Integer, index=True)
-    exam_date = Column(DateTime(timezone=True))  # Data do exame (extraída ou informada)
-    exam_type = Column(String)  # Tipo de exame (ex: "Hemograma", "Glicemia", etc.)
-    image_base64 = Column(Text)  # Imagem ou PDF em base64
-    file_type = Column(String, default="image")  # "image" ou "pdf"
-    raw_ocr_text = Column(Text)  # Texto bruto extraído pelo OCR
-    extracted_data = Column(JSON)  # Dados estruturados extraídos (dict com parâmetros)
-    processing_status = Column(String, default="pending")  # pending, processing, completed, error
-    processing_error = Column(Text)  # Mensagem de erro se houver
+    exam_type = Column(String, nullable=False)
+    exam_date = Column(DateTime(timezone=True), nullable=False)
+    image_base64 = Column(Text)
+    notes = Column(Text)
     encrypted_data = Column(JSON)  # Dados criptografados (zero-knowledge)
+    ocr_processed = Column(Boolean, default=False)
+    ocr_text = Column(Text)
+    data_extracted = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -190,12 +104,10 @@ class ExamDataPoint(Base):
     __tablename__ = "exam_data_points"
 
     id = Column(Integer, primary_key=True, index=True)
-    exam_id = Column(Integer, nullable=False, index=True)  # FK para medical_exams
-    profile_id = Column(Integer, index=True)
-    parameter_name = Column(String, nullable=False, index=True)  # Nome do parâmetro (ex: "hemoglobina")
-    value = Column(String, nullable=False)  # Valor (pode ser número ou texto)
-    numeric_value = Column(String)  # Valor numérico extraído (para ordenação)
-    unit = Column(String)  # Unidade de medida (ex: "g/dL", "mg/dL")
+    exam_id = Column(Integer, nullable=False, index=True)
+    parameter_name = Column(String, nullable=False, index=True)
+    value = Column(String, nullable=False)
+    unit = Column(String)
     reference_range_min = Column(String)  # Valor mínimo de referência
     reference_range_max = Column(String)  # Valor máximo de referência
     exam_date = Column(DateTime(timezone=True), nullable=False, index=True)  # Data do exame (para queries temporais)
@@ -321,20 +233,230 @@ class FamilyDataShare(Base):
     from_profile_id = Column(Integer, nullable=False, index=True)
     to_profile_id = Column(Integer, nullable=False, index=True)
     permissions = Column(JSON)
+    expires_at = Column(DateTime(timezone=True), index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     revoked_at = Column(DateTime(timezone=True))
 
 
+class AuditLog(Base):
+    """
+    Modelo de Auditoria - LGPD/HIPAA Compliance
+    
+    Armazena logs imutáveis de todas as ações importantes no sistema.
+    Retenção de 7 anos conforme requisitos legais de saúde.
+    """
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Identificação do usuário
+    user_id = Column(Integer, nullable=False, index=True)
+    profile_id = Column(Integer, index=True)  # Perfil afetado pela ação
+    
+    # Tipo de ação
+    action_type = Column(String(50), nullable=False, index=True)  # view, edit, delete, share, export, etc.
+    resource_type = Column(String(50), index=True)  # medication, exam, profile, etc.
+    resource_id = Column(Integer, index=True)  # ID do recurso afetado
+    
+    # Rastreabilidade
+    ip_address = Column(String(45), index=True)
+    user_agent = Column(String(500))
+    device_id = Column(String(255), index=True)
+    
+    # Detalhes da ação
+    action_details = Column(JSON)  # Dados adicionais sobre a ação
+    old_values = Column(JSON)  # Valores anteriores (para edições)
+    new_values = Column(JSON)  # Valores novos (para edições)
+    
+    # Resultado
+    success = Column(Boolean, default=True, index=True)
+    error_message = Column(Text)  # Mensagem de erro se houver
+    
+    # Metadados
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    
+    # Hash para garantir imutabilidade (opcional, para auditoria avançada)
+    log_hash = Column(String(64), index=True)  # SHA-256 hash do log
 
 
+class DataExport(Base):
+    """
+    Registro de exportações de dados (LGPD - Direito à Portabilidade)
+    """
+    __tablename__ = "data_exports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    export_type = Column(String(50), default="full")  # full, partial, access_report
+    format = Column(String(20), default="json")  # json, csv, pdf
+    file_path = Column(String(500))  # Caminho do arquivo gerado
+    file_hash = Column(String(64))  # Hash do arquivo para verificação
+    expires_at = Column(DateTime(timezone=True), index=True)  # Expiração do link de download
+    downloaded = Column(Boolean, default=False, index=True)
+    downloaded_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
+class DataDeletionRequest(Base):
+    """
+    Solicitações de exclusão de dados (LGPD - Direito ao Esquecimento)
+    """
+    __tablename__ = "data_deletion_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    request_type = Column(String(50), default="full")  # full, partial, account_only
+    reason = Column(Text)  # Motivo da solicitação
+    status = Column(String(20), default="pending", index=True)  # pending, processing, completed, cancelled
+    scheduled_at = Column(DateTime(timezone=True))  # Quando será executada
+    completed_at = Column(DateTime(timezone=True))
+    cancelled_at = Column(DateTime(timezone=True))
+    cancellation_reason = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    created_by = Column(Integer)  # Quem criou a solicitação (pode ser o próprio usuário ou admin)
 
 
+class EmergencyContact(Base):
+    __tablename__ = "emergency_contacts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    profile_id = Column(Integer, index=True)
+    name = Column(String, nullable=False)
+    phone = Column(String)
+    relationship = Column(String)
+    notes = Column(Text)
+    encrypted_data = Column(JSON)  # Dados criptografados (zero-knowledge)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
 
+class DailyTracking(Base):
+    __tablename__ = "daily_tracking"
+
+    id = Column(Integer, primary_key=True, index=True)
+    profile_id = Column(Integer, index=True)
+    date = Column(DateTime(timezone=True), nullable=False, index=True)
+    metrics = Column(JSON)  # {"weight": 70, "blood_pressure": "120/80", ...}
+    notes = Column(Text)
+    encrypted_data = Column(JSON)  # Dados criptografados (zero-knowledge)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
 
+class UserSession(Base):
+    __tablename__ = "user_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    device_id = Column(String(255), nullable=False, index=True)
+    device_name = Column(String(255))
+    ip_address = Column(String(45), index=True)
+    user_agent = Column(String(500))
+    is_trusted = Column(Boolean, default=False, index=True)
+    blocked = Column(Boolean, default=False, index=True)
+    last_activity_at = Column(DateTime(timezone=True), index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    revoked_at = Column(DateTime(timezone=True))
 
 
+class UserLoginAttempt(Base):
+    __tablename__ = "user_login_attempts"
 
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String(255), nullable=False, index=True)
+    ip_address = Column(String(45), index=True)
+    user_agent = Column(String(500))
+    success = Column(Boolean, default=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class UserLoginEvent(Base):
+    __tablename__ = "user_login_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    device_id = Column(String(255), index=True)
+    ip_address = Column(String(45), index=True)
+    user_agent = Column(String(500))
+    login_type = Column(String(20), default="password")  # password, biometric
+    success = Column(Boolean, default=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    last_login_at = Column(DateTime(timezone=True))
+
+
+class AuditLog(Base):
+    """
+    Modelo de Auditoria - LGPD/HIPAA Compliance
+    
+    Armazena logs imutáveis de todas as ações importantes no sistema.
+    Retenção de 7 anos conforme requisitos legais de saúde.
+    """
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Identificação do usuário
+    user_id = Column(Integer, nullable=False, index=True)
+    profile_id = Column(Integer, index=True)  # Perfil afetado pela ação
+    
+    # Tipo de ação
+    action_type = Column(String(50), nullable=False, index=True)  # view, edit, delete, share, export, etc.
+    resource_type = Column(String(50), index=True)  # medication, exam, profile, etc.
+    resource_id = Column(Integer, index=True)  # ID do recurso afetado
+    
+    # Rastreabilidade
+    ip_address = Column(String(45), index=True)
+    user_agent = Column(String(500))
+    device_id = Column(String(255), index=True)
+    
+    # Detalhes da ação
+    action_details = Column(JSON)  # Dados adicionais sobre a ação
+    old_values = Column(JSON)  # Valores anteriores (para edições)
+    new_values = Column(JSON)  # Valores novos (para edições)
+    
+    # Resultado
+    success = Column(Boolean, default=True, index=True)
+    error_message = Column(Text)  # Mensagem de erro se houver
+    
+    # Metadados
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    
+    # Hash para garantir imutabilidade (opcional, para auditoria avançada)
+    log_hash = Column(String(64), index=True)  # SHA-256 hash do log
+
+
+class DataExport(Base):
+    """
+    Registro de exportações de dados (LGPD - Direito à Portabilidade)
+    """
+    __tablename__ = "data_exports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    export_type = Column(String(50), default="full")  # full, partial, access_report
+    format = Column(String(20), default="json")  # json, csv, pdf
+    file_path = Column(String(500))  # Caminho do arquivo gerado
+    file_hash = Column(String(64))  # Hash do arquivo para verificação
+    expires_at = Column(DateTime(timezone=True), index=True)  # Expiração do link de download
+    downloaded = Column(Boolean, default=False, index=True)
+    downloaded_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class DataDeletionRequest(Base):
+    """
+    Solicitações de exclusão de dados (LGPD - Direito ao Esquecimento)
+    """
+    __tablename__ = "data_deletion_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    request_type = Column(String(50), default="full")  # full, partial, account_only
+    reason = Column(Text)  # Motivo da solicitação
+    status = Column(String(20), default="pending", index=True)  # pending, processing, completed, cancelled
+    scheduled_at = Column(DateTime(timezone=True))  # Quando será executada
+    completed_at = Column(DateTime(timezone=True))
+    cancelled_at = Column(DateTime(timezone=True))
+    cancellation_reason = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    created_by = Column(Integer)  # Quem criou a solicitação (pode ser o próprio usuário ou admin)

@@ -48,6 +48,7 @@ from services.rate_limit_service import (
     check_user_email_daily_limit,
 )
 from middleware.validation_middleware import ValidationMiddleware
+from routes.audit_routes import router as compliance_router
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, ec, rsa
@@ -2235,6 +2236,13 @@ def get_medications(request: Request, api_key: str = Depends(verify_api_key)):
     
     medications = query.all()
     
+    # Log de auditoria - visualização
+    if user and profile_id:
+        try:
+            log_view_action(db, user, RESOURCE_MEDICATION, None, profile_id, request)
+        except Exception as e:
+            security_logger.warning(f"Erro ao registrar log de auditoria: {e}")
+    
     # Retornar incluindo encrypted_data se presente
     result = []
     for m in medications:
@@ -2280,6 +2288,24 @@ def create_medication(request: Request, medication: schemas.MedicationCreate, ap
         db.add(db_medication)
         safe_db_commit(db)
         db.refresh(db_medication)
+        
+        # Log de auditoria - criação
+        if user and profile_id:
+            try:
+                from services.audit_service import log_audit_event, ACTION_CREATE
+                log_audit_event(
+                    db=db,
+                    user_id=user.id,
+                    action_type=ACTION_CREATE,
+                    resource_type=RESOURCE_MEDICATION,
+                    resource_id=db_medication.id,
+                    profile_id=profile_id,
+                    ip_address=get_remote_address(request),
+                    user_agent=request.headers.get("user-agent"),
+                    device_id=request.headers.get("x-device-id")
+                )
+            except Exception as e:
+                security_logger.warning(f"Erro ao registrar log de auditoria: {e}")
         
         # Retornar resposta incluindo encrypted_data se presente
         response = schemas.MedicationResponse.model_validate(db_medication).model_dump()
@@ -2328,6 +2354,13 @@ def update_medication(request: Request, medication_id: int, medication: schemas.
         raise HTTPException(status_code=404, detail="Medication not found")
     
     try:
+        # Capturar valores antigos para auditoria
+        old_values = {
+            "name": db_medication.name,
+            "dosage": db_medication.dosage,
+            "active": db_medication.active
+        }
+        
         medication_data = medication.model_dump()
         
         # Validar encrypted_data se fornecido
@@ -2340,6 +2373,21 @@ def update_medication(request: Request, medication_id: int, medication: schemas.
         
         safe_db_commit(db)
         db.refresh(db_medication)
+        
+        # Log de auditoria - edição
+        if user and profile_id:
+            try:
+                new_values = {
+                    "name": db_medication.name,
+                    "dosage": db_medication.dosage,
+                    "active": db_medication.active
+                }
+                log_edit_action(
+                    db, user, RESOURCE_MEDICATION, medication_id, profile_id, request,
+                    old_values=old_values, new_values=new_values
+                )
+            except Exception as e:
+                security_logger.warning(f"Erro ao registrar log de auditoria: {e}")
         
         # Retornar resposta incluindo encrypted_data se presente
         response = schemas.MedicationResponse.model_validate(db_medication).model_dump()
@@ -2371,6 +2419,15 @@ def delete_medication(request: Request, medication_id: int, api_key: str = Depen
         raise HTTPException(status_code=404, detail="Medication not found")
     
     try:
+        # Log de auditoria - exclusão (antes de deletar)
+        if user and profile_id:
+            try:
+                log_delete_action(
+                    db, user, RESOURCE_MEDICATION, medication_id, profile_id, request
+                )
+            except Exception as e:
+                security_logger.warning(f"Erro ao registrar log de auditoria: {e}")
+        
         db.delete(db_medication)
         safe_db_commit(db)
         return {"message": "Medication deleted"}
