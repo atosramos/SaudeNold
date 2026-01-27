@@ -1,6 +1,7 @@
 # Multi-Tenant System Context - SaudeNold
 
-**Last Updated:** 2026-01-27
+**Last Updated:** 2026-01-27  
+**Última Atualização:** 2026-01-27
 
 ## Overview
 

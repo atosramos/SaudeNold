@@ -1,6 +1,7 @@
 # Project Overview - SaudeNold
 
 **Last Updated:** 2026-01-27  
+**Última Atualização:** 2026-01-27  
 **Version:** 1.0.0
 
 ## What is SaudeNold?
