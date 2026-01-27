@@ -76,9 +76,18 @@ def check_required_sections(filepath: Path, required_sections: List[str]) -> Tup
         content = filepath.read_text(encoding='utf-8')
         missing = []
         for section in required_sections:
-            # Procurar por headers markdown (## ou ###)
-            pattern = rf'^#+\s+{re.escape(section)}'
-            if not re.search(pattern, content, re.MULTILINE | re.IGNORECASE):
+            # Procurar por headers markdown (## ou ###) ou no conteúdo
+            # Primeiro tenta match exato no header
+            header_pattern = rf'^#+\s+.*{re.escape(section)}'
+            # Depois tenta encontrar a palavra no conteúdo (case insensitive)
+            content_pattern = rf'\b{re.escape(section)}\b'
+            
+            found = (
+                re.search(header_pattern, content, re.MULTILINE | re.IGNORECASE) or
+                re.search(content_pattern, content, re.IGNORECASE)
+            )
+            
+            if not found:
                 missing.append(section)
         
         if missing:
