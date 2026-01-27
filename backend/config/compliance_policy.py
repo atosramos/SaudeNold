@@ -4,6 +4,8 @@ Compliance Policy - LGPD/HIPAA/ISO 27001
 Define políticas de conformidade regulatória.
 """
 
+from typing import Dict, Any
+
 # Retenção de dados
 AUDIT_LOG_RETENTION_YEARS = 7  # Requisitos legais de saúde
 DATA_EXPORT_EXPIRATION_DAYS = 7  # Links de download expiram em 7 dias
