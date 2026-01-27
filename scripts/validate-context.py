@@ -51,8 +51,11 @@ def check_last_updated(filepath: Path) -> Tuple[bool, str]:
     """Verifica data de última atualização."""
     try:
         content = filepath.read_text(encoding='utf-8')
-        # Procurar por "Last Updated:" ou "Última Atualização:"
-        match = re.search(r'(?:Last Updated|Última Atualização):\s*(\d{4}-\d{2}-\d{2})', content)
+        # Procurar por "Last Updated:" ou "Última Atualização:" (com ou sem **)
+        match = re.search(r'\*\*(?:Last Updated|Última Atualização):\*\*\s*(\d{4}-\d{2}-\d{2})', content, re.IGNORECASE)
+        if not match:
+            # Tentar sem **
+            match = re.search(r'(?:Last Updated|Última Atualização):\s*(\d{4}-\d{2}-\d{2})', content, re.IGNORECASE)
         if not match:
             return False, f"{Colors.YELLOW}⚠{Colors.RESET} {filepath.name} não tem data de atualização"
         
