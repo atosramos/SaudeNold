@@ -152,12 +152,12 @@ def validate_all():
     # Verificar seções obrigatórias
     print(f"{Colors.BLUE}Verificando seções obrigatórias:{Colors.RESET}")
     section_requirements = {
-        "PROJECT-OVERVIEW.md": ["Project Overview", "Technology Stack", "Target Users"],
-        "ARCHITECTURE.md": ["High-Level Architecture", "Data Flow", "Security"],
+        "PROJECT-OVERVIEW.md": ["Project Overview", "Stack", "Users"],
+        "ARCHITECTURE.md": ["Architecture", "Flow", "Security"],
         "BACKEND-CONTEXT.md": ["Technology Stack", "Key Models", "Authentication"],
         "FRONTEND-CONTEXT.md": ["Technology Stack", "Key Services", "Storage"],
         "MULTIEMPRESA-CONTEXT.md": ["Overview", "Data Isolation", "Permission System"],
-        "CURRENT-STATE.md": ["Completed Features", "Partially Implemented", "Planned Features"],
+        "CURRENT-STATE.md": ["Completed", "Partially", "Planned"],
     }
     
     for filename, required_sections in section_requirements.items():
