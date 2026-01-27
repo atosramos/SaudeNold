@@ -175,11 +175,17 @@ def get_emergency_info(
         raise ValueError("Modo de emergência não configurado")
     
     # Preparar informações
-    info = {
-        "profile_id": profile_id,
-        "name": _get_display_name(family_profile.name, show_initials_only) if emergency_profile.show_full_name or not show_initials_only else _get_initials(family_profile.name),
-        "blood_type": family_profile.blood_type if emergency_profile.show_blood_type else None,
-    }
+        # Determinar nome a exibir
+        if emergency_profile.show_full_name:
+            display_name = family_profile.name
+        else:
+            display_name = _get_initials(family_profile.name)
+        
+        info = {
+            "profile_id": profile_id,
+            "name": display_name,
+            "blood_type": family_profile.blood_type if emergency_profile.show_blood_type else None,
+        }
     
     # Alergias críticas (podem estar em notes do perfil ou em campo específico)
     if emergency_profile.show_allergies:
@@ -242,11 +248,6 @@ def _get_initials(name: str) -> str:
     return ""
 
 
-def _get_display_name(name: str, show_initials_only: bool) -> str:
-    """Retorna nome completo ou apenas iniciais."""
-    if show_initials_only:
-        return _get_initials(name)
-    return name
 
 
 def log_emergency_access(
