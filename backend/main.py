@@ -42,6 +42,12 @@ from auth import (
 from services.token_blacklist import add_to_blacklist, is_blacklisted
 from services.csrf_service import generate_and_store_csrf_token
 from services.encryption_service import EncryptionService
+from services.rate_limit_service import (
+    check_email_rate_limit,
+    reset_email_rate_limit,
+    check_user_email_daily_limit,
+)
+from middleware.validation_middleware import ValidationMiddleware
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, ec, rsa
@@ -147,7 +153,9 @@ app = FastAPI(title="SaudeNold API", version="1.0.0")
 
 # Adicionar middleware CSRF (após criar app, antes de rotas)
 from middleware.csrf_middleware import CSRFMiddleware
+from middleware.validation_middleware import ValidationMiddleware
 app.add_middleware(CSRFMiddleware)
+app.add_middleware(ValidationMiddleware)
 
 REFRESH_TOKEN_CLEANUP_MINUTES = int(os.getenv("REFRESH_TOKEN_CLEANUP_MINUTES", "60"))
 DISABLE_TOKEN_CLEANUP = os.getenv("DISABLE_TOKEN_CLEANUP", "false").lower() == "true"
@@ -687,8 +695,18 @@ def register_user(request: Request, user_data: schemas.UserCreate, db: Session =
     family = ensure_family_for_user(db, new_user)
     ensure_admin_profile(db, new_user, family)
 
-    # Em producao, envie o email com o token. Aqui apenas logamos.
-    if smtp_configured():
+    # Verificar limite diário de emails por usuário (10 emails/dia)
+    is_email_allowed, email_remaining_seconds = check_user_email_daily_limit(
+        user_id=new_user.id,
+        max_emails=10
+    )
+    
+    if not is_email_allowed:
+        hours_remaining = email_remaining_seconds // 3600 if email_remaining_seconds else 24
+        security_logger.warning(f"Limite diário de emails excedido para novo usuário {new_user.id}")
+        # Não bloquear registro, apenas não enviar email
+        logger.warning(f"Registro concluído mas email não enviado devido ao limite diário")
+    elif smtp_configured():
         frontend_url = os.getenv("FRONTEND_URL", "").rstrip("/")
         link = f"{frontend_url}/auth/verify?email={email}&token={verification_token}" if frontend_url else None
         email_body = (
@@ -1147,6 +1165,20 @@ def resend_verification(request: Request, data: schemas.ResendVerificationReques
     if user.email_verified:
         return {"success": True, "message": "Email ja verificado"}
 
+    # Verificar limite diário de emails por usuário (10 emails/dia)
+    is_email_allowed, email_remaining_seconds = check_user_email_daily_limit(
+        user_id=user.id,
+        max_emails=10
+    )
+    
+    if not is_email_allowed:
+        hours_remaining = email_remaining_seconds // 3600 if email_remaining_seconds else 24
+        security_logger.warning(f"Limite diário de emails excedido para usuário {user.id}")
+        raise HTTPException(
+            status_code=429,
+            detail=f"Limite diário de emails atingido. Tente novamente em {hours_remaining} horas."
+        )
+    
     verification_token = create_email_verification_token()
     user.email_verification_token_hash = hash_token(verification_token)
     user.email_verification_sent_at = dt.now(timezone.utc)
@@ -1168,12 +1200,44 @@ def resend_verification(request: Request, data: schemas.ResendVerificationReques
 
 
 @app.post("/api/auth/forgot-password")
-@limiter.limit("3/hour")
+@limiter.limit("3/hour")  # Rate limit por IP (complementar)
 def forgot_password(request: Request, data: schemas.ForgotPasswordRequest, db: Session = Depends(get_db)):
     email = data.email.strip().lower()
+    
+    # Rate limiting por email (3 tentativas por email/hora)
+    is_allowed, remaining_seconds = check_email_rate_limit(
+        email=email,
+        endpoint="forgot-password",
+        max_attempts=3,
+        window_minutes=60
+    )
+    
+    if not is_allowed:
+        minutes_remaining = remaining_seconds // 60 if remaining_seconds else 60
+        security_logger.warning(f"Rate limit excedido para forgot-password: {email}")
+        raise HTTPException(
+            status_code=429,
+            detail=f"Muitas tentativas de recuperação de senha. Tente novamente em {minutes_remaining} minutos."
+        )
+    
     user = db.query(models.User).filter(models.User.email == email).first()
     if not user:
+        # Não revelar se email existe ou não (segurança)
         return {"success": True}
+    
+    # Verificar limite diário de emails por usuário (10 emails/dia)
+    is_email_allowed, email_remaining_seconds = check_user_email_daily_limit(
+        user_id=user.id,
+        max_emails=10
+    )
+    
+    if not is_email_allowed:
+        hours_remaining = email_remaining_seconds // 3600 if email_remaining_seconds else 24
+        security_logger.warning(f"Limite diário de emails excedido para usuário {user.id}")
+        raise HTTPException(
+            status_code=429,
+            detail=f"Limite diário de emails atingido. Tente novamente em {hours_remaining} horas."
+        )
 
     reset_token = create_password_reset_token()
     user.password_reset_token_hash = hash_token(reset_token)

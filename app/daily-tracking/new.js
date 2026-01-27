@@ -38,6 +38,9 @@ export default function NewDailyTracking() {
   const { showAlert, AlertComponent } = useCustomAlert();
   const [selectedType, setSelectedType] = useState(TRACKING_TYPES.BLOOD_PRESSURE);
   const [value, setValue] = useState('');
+  // Para pressão arterial: dois valores separados
+  const [systolicValue, setSystolicValue] = useState(''); // PAS (Pressão Arterial Sistólica)
+  const [diastolicValue, setDiastolicValue] = useState(''); // PAD (Pressão Arterial Diastólica)
   const [unit, setUnit] = useState(DEFAULT_UNITS[TRACKING_TYPES.BLOOD_PRESSURE]);
   const [date, setDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -176,7 +179,25 @@ export default function NewDailyTracking() {
       if (records.length === 1) {
         const record = records[0];
         setSelectedType(record.type);
-        setValue(record.value);
+        
+        // Para pressão arterial, tentar separar os valores
+        if (record.type === TRACKING_TYPES.BLOOD_PRESSURE) {
+          const bpMatch = String(record.value).match(/(\d+)\s*[\/xX]\s*(\d+)/);
+          if (bpMatch) {
+            setSystolicValue(bpMatch[1]);
+            setDiastolicValue(bpMatch[2]);
+            setValue(''); // Limpar valor único
+          } else {
+            setValue(record.value);
+            setSystolicValue('');
+            setDiastolicValue('');
+          }
+        } else {
+          setValue(record.value);
+          setSystolicValue('');
+          setDiastolicValue('');
+        }
+        
         setUnit(record.unit || DEFAULT_UNITS[record.type]);
         if (record.date) {
           setDate(new Date(record.date));
@@ -195,7 +216,25 @@ export default function NewDailyTracking() {
               text: `${TYPE_LABELS[record.type]}: ${record.value} ${record.unit || ''}`,
               onPress: () => {
                 setSelectedType(record.type);
-                setValue(record.value);
+                
+                // Para pressão arterial, tentar separar os valores
+                if (record.type === TRACKING_TYPES.BLOOD_PRESSURE) {
+                  const bpMatch = String(record.value).match(/(\d+)\s*[\/xX]\s*(\d+)/);
+                  if (bpMatch) {
+                    setSystolicValue(bpMatch[1]);
+                    setDiastolicValue(bpMatch[2]);
+                    setValue('');
+                  } else {
+                    setValue(record.value);
+                    setSystolicValue('');
+                    setDiastolicValue('');
+                  }
+                } else {
+                  setValue(record.value);
+                  setSystolicValue('');
+                  setDiastolicValue('');
+                }
+                
                 setUnit(record.unit || DEFAULT_UNITS[record.type]);
                 if (record.date) {
                   setDate(new Date(record.date));
@@ -219,16 +258,30 @@ export default function NewDailyTracking() {
   };
 
   const handleSave = async () => {
-    if (!value.trim()) {
-      showAlert('Erro', 'Por favor, informe o valor', 'error');
-      return;
+    // Validação baseada no tipo
+    let finalValue = '';
+    
+    if (selectedType === TRACKING_TYPES.BLOOD_PRESSURE) {
+      // Para pressão arterial, validar ambos os valores
+      if (!systolicValue.trim() || !diastolicValue.trim()) {
+        showAlert('Erro', 'Por favor, informe a pressão sistólica (PAS) e diastólica (PAD)', 'error');
+        return;
+      }
+      finalValue = `${systolicValue.trim()}/${diastolicValue.trim()}`;
+    } else {
+      // Para outros tipos, validar valor único
+      if (!value.trim()) {
+        showAlert('Erro', 'Por favor, informe o valor', 'error');
+        return;
+      }
+      finalValue = value.trim();
     }
 
     setSaving(true);
     try {
       const record = createTrackingRecord(
         selectedType,
-        value.trim(),
+        finalValue,
         unit || DEFAULT_UNITS[selectedType],
         date.toISOString(),
         notes.trim()
@@ -281,7 +334,12 @@ export default function NewDailyTracking() {
         {/* Tipo de registro */}
         <View style={styles.section}>
           <Text style={styles.label}>Tipo de Dado</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.typeScroll}>
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false} 
+            style={styles.typeScroll}
+            contentContainerStyle={styles.typeScrollContent}
+          >
             {Object.values(TRACKING_TYPES).map((type) => (
               <TouchableOpacity
                 key={type}
@@ -292,12 +350,16 @@ export default function NewDailyTracking() {
                 onPress={() => {
                   setSelectedType(type);
                   setUnit(DEFAULT_UNITS[type]);
+                  // Limpar valores ao mudar tipo
+                  setValue('');
+                  setSystolicValue('');
+                  setDiastolicValue('');
                 }}
               >
                 <Text style={[
                   styles.typeChipText,
                   selectedType === type && styles.typeChipTextActive,
-                ]}>
+                ]} numberOfLines={1}>
                   {TYPE_LABELS[type]}
                 </Text>
               </TouchableOpacity>
@@ -305,27 +367,84 @@ export default function NewDailyTracking() {
           </ScrollView>
         </View>
 
-        {/* Valor e unidade */}
+        {/* Valor e unidade - campos dinâmicos baseados no tipo */}
         <View style={styles.section}>
-          <Text style={styles.label}>Valor</Text>
-          <View style={styles.valueRow}>
-            <VoiceTextInput
-              value={value}
-              onChangeText={setValue}
-              placeholder="Ex: 120/80, 36.5, 72..."
-              keyboardType="numeric"
-              editable={!processing}
-              containerStyle={styles.valueInput}
-              inputStyle={styles.valueInputText}
-            />
-            <TextInput
-              style={styles.unitInput}
-              value={unit}
-              onChangeText={setUnit}
-              placeholder="Unidade"
-              editable={!processing}
-            />
-          </View>
+          {selectedType === TRACKING_TYPES.BLOOD_PRESSURE ? (
+            // Pressão Arterial: dois campos separados
+            <>
+              <Text style={styles.label}>Pressão Arterial</Text>
+              <View style={styles.bloodPressureRow}>
+                <View style={styles.bloodPressureField}>
+                  <Text style={styles.bloodPressureLabel}>PAS (Sistólica)</Text>
+                  <VoiceTextInput
+                    value={systolicValue}
+                    onChangeText={setSystolicValue}
+                    placeholder="Ex: 120"
+                    keyboardType="numeric"
+                    editable={!processing}
+                    containerStyle={styles.bloodPressureInput}
+                    inputStyle={styles.bloodPressureInputText}
+                  />
+                </View>
+                <View style={styles.bloodPressureSeparator}>
+                  <Text style={styles.bloodPressureSeparatorText}>/</Text>
+                </View>
+                <View style={styles.bloodPressureField}>
+                  <Text style={styles.bloodPressureLabel}>PAD (Diastólica)</Text>
+                  <VoiceTextInput
+                    value={diastolicValue}
+                    onChangeText={setDiastolicValue}
+                    placeholder="Ex: 80"
+                    keyboardType="numeric"
+                    editable={!processing}
+                    containerStyle={styles.bloodPressureInput}
+                    inputStyle={styles.bloodPressureInputText}
+                  />
+                </View>
+              </View>
+              <View style={styles.unitRow}>
+                <Text style={styles.unitLabel}>Unidade:</Text>
+                <TextInput
+                  style={styles.unitInput}
+                  value={unit}
+                  onChangeText={setUnit}
+                  placeholder="mmHg"
+                  editable={!processing}
+                />
+              </View>
+            </>
+          ) : (
+            // Outros tipos: campo único de valor
+            <>
+              <Text style={styles.label}>Valor</Text>
+              <View style={styles.valueRow}>
+                <VoiceTextInput
+                  value={value}
+                  onChangeText={setValue}
+                  placeholder={
+                    selectedType === TRACKING_TYPES.TEMPERATURE ? "Ex: 36.5" :
+                    selectedType === TRACKING_TYPES.HEART_RATE ? "Ex: 72" :
+                    selectedType === TRACKING_TYPES.GLUCOSE ? "Ex: 100" :
+                    selectedType === TRACKING_TYPES.WEIGHT ? "Ex: 70.5" :
+                    selectedType === TRACKING_TYPES.OXYGEN_SATURATION ? "Ex: 98" :
+                    selectedType === TRACKING_TYPES.INSULIN ? "Ex: 10" :
+                    "Ex: valor numérico"
+                  }
+                  keyboardType="numeric"
+                  editable={!processing}
+                  containerStyle={styles.valueInput}
+                  inputStyle={styles.valueInputText}
+                />
+                <TextInput
+                  style={styles.unitInput}
+                  value={unit}
+                  onChangeText={setUnit}
+                  placeholder="Unidade"
+                  editable={!processing}
+                />
+              </View>
+            </>
+          )}
         </View>
 
         {/* Data e hora */}
@@ -523,6 +642,9 @@ const styles = StyleSheet.create({
     marginHorizontal: -16,
     paddingHorizontal: 16,
   },
+  typeScrollContent: {
+    paddingRight: 16, // Espaço extra no final para evitar corte
+  },
   typeChip: {
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -531,6 +653,7 @@ const styles = StyleSheet.create({
     marginRight: 8,
     borderWidth: 1,
     borderColor: '#e0e0e0',
+    maxWidth: 150, // Limitar largura máxima para evitar chips muito largos
   },
   typeChipActive: {
     backgroundColor: '#4ECDC4',
@@ -548,6 +671,7 @@ const styles = StyleSheet.create({
   valueRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
   },
   valueInput: {
     flex: 1,
@@ -557,7 +681,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     borderWidth: 1,
     borderColor: '#e0e0e0',
-    marginRight: 8,
+    minWidth: 0, // Permite que o flex funcione corretamente
   },
   valueInputText: {
     flex: 1,
@@ -572,6 +696,56 @@ const styles = StyleSheet.create({
     fontSize: 16,
     borderWidth: 1,
     borderColor: '#e0e0e0',
+  },
+  // Estilos para pressão arterial
+  bloodPressureRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 8,
+    marginBottom: 12,
+  },
+  bloodPressureField: {
+    flex: 1,
+    minWidth: 0, // Permite que o flex funcione corretamente
+  },
+  bloodPressureLabel: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 4,
+    fontWeight: '500',
+  },
+  bloodPressureInput: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  bloodPressureInputText: {
+    fontSize: 16,
+    color: '#333',
+  },
+  bloodPressureSeparator: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingBottom: 20, // Alinhar com os campos
+    width: 20,
+  },
+  bloodPressureSeparatorText: {
+    fontSize: 24,
+    color: '#4ECDC4',
+    fontWeight: 'bold',
+  },
+  unitRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  unitLabel: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
   },
   dateButton: {
     flexDirection: 'row',
