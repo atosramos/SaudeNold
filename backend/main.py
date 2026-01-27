@@ -48,16 +48,6 @@ from services.rate_limit_service import (
     check_user_email_daily_limit,
 )
 from middleware.validation_middleware import ValidationMiddleware
-try:
-    from routes.audit_routes import router as compliance_router
-    app.include_router(compliance_router)
-except ImportError:
-    pass
-try:
-    from routes.emergency_routes import router as emergency_router
-    app.include_router(emergency_router)
-except ImportError:
-    pass
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, ec, rsa
