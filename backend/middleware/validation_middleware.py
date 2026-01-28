@@ -12,7 +12,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils.validation import validate_payload_size, sanitize_input
+from utils.validation import validate_payload_size_detailed, sanitize_input
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +21,8 @@ VALIDATION_REQUIRED_PATHS = [
     "/api/auth/register",
     "/api/auth/login",
     "/api/auth/forgot-password",
+    "/api/auth/request-pin-reset",
+    "/api/auth/verify-pin-reset-token",
     "/api/auth/reset-password",
     "/api/family/",
 ]
@@ -52,7 +54,7 @@ class ValidationMiddleware(BaseHTTPMiddleware):
                 payload = json.loads(body.decode('utf-8'))
                 
                 # Validar tamanho do payload
-                is_valid, error_message = validate_payload_size(payload)
+                is_valid, error_message = validate_payload_size_detailed(payload)
                 if not is_valid:
                     logger.warning(f"Payload muito grande em {request.url.path}: {error_message}")
                     return JSONResponse(

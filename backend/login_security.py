@@ -28,6 +28,25 @@ def record_failed_login(
         email=email,
         ip_address=ip_address,
         user_agent=user_agent,
+        success=False,  # Explicitamente marcar como falha
+        created_at=_now()
+    )
+    db.add(attempt)
+    db.commit()
+
+
+def record_successful_login(
+    db: Session,
+    email: str,
+    ip_address: Optional[str],
+    user_agent: Optional[str]
+) -> None:
+    """Registra uma tentativa de login bem-sucedida"""
+    attempt = models.UserLoginAttempt(
+        email=email,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        success=True,
         created_at=_now()
     )
     db.add(attempt)
@@ -39,8 +58,10 @@ def clear_failed_logins(
     email: str,
     ip_address: Optional[str]
 ) -> None:
+    """Remove apenas tentativas FALHADAS antigas (success=False)"""
     query = db.query(models.UserLoginAttempt).filter(
-        models.UserLoginAttempt.email == email
+        models.UserLoginAttempt.email == email,
+        models.UserLoginAttempt.success == False  # Apenas falhas
     )
     if ip_address:
         query = query.filter(models.UserLoginAttempt.ip_address == ip_address)
@@ -54,8 +75,10 @@ def get_failed_attempts_count(
     ip_address: Optional[str],
     window_minutes: int = WINDOW_MINUTES
 ) -> int:
+    """Conta apenas tentativas FALHADAS (success=False)"""
     query = db.query(models.UserLoginAttempt).filter(
         models.UserLoginAttempt.email == email,
+        models.UserLoginAttempt.success == False,  # Apenas falhas
         models.UserLoginAttempt.created_at >= _cutoff(window_minutes)
     )
     if ip_address:

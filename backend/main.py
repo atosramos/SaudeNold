@@ -16,7 +16,7 @@ import os
 import logging
 import hashlib
 import secrets
-from typing import Optional
+from typing import Optional, List
 from dotenv import load_dotenv
 from database import SessionLocal, engine, Base
 import models
@@ -79,6 +79,7 @@ from session_tokens import (
 )
 from login_security import (
     record_failed_login,
+    record_successful_login,
     clear_failed_logins,
     get_failed_attempts_count,
     has_suspicious_login_pattern,
@@ -142,11 +143,32 @@ logger = logging.getLogger(__name__)
 if not os.getenv("TESTING"):
     try:
         from migrate_family_profiles import migrate as migrate_family_profiles
-        migrate_family_profiles()
-        logging.info("Migracao de perfis familiares concluida.")
+
+        # A migração de perfis familiares já foi executada anteriormente e é idempotente.
+        # Em alguns ambientes Windows, a biblioteca do PostgreSQL pode disparar erros de
+        # encoding (UnicodeDecodeError) durante a conexão, mesmo com o banco acessível.
+        # Para evitar que o backend inteiro falhe na inicialização por causa disso,
+        # registramos o erro mas não interrompemos o processo.
+        try:
+            migrate_family_profiles()
+            logging.info("Migracao de perfis familiares concluida.")
+        except Exception as exc:
+            logging.error(
+                "Falha ao migrar perfis familiares na inicializacao. "
+                "O backend continuara inicializando. Erro: %s",
+                exc,
+                exc_info=True,
+            )
+
     except Exception as exc:
-        logging.error(f"Falha ao migrar perfis familiares: {exc}")
-        raise
+        # Se até o import da migração falhar, apenas registra e continua.
+        logging.error(
+            "Nao foi possivel importar migrate_family_profiles. "
+            "O backend continuara inicializando. Erro: %s",
+            exc,
+            exc_info=True,
+        )
+
     Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="SaudeNold API", version="1.0.0")
@@ -165,8 +187,17 @@ except ImportError:
     pass
 
 try:
+    from routes.privacy_routes import router as privacy_router
+    app.include_router(privacy_router)
+except ImportError:
+    pass
+
+try:
     from routes.emergency_routes import router as emergency_router
     app.include_router(emergency_router)
+    
+    from routes.dashboard_routes import router as dashboard_router
+    app.include_router(dashboard_router)
 except ImportError:
     pass
 
@@ -307,10 +338,39 @@ async def refresh_token_cleanup_loop():
                 pass
 
 
+async def child_migration_loop():
+    """
+    Loop periódico para migrar automaticamente crianças que completaram 18 anos.
+    Executa diariamente.
+    """
+    while True:
+        try:
+            await asyncio.sleep(86400)  # 24 horas
+            db = SessionLocal()
+            try:
+                from services.privacy_service import check_and_migrate_children_to_adults
+                migrated = check_and_migrate_children_to_adults(db)
+                if migrated:
+                    logger.info(f"Migracao automatica: {len(migrated)} perfis de criancas migrados para adultos: {migrated}")
+            except Exception as e:
+                logger.error(f"Erro na migracao automatica de criancas: {e}")
+            finally:
+                db.close()
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"Erro no loop de migracao de criancas: {e}")
+            await asyncio.sleep(3600)  # Esperar 1 hora antes de tentar novamente
+
 @app.on_event("startup")
 async def start_background_tasks():
     if not DISABLE_TOKEN_CLEANUP:
         asyncio.create_task(refresh_token_cleanup_loop())
+    
+    # Iniciar migração automática de crianças para adultos
+    if not os.getenv("TESTING"):
+        asyncio.create_task(child_migration_loop())
+        logger.info("Tarefa de migracao automatica de criancas iniciada (executa diariamente)")
 
 # Dependency
 def get_db():
@@ -620,14 +680,6 @@ def ensure_profile_access(user: models.User, db: Session, profile_id: int, write
     Backward compatibility wrapper for check_profile_access.
     Now uses the centralized permission service.
     """
-    # Em modo de teste, permitir acesso se perfil existe
-    if os.getenv("TESTING") == "1":
-        profile = db.query(models.FamilyProfile).filter(
-            models.FamilyProfile.id == profile_id
-        ).first()
-        if profile:
-            return  # Permitir acesso em modo de teste
-    
     # Use centralized permission service
     check_profile_access(user, profile_id, db, write_access, delete_access)
 
@@ -668,7 +720,28 @@ def register_user(request: Request, user_data: schemas.UserCreate, db: Session =
         security_logger.warning(f"Tentativa de cadastro com email existente: {email}")
         raise HTTPException(status_code=400, detail="Email ja cadastrado")
 
+    # Validar aceitação de termos
+    if not user_data.terms_accepted:
+        raise HTTPException(
+            status_code=400,
+            detail="Aceite dos termos e politica de privacidade e obrigatorio"
+        )
+
+    # Obter versão mais recente dos termos se não fornecida
+    consent_version = user_data.consent_version
+    if not consent_version:
+        try:
+            from services.privacy_service import get_latest_terms_version, TERMS_TERMS_OF_SERVICE
+            latest_terms = get_latest_terms_version(db, TERMS_TERMS_OF_SERVICE)
+            if latest_terms:
+                consent_version = latest_terms.version
+            else:
+                consent_version = "1.0"  # Versão padrão
+        except Exception:
+            consent_version = "1.0"
+
     verification_token = create_email_verification_token()
+    now = dt.now(timezone.utc)
     new_user = models.User(
         email=email,
         password_hash=hash_password(user_data.password),
@@ -677,11 +750,30 @@ def register_user(request: Request, user_data: schemas.UserCreate, db: Session =
         account_type="family_admin",
         email_verified=False,
         email_verification_token_hash=hash_token(verification_token),
-        email_verification_sent_at=dt.now(timezone.utc)
+        email_verification_sent_at=now,
+        terms_accepted_at=now,
+        consent_version=consent_version
     )
     db.add(new_user)
     safe_db_commit(db)
     db.refresh(new_user)
+
+    # Criar consentimento inicial
+    try:
+        from services.privacy_service import update_consent, CONSENT_TERMS_ACCEPTED
+        from services.audit_service import get_request_metadata
+        request_metadata = get_request_metadata(request)
+        update_consent(
+            db=db,
+            user_id=new_user.id,
+            consent_type=CONSENT_TERMS_ACCEPTED,
+            granted=True,
+            consent_version=consent_version,
+            request_metadata=request_metadata
+        )
+    except Exception as e:
+        # Log erro mas não falhar registro
+        logger.error(f"Erro ao criar consentimento inicial: {e}")
 
     family = ensure_family_for_user(db, new_user)
     ensure_admin_profile(db, new_user, family)
@@ -790,6 +882,8 @@ def login_user(request: Request, login_data: schemas.UserLogin, db: Session = De
     safe_db_commit(db)
     db.refresh(user)
 
+    # Registrar login bem-sucedido
+    record_successful_login(db, email, ip_address, user_agent)
     clear_failed_logins(db, email, ip_address)
     device_id = login_data.device.device_id if login_data.device else None
     if device_id and is_device_blocked(db, user.id, device_id):
@@ -1269,6 +1363,93 @@ def reset_password(request: Request, data: schemas.ResetPasswordRequest, db: Ses
     return {"success": True}
 
 
+# ========== REDEFINIÇÃO DE PIN POR EMAIL (link seguro) ==========
+PIN_RESET_EXPIRE_HOURS = 1
+
+
+@app.post("/api/auth/request-pin-reset")
+@limiter.limit("5/hour")
+def request_pin_reset(
+    request: Request,
+    data: schemas.RequestPinResetRequest,
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db)
+):
+    """Solicita envio de link por email para redefinir o PIN do perfil. Requer autenticação."""
+    user = get_user_from_token(db, credentials.credentials)
+    if not user.family_id:
+        raise HTTPException(status_code=400, detail="Usuário não pertence a uma família")
+    profile = db.query(models.FamilyProfile).filter(
+        models.FamilyProfile.id == data.profile_id,
+        models.FamilyProfile.family_id == user.family_id
+    ).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Perfil não encontrado ou sem permissão")
+    is_email_allowed, email_remaining_seconds = check_user_email_daily_limit(
+        user_id=user.id,
+        max_emails=10
+    )
+    if not is_email_allowed:
+        hours_remaining = email_remaining_seconds // 3600 if email_remaining_seconds else 24
+        raise HTTPException(
+            status_code=429,
+            detail=f"Limite diário de emails atingido. Tente novamente em {hours_remaining} horas."
+        )
+    token = create_password_reset_token()
+    expires_at = dt.now(timezone.utc) + timedelta(hours=PIN_RESET_EXPIRE_HOURS)
+    pin_reset = models.PinResetToken(
+        user_id=user.id,
+        profile_id=profile.id,
+        token_hash=hash_token(token),
+        expires_at=expires_at,
+    )
+    db.add(pin_reset)
+    safe_db_commit(db)
+    if smtp_configured():
+        frontend_url = os.getenv("FRONTEND_URL", "").rstrip("/")
+        link = f"{frontend_url}/auth/pin-reset?token={token}" if frontend_url else None
+        email_body = (
+            "Você solicitou a redefinição do PIN do perfil "
+            f"\"{profile.name}\" no aplicativo SaudeNold.\n\n"
+            "Clique no link abaixo para definir um novo PIN (válido por 1 hora):\n\n"
+            + (f"{link}\n\n" if link else "")
+            + "Se você não solicitou isso, ignore este email.\n"
+        )
+        send_email(user.email, "Redefinir PIN - SaudeNold", email_body)
+    security_logger.info(f"Token de reset de PIN gerado para perfil {profile.id} (user {user.id})")
+    return {"success": True, "message": "Se o email estiver cadastrado, você receberá um link para redefinir o PIN."}
+
+
+@app.post("/api/auth/verify-pin-reset-token", response_model=schemas.VerifyPinResetTokenResponse)
+@limiter.limit("20/hour")
+def verify_pin_reset_token(
+    request: Request,
+    data: schemas.VerifyPinResetTokenRequest,
+    db: Session = Depends(get_db)
+):
+    """Valida o token do link de email e retorna o perfil. Consome o token (uso único)."""
+    if not data.token or not data.token.strip():
+        raise HTTPException(status_code=400, detail="Token inválido")
+    token_hash = hash_token(data.token.strip())
+    pin_reset = db.query(models.PinResetToken).filter(
+        models.PinResetToken.token_hash == token_hash
+    ).first()
+    if not pin_reset:
+        raise HTTPException(status_code=400, detail="Token inválido ou já utilizado")
+    if pin_reset.expires_at < dt.now(timezone.utc):
+        db.delete(pin_reset)
+        safe_db_commit(db)
+        raise HTTPException(status_code=400, detail="Link expirado. Solicite um novo.")
+    profile = db.query(models.FamilyProfile).filter(
+        models.FamilyProfile.id == pin_reset.profile_id
+    ).first()
+    profile_name = profile.name if profile else None
+    profile_id = pin_reset.profile_id
+    db.delete(pin_reset)
+    safe_db_commit(db)
+    return schemas.VerifyPinResetTokenResponse(profile_id=profile_id, profile_name=profile_name)
+
+
 def _decode_b64(value: str) -> bytes:
     padded = value + "=" * (-len(value) % 4)
     try:
@@ -1448,6 +1629,128 @@ def list_biometric_devices(
 
 
 @app.delete("/api/user/biometric/device/{device_id}")
+
+# ========== PRIVACIDADE E CONSENTIMENTO - ENDPOINTS ALIASES ==========
+@app.get("/api/user/export-data")
+def export_user_data_alias(
+    request: Request,
+    export_type: str = "full",
+    format: str = "json",
+    include_audit_logs: bool = True,
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db)
+):
+    """
+    Alias para /api/compliance/export-data
+    LGPD: Direito à Portabilidade dos Dados.
+    """
+    from services.compliance_service import export_user_data
+    from services.audit_service import log_export_action
+    from schemas import DataExportRequest, DataExportResponse
+    
+    user = get_user_from_token(db, credentials.credentials)
+    if not user:
+        raise HTTPException(status_code=401, detail="Token invalido")
+    
+    try:
+        data_export = export_user_data(
+            db=db,
+            user_id=user.id,
+            export_type=export_type,
+            format=format,
+            include_audit_logs=include_audit_logs
+        )
+        
+        # Log da exportação
+        log_export_action(
+            db=db,
+            user=user,
+            export_type=export_type,
+            request=request,
+            file_path=data_export.file_path
+        )
+        
+        # Gerar URL de download
+        download_url = f"/api/compliance/download-export/{data_export.id}"
+        
+        return DataExportResponse(
+            id=data_export.id,
+            export_type=data_export.export_type,
+            format=data_export.format,
+            file_path=data_export.file_path,
+            download_url=download_url,
+            expires_at=data_export.expires_at,
+            created_at=data_export.created_at
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao exportar dados: {str(e)}")
+
+
+@app.delete("/api/user/data")
+def delete_user_data_alias(
+    request: Request,
+    reason: Optional[str] = None,
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db)
+):
+    """
+    Alias para /api/compliance/request-deletion com confirmação por email.
+    LGPD: Direito ao Esquecimento.
+    """
+    from services.compliance_service import request_data_deletion, execute_data_deletion
+    from schemas import DataDeletionRequestResponse
+    from email_service import send_email
+    
+    user = get_user_from_token(db, credentials.credentials)
+    if not user:
+        raise HTTPException(status_code=401, detail="Token invalido")
+    
+    try:
+        # Criar solicitação de exclusão
+        deletion_request = request_data_deletion(
+            db=db,
+            user_id=user.id,
+            request_type="full",
+            reason=reason or "Solicitado via endpoint DELETE /api/user/data",
+            scheduled_at=None  # Executar imediatamente
+        )
+        
+        # Enviar email de confirmação ANTES da exclusão
+        try:
+            email_subject = "Confirmação de Exclusão de Dados - SaudeNold"
+            email_body = f"""
+Olá,
+
+Esta é uma confirmação de que sua solicitação de exclusão de dados foi recebida e será processada.
+
+Detalhes da solicitação:
+- ID da solicitação: {deletion_request.id}
+- Tipo: Exclusão completa
+- Data: {deletion_request.created_at.strftime('%d/%m/%Y %H:%M:%S')}
+- Status: {deletion_request.status}
+
+IMPORTANTE: Esta ação é irreversível. Todos os seus dados pessoais serão permanentemente excluídos do sistema, exceto aqueles que devemos manter por requisitos legais de compliance.
+
+Se você não solicitou esta exclusão, entre em contato conosco imediatamente.
+
+Atenciosamente,
+Equipe SaudeNold
+"""
+            send_email(user.email, email_subject, email_body)
+        except Exception as email_error:
+            logger.warning(f"Erro ao enviar email de confirmacao de exclusao: {email_error}")
+            # Não bloquear a exclusão se o email falhar
+        
+        # Executar exclusão imediatamente
+        execute_data_deletion(db, deletion_request.id)
+        
+        # Atualizar status
+        db.refresh(deletion_request)
+        
+        return DataDeletionRequestResponse.model_validate(deletion_request)
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao solicitar exclusão: {str(e)}")
 def revoke_biometric_device(
     device_id: str,
     credentials: HTTPAuthorizationCredentials = Security(security),
@@ -2149,52 +2452,177 @@ def accept_family_link(
     return link
 
 
-@app.get("/api/family/data-shares", response_model=list[schemas.FamilyDataShareResponse])
+@app.get("/api/family/data-shares", response_model=List[schemas.FamilyDataShareResponse])
+@limiter.limit("30/minute")
 def list_family_data_shares(
     request: Request,
+    profile_id: Optional[int] = None,
     credentials: HTTPAuthorizationCredentials = Security(security),
     db: Session = Depends(get_db)
 ):
+    """Lista compartilhamentos de dados"""
     user = get_user_from_token(db, credentials.credentials)
     family = ensure_family_for_user(db, user)
-    profile_id = get_profile_context(request, db)
+    
+    # Se profile_id não foi fornecido, tentar obter do contexto
+    if profile_id is None:
+        profile_id = get_profile_context(request, db)
+    
     query = db.query(models.FamilyDataShare).filter(
         models.FamilyDataShare.family_id == family.id,
         models.FamilyDataShare.revoked_at.is_(None)
     )
+    
     if profile_id:
         query = query.filter(
             (models.FamilyDataShare.from_profile_id == profile_id) |
             (models.FamilyDataShare.to_profile_id == profile_id)
         )
-    return query.order_by(models.FamilyDataShare.created_at.desc()).all()
+    
+    shares = query.order_by(models.FamilyDataShare.created_at.desc()).all()
+    
+    # Verificar consentimentos e filtrar dados compartilhados baseado em consentimentos
+    try:
+        from services.privacy_service import check_consent, CONSENT_DATA_SHARING
+    except ImportError:
+        check_consent = None
+    
+    # Montar resposta com nomes dos perfis
+    result = []
+    for share in shares:
+        # Verificar se o usuário tem consentimento para ver dados compartilhados
+        # Se não tiver, ainda mostrar o compartilhamento mas indicar restrições
+        has_data_sharing_consent = True
+        if check_consent:
+            try:
+                # Verificar consentimento do perfil de origem
+                has_data_sharing_consent = check_consent(db, user.id, CONSENT_DATA_SHARING, share.from_profile_id)
+            except Exception:
+                # Em caso de erro, permitir (não bloquear)
+                has_data_sharing_consent = True
+        from_profile = db.query(models.FamilyProfile).filter(
+            models.FamilyProfile.id == share.from_profile_id
+        ).first()
+        to_profile = db.query(models.FamilyProfile).filter(
+            models.FamilyProfile.id == share.to_profile_id
+        ).first()
+        
+        # Determinar escopo baseado nas permissões
+        scope = None
+        if share.permissions:
+            if share.permissions.get("emergency_only"):
+                scope = "emergency_only"
+            elif share.permissions.get("custom_fields"):
+                scope = "custom"
+            elif share.permissions.get("can_edit"):
+                scope = "all"
+            else:
+                scope = "basic"
+        
+        result.append(schemas.FamilyDataShareResponse(
+            id=share.id,
+            family_id=share.family_id,
+            from_profile_id=share.from_profile_id,
+            to_profile_id=share.to_profile_id,
+            permissions=share.permissions,
+            scope=scope,
+            expires_at=share.expires_at,
+            created_at=share.created_at,
+            revoked_at=share.revoked_at,
+            from_profile_name=from_profile.name if from_profile else None,
+            to_profile_name=to_profile.name if to_profile else None
+        ))
+    
+    return result
 
 
 @app.post("/api/family/data-shares", response_model=schemas.FamilyDataShareResponse)
+@limiter.limit("20/minute")
 def create_family_data_share(
     request: Request,
     data: schemas.FamilyDataShareCreate,
     credentials: HTTPAuthorizationCredentials = Security(security),
     db: Session = Depends(get_db)
 ):
+    """Cria um compartilhamento de dados entre perfis"""
     user = get_user_from_token(db, credentials.credentials)
-    if user.account_type != "family_admin":
-        raise HTTPException(status_code=403, detail="Sem permissao para compartilhar dados")
     family = ensure_family_for_user(db, user)
-    from_profile_id = get_profile_context(request, db)
-    if not from_profile_id:
-        raise HTTPException(status_code=400, detail="Profile ID requerido")
-    target_profile = db.query(models.FamilyProfile).filter(
+    
+    # Verificar permissão: apenas family_admin ou dono do perfil pode compartilhar
+    if user.account_type != "family_admin":
+        user_profile = db.query(models.FamilyProfile).filter(
+            models.FamilyProfile.family_id == family.id,
+            models.FamilyProfile.created_by == user.id
+        ).first()
+        if not user_profile or user_profile.id != data.from_profile_id:
+            raise HTTPException(status_code=403, detail="Sem permissão para compartilhar dados")
+    
+    # Verificar se o perfil de origem pertence à família
+    from_profile = db.query(models.FamilyProfile).filter(
+        models.FamilyProfile.id == data.from_profile_id,
+        models.FamilyProfile.family_id == family.id
+    ).first()
+    if not from_profile:
+        raise HTTPException(status_code=404, detail="Perfil de origem não encontrado")
+    
+    # Verificar se o perfil de destino pertence à família
+    to_profile = db.query(models.FamilyProfile).filter(
         models.FamilyProfile.id == data.to_profile_id,
         models.FamilyProfile.family_id == family.id
     ).first()
-    if not target_profile:
-        raise HTTPException(status_code=404, detail="Perfil alvo nao encontrado")
+    if not to_profile:
+        raise HTTPException(status_code=404, detail="Perfil de destino não encontrado")
+    
+    if data.from_profile_id == data.to_profile_id:
+        raise HTTPException(status_code=400, detail="Perfis de origem e destino devem ser diferentes")
+    
+    # Verificar consentimento para compartilhamento de dados
+    try:
+        from services.privacy_service import check_consent, CONSENT_DATA_SHARING
+        has_consent = check_consent(db, user.id, CONSENT_DATA_SHARING, data.from_profile_id)
+        if not has_consent:
+            raise HTTPException(
+                status_code=403,
+                detail="Consentimento para compartilhamento de dados nao foi concedido. Acesse Configuracoes de Privacidade para conceder."
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"Erro ao verificar consentimento de compartilhamento: {e}")
+        # Em caso de erro, permitir (não bloquear funcionalidade)
+    
+    # Verificar se já existe compartilhamento ativo
+    existing = db.query(models.FamilyDataShare).filter(
+        models.FamilyDataShare.family_id == family.id,
+        models.FamilyDataShare.from_profile_id == data.from_profile_id,
+        models.FamilyDataShare.to_profile_id == data.to_profile_id,
+        models.FamilyDataShare.revoked_at.is_(None)
+    ).first()
+    
+    if existing:
+        raise HTTPException(status_code=400, detail="Já existe um compartilhamento ativo entre estes perfis")
+    
+    # Construir permissões baseado no escopo
+    from utils.rbac import SCOPE_ALL, SCOPE_BASIC, SCOPE_EMERGENCY_ONLY, SCOPE_CUSTOM
+    permissions = {}
+    
+    if data.scope == SCOPE_ALL:
+        permissions = {"can_view": True, "can_edit": True, "can_delete": False}
+    elif data.scope == SCOPE_BASIC:
+        permissions = {"can_view": True, "can_edit": False, "can_delete": False}
+    elif data.scope == SCOPE_EMERGENCY_ONLY:
+        permissions = {"can_view": True, "can_edit": False, "can_delete": False, "emergency_only": True}
+    elif data.scope == SCOPE_CUSTOM:
+        # Para custom, usar os campos especificados
+        permissions = {"can_view": True, "can_edit": False, "can_delete": False, "custom_fields": data.custom_fields or []}
+    
+    # Criar compartilhamento
     share = models.FamilyDataShare(
         family_id=family.id,
-        from_profile_id=from_profile_id,
+        from_profile_id=data.from_profile_id,
         to_profile_id=data.to_profile_id,
-        permissions=data.permissions or {}
+        permissions=permissions,
+        expires_at=data.expires_at
     )
     db.add(share)
     safe_db_commit(db)
@@ -2206,12 +2634,28 @@ def create_family_data_share(
             log_share_action(
                 db, user, "family_data_share", share.id, share.from_profile_id, request,
                 shared_with=share.to_profile_id,
-                permissions=share.permissions
+                permissions=share.permissions,
+                scope=data.scope
             )
         except Exception as e:
             security_logger.warning(f"Erro ao registrar log de auditoria: {e}")
     
-    return share
+    # Montar resposta com nomes dos perfis
+    response = schemas.FamilyDataShareResponse(
+        id=share.id,
+        family_id=share.family_id,
+        from_profile_id=share.from_profile_id,
+        to_profile_id=share.to_profile_id,
+        permissions=share.permissions,
+        scope=data.scope,
+        expires_at=share.expires_at,
+        created_at=share.created_at,
+        revoked_at=share.revoked_at,
+        from_profile_name=from_profile.name,
+        to_profile_name=to_profile.name
+    )
+    
+    return response
 
 
 @app.delete("/api/family/data-shares/{share_id}")
@@ -2236,6 +2680,309 @@ def revoke_family_data_share(
     share.revoked_at = dt.now(timezone.utc)
     safe_db_commit(db)
     return {"success": True}
+
+
+# ========== CUIDADORES (CAREGIVERS) ==========
+@app.post("/api/family/caregiver", response_model=schemas.FamilyCaregiverResponse)
+@limiter.limit("20/minute")
+def add_caregiver(
+    request: Request,
+    data: schemas.FamilyCaregiverCreate,
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db)
+):
+    """Adiciona um cuidador a um perfil (apenas family_admin ou dono do perfil)"""
+    user = get_user_from_token(db, credentials.credentials)
+    family = ensure_family_for_user(db, user)
+    
+    # Verificar se o perfil pertence à família
+    profile = db.query(models.FamilyProfile).filter(
+        models.FamilyProfile.id == data.profile_id,
+        models.FamilyProfile.family_id == family.id
+    ).first()
+    
+    if not profile:
+        raise HTTPException(status_code=404, detail="Perfil não encontrado")
+    
+    # Verificar permissão: apenas family_admin ou dono do perfil pode adicionar cuidadores
+    if user.account_type != "family_admin":
+        user_profile = db.query(models.FamilyProfile).filter(
+            models.FamilyProfile.family_id == family.id,
+            models.FamilyProfile.created_by == user.id
+        ).first()
+        if not user_profile or user_profile.id != data.profile_id:
+            raise HTTPException(status_code=403, detail="Sem permissão para adicionar cuidador")
+    
+    # Encontrar o usuário cuidador
+    caregiver_user = None
+    if data.caregiver_user_id:
+        caregiver_user = db.query(models.User).filter(
+            models.User.id == data.caregiver_user_id,
+            models.User.family_id == family.id
+        ).first()
+    elif data.caregiver_email:
+        caregiver_user = db.query(models.User).filter(
+            models.User.email == data.caregiver_email,
+            models.User.family_id == family.id
+        ).first()
+    
+    if not caregiver_user:
+        raise HTTPException(
+            status_code=404,
+            detail="Usuário cuidador não encontrado na família"
+        )
+    
+    # Verificar se já existe cuidador
+    existing = db.query(models.FamilyCaregiver).filter(
+        models.FamilyCaregiver.profile_id == data.profile_id,
+        models.FamilyCaregiver.caregiver_user_id == caregiver_user.id
+    ).first()
+    
+    if existing:
+        raise HTTPException(
+            status_code=400,
+            detail="Este usuário já é cuidador deste perfil"
+        )
+    
+    # Criar cuidador
+    caregiver = models.FamilyCaregiver(
+        profile_id=data.profile_id,
+        caregiver_user_id=caregiver_user.id,
+        access_level=data.access_level
+    )
+    db.add(caregiver)
+    safe_db_commit(db)
+    db.refresh(caregiver)
+    
+    # Buscar informações do cuidador para resposta
+    caregiver_response = schemas.FamilyCaregiverResponse(
+        id=caregiver.id,
+        profile_id=caregiver.profile_id,
+        caregiver_user_id=caregiver.caregiver_user_id,
+        access_level=caregiver.access_level,
+        created_at=caregiver.created_at,
+        caregiver_name=None,
+        caregiver_email=caregiver_user.email
+    )
+    
+    # Buscar perfil do cuidador para obter o nome
+    caregiver_profile = db.query(models.FamilyProfile).filter(
+        models.FamilyProfile.family_id == family.id,
+        models.FamilyProfile.created_by == caregiver_user.id
+    ).first()
+    if caregiver_profile:
+        caregiver_response.caregiver_name = caregiver_profile.name
+    
+    return caregiver_response
+
+
+@app.get("/api/family/caregivers/{profile_id}", response_model=List[schemas.FamilyCaregiverResponse])
+@limiter.limit("30/minute")
+def list_caregivers(
+    request: Request,
+    profile_id: int,
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db)
+):
+    """Lista cuidadores de um perfil"""
+    user = get_user_from_token(db, credentials.credentials)
+    family = ensure_family_for_user(db, user)
+    
+    # Verificar se o perfil pertence à família
+    profile = db.query(models.FamilyProfile).filter(
+        models.FamilyProfile.id == profile_id,
+        models.FamilyProfile.family_id == family.id
+    ).first()
+    
+    if not profile:
+        raise HTTPException(status_code=404, detail="Perfil não encontrado")
+    
+    # Verificar permissão: apenas family_admin, dono do perfil ou cuidador pode ver
+    if user.account_type != "family_admin":
+        user_profile = db.query(models.FamilyProfile).filter(
+            models.FamilyProfile.family_id == family.id,
+            models.FamilyProfile.created_by == user.id
+        ).first()
+        is_caregiver = db.query(models.FamilyCaregiver).filter(
+            models.FamilyCaregiver.profile_id == profile_id,
+            models.FamilyCaregiver.caregiver_user_id == user.id
+        ).first()
+        
+        if not user_profile or (user_profile.id != profile_id and not is_caregiver):
+            raise HTTPException(status_code=403, detail="Sem permissão para visualizar cuidadores")
+    
+    # Verificar consentimento para visualizar cuidadores (se aplicável)
+    # Nota: Visualização de cuidadores pode não requerer consentimento específico,
+    # mas vamos registrar o acesso para auditoria se for perfil de criança
+    profile_check = db.query(models.FamilyProfile).filter(
+        models.FamilyProfile.id == profile_id
+    ).first()
+    
+    if profile_check and profile_check.account_type == "child":
+        # Registrar acesso a dados de criança
+        try:
+            from services.privacy_service import log_child_data_access
+            from services.audit_service import get_request_metadata
+            request_metadata = get_request_metadata(request)
+            log_child_data_access(
+                db=db,
+                profile_id=profile_id,
+                accessed_by_user_id=user.id,
+                access_type="view",
+                resource_type="caregivers",
+                reason="Visualizacao de lista de cuidadores",
+                ip_address=request_metadata.get("ip_address"),
+                user_agent=request_metadata.get("user_agent")
+            )
+        except Exception as e:
+            logger.warning(f"Erro ao registrar acesso a dados de crianca: {e}")
+    
+    # Buscar cuidadores
+    caregivers = db.query(models.FamilyCaregiver).filter(
+        models.FamilyCaregiver.profile_id == profile_id
+    ).all()
+    
+    # Montar resposta com informações dos cuidadores
+    result = []
+    for caregiver in caregivers:
+        caregiver_user = db.query(models.User).filter(
+            models.User.id == caregiver.caregiver_user_id
+        ).first()
+        
+        caregiver_profile = None
+        if caregiver_user:
+            caregiver_profile = db.query(models.FamilyProfile).filter(
+                models.FamilyProfile.family_id == family.id,
+                models.FamilyProfile.created_by == caregiver_user.id
+            ).first()
+        
+        result.append(schemas.FamilyCaregiverResponse(
+            id=caregiver.id,
+            profile_id=caregiver.profile_id,
+            caregiver_user_id=caregiver.caregiver_user_id,
+            access_level=caregiver.access_level,
+            created_at=caregiver.created_at,
+            caregiver_name=caregiver_profile.name if caregiver_profile else None,
+            caregiver_email=caregiver_user.email if caregiver_user else None
+        ))
+    
+    return result
+
+
+@app.put("/api/family/caregiver/{caregiver_id}", response_model=schemas.FamilyCaregiverResponse)
+@limiter.limit("20/minute")
+def update_caregiver(
+    request: Request,
+    caregiver_id: int,
+    data: schemas.FamilyCaregiverUpdate,
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db)
+):
+    """Atualiza o nível de acesso de um cuidador"""
+    user = get_user_from_token(db, credentials.credentials)
+    family = ensure_family_for_user(db, user)
+    
+    # Buscar cuidador
+    caregiver = db.query(models.FamilyCaregiver).filter(
+        models.FamilyCaregiver.id == caregiver_id
+    ).first()
+    
+    if not caregiver:
+        raise HTTPException(status_code=404, detail="Cuidador não encontrado")
+    
+    # Verificar se o perfil pertence à família
+    profile = db.query(models.FamilyProfile).filter(
+        models.FamilyProfile.id == caregiver.profile_id,
+        models.FamilyProfile.family_id == family.id
+    ).first()
+    
+    if not profile:
+        raise HTTPException(status_code=404, detail="Perfil não encontrado")
+    
+    # Verificar permissão: apenas family_admin ou dono do perfil pode atualizar
+    if user.account_type != "family_admin":
+        user_profile = db.query(models.FamilyProfile).filter(
+            models.FamilyProfile.family_id == family.id,
+            models.FamilyProfile.created_by == user.id
+        ).first()
+        if not user_profile or user_profile.id != caregiver.profile_id:
+            raise HTTPException(status_code=403, detail="Sem permissão para atualizar cuidador")
+    
+    # Atualizar nível de acesso
+    caregiver.access_level = data.access_level
+    safe_db_commit(db)
+    db.refresh(caregiver)
+    
+    # Buscar informações do cuidador para resposta
+    caregiver_user = db.query(models.User).filter(
+        models.User.id == caregiver.caregiver_user_id
+    ).first()
+    
+    caregiver_profile = None
+    if caregiver_user:
+        caregiver_profile = db.query(models.FamilyProfile).filter(
+            models.FamilyProfile.family_id == family.id,
+            models.FamilyProfile.created_by == caregiver_user.id
+        ).first()
+    
+    return schemas.FamilyCaregiverResponse(
+        id=caregiver.id,
+        profile_id=caregiver.profile_id,
+        caregiver_user_id=caregiver.caregiver_user_id,
+        access_level=caregiver.access_level,
+        created_at=caregiver.created_at,
+        caregiver_name=caregiver_profile.name if caregiver_profile else None,
+        caregiver_email=caregiver_user.email if caregiver_user else None
+    )
+
+
+@app.delete("/api/family/caregiver/{caregiver_id}")
+@limiter.limit("20/minute")
+def remove_caregiver(
+    request: Request,
+    caregiver_id: int,
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db)
+):
+    """Remove um cuidador de um perfil"""
+    user = get_user_from_token(db, credentials.credentials)
+    family = ensure_family_for_user(db, user)
+    
+    # Buscar cuidador
+    caregiver = db.query(models.FamilyCaregiver).filter(
+        models.FamilyCaregiver.id == caregiver_id
+    ).first()
+    
+    if not caregiver:
+        raise HTTPException(status_code=404, detail="Cuidador não encontrado")
+    
+    # Verificar se o perfil pertence à família
+    profile = db.query(models.FamilyProfile).filter(
+        models.FamilyProfile.id == caregiver.profile_id,
+        models.FamilyProfile.family_id == family.id
+    ).first()
+    
+    if not profile:
+        raise HTTPException(status_code=404, detail="Perfil não encontrado")
+    
+    # Verificar permissão: apenas family_admin ou dono do perfil pode remover
+    if user.account_type != "family_admin":
+        user_profile = db.query(models.FamilyProfile).filter(
+            models.FamilyProfile.family_id == family.id,
+            models.FamilyProfile.created_by == user.id
+        ).first()
+        if not user_profile or user_profile.id != caregiver.profile_id:
+            raise HTTPException(status_code=403, detail="Sem permissão para remover cuidador")
+    
+    # Remover cuidador
+    db.delete(caregiver)
+    safe_db_commit(db)
+    
+    return {"success": True, "message": "Cuidador removido com sucesso"}
+
+
+# ========== DASHBOARD FAMILIAR ==========
+# Rotas movidas para routes/dashboard_routes.py
 
 
 # ========== MEDICAMENTOS ==========
@@ -2503,7 +3250,11 @@ def create_medication_log(request: Request, log: schemas.MedicationLogCreate, ap
     if user and profile_id:
         ensure_profile_access(user, db, profile_id, write_access=True)
     try:
-        db_log = models.MedicationLog(**log.model_dump(), profile_id=profile_id)
+        payload = log.model_dump()
+        # Compatibilidade: o modelo SQLAlchemy usa `taken_time`, enquanto o schema usa `taken_at`
+        if "taken_at" in payload:
+            payload["taken_time"] = payload.pop("taken_at")
+        db_log = models.MedicationLog(**payload, profile_id=profile_id)
         db.add(db_log)
         safe_db_commit(db)
         db.refresh(db_log)
@@ -2536,7 +3287,7 @@ def get_emergency_contacts(request: Request, api_key: str = Depends(verify_api_k
         # Se não há profile_id, retornar vazio (não retornar todos os contatos)
         query = db.query(models.EmergencyContact).filter(False)  # Query que sempre retorna vazio
     
-    contacts = query.order_by(models.EmergencyContact.order).all()
+    contacts = query.order_by(models.EmergencyContact.id.asc()).all()
     return [schemas.EmergencyContactResponse.model_validate(c).model_dump() for c in contacts]
 
 
@@ -2673,7 +3424,7 @@ def get_doctor_visits(request: Request, api_key: str = Depends(verify_api_key)):
         # Se não há profile_id, retornar vazio (não retornar todas as visitas)
         query = db.query(models.DoctorVisit).filter(False)  # Query que sempre retorna vazio
     
-    visits = query.order_by(models.DoctorVisit.visit_date.desc()).all()
+    visits = query.order_by(models.DoctorVisit.date.desc()).all()
     
     # Log de auditoria - visualização
     if user and profile_id:
@@ -2706,7 +3457,13 @@ def create_doctor_visit(request: Request, visit: schemas.DoctorVisitCreate, api_
     if user and profile_id:
         ensure_profile_access(user, db, profile_id, write_access=True)
     try:
-        db_visit = models.DoctorVisit(**visit.model_dump(), profile_id=profile_id)
+        payload = visit.model_dump()
+        # Compatibilidade: o modelo SQLAlchemy usa `date`, enquanto o schema usa `visit_date`
+        if "visit_date" in payload:
+            payload["date"] = payload.pop("visit_date")
+        # Campo opcional apenas do schema (não persistido no modelo atual)
+        payload.pop("prescription_image", None)
+        db_visit = models.DoctorVisit(**payload, profile_id=profile_id)
         db.add(db_visit)
         safe_db_commit(db)
         db.refresh(db_visit)

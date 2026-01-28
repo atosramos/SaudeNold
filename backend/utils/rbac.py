@@ -46,7 +46,9 @@ ACCOUNT_PERMISSIONS = {
     },
     ACCOUNT_TYPE_ADULT_MEMBER: {
         "can_manage_profiles": False,
-        "can_view_family_data": True,
+        # Adult members podem ver/editar seus próprios dados, mas não devem ter
+        # acesso automático a dados de outros perfis sem caregiver/data-share.
+        "can_view_family_data": False,
         "can_edit_family_data": True,
         "can_delete_family_data": False,
         "can_share_data": True
@@ -60,7 +62,7 @@ ACCOUNT_PERMISSIONS = {
     },
     ACCOUNT_TYPE_ELDER_UNDER_CARE: {
         "can_manage_profiles": False,
-        "can_view_family_data": True,
+        "can_view_family_data": False,
         "can_edit_family_data": False,
         "can_delete_family_data": False,
         "can_share_data": False

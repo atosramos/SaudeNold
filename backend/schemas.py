@@ -1,4 +1,4 @@
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, validator, Field, AliasChoices
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
@@ -39,6 +39,8 @@ class UserCreate(BaseModel):
     email: str
     password: str
     device: Optional[DeviceInfo] = None
+    terms_accepted: bool = False
+    consent_version: Optional[str] = None
 
     @validator('email')
     def validate_email(cls, v):
@@ -63,6 +65,12 @@ class UserCreate(BaseModel):
             raise ValueError('Senha deve conter numero')
         if not any(c in "!@#$%^&*" for c in v):
             raise ValueError('Senha deve conter caractere especial (!@#$%^&*)')
+        return v
+
+    @validator('terms_accepted')
+    def validate_terms_accepted(cls, v):
+        if not v:
+            raise ValueError('Aceite dos termos e politica de privacidade e obrigatorio')
         return v
 
 
@@ -171,6 +179,32 @@ class ResendVerificationRequest(BaseModel):
 
 class ForgotPasswordRequest(BaseModel):
     email: str
+
+
+class RequestPinResetRequest(BaseModel):
+    profile_id: int  # ID do perfil (backend) para o qual redefinir o PIN
+
+
+class VerifyPinResetTokenRequest(BaseModel):
+    token: str
+
+
+class VerifyPinResetTokenResponse(BaseModel):
+    profile_id: int
+    profile_name: Optional[str] = None
+
+
+class RequestPinResetRequest(BaseModel):
+    profile_id: int  # ID do perfil (backend) para o qual redefinir o PIN
+
+
+class VerifyPinResetTokenRequest(BaseModel):
+    token: str
+
+
+class VerifyPinResetTokenResponse(BaseModel):
+    profile_id: int
+    profile_name: Optional[str] = None
 
 
 class ResetPasswordRequest(BaseModel):
@@ -285,9 +319,66 @@ class FamilyLinkResponse(BaseModel):
         from_attributes = True
 
 
+class FamilyCaregiverCreate(BaseModel):
+    profile_id: int
+    caregiver_user_id: Optional[int] = None  # ID do usuário cuidador
+    caregiver_email: Optional[str] = None  # Email do cuidador (alternativa)
+    access_level: str = "full"  # read_only, read_write, full
+
+    @validator('access_level')
+    def validate_access_level(cls, v):
+        from utils.rbac import is_valid_access_level
+        if not is_valid_access_level(v):
+            raise ValueError('Nível de acesso inválido. Use: read_only, read_write ou full')
+        return v
+
+    @validator('caregiver_email')
+    def validate_email(cls, v):
+        if v is None:
+            return v
+        email = v.strip().lower()
+        if '@' not in email:
+            raise ValueError('Email inválido')
+        return email
+
+
+class FamilyCaregiverUpdate(BaseModel):
+    access_level: str
+
+    @validator('access_level')
+    def validate_access_level(cls, v):
+        from utils.rbac import is_valid_access_level
+        if not is_valid_access_level(v):
+            raise ValueError('Nível de acesso inválido. Use: read_only, read_write ou full')
+        return v
+
+
+class FamilyCaregiverResponse(BaseModel):
+    id: int
+    profile_id: int
+    caregiver_user_id: int
+    access_level: str
+    created_at: datetime
+    caregiver_name: Optional[str] = None
+    caregiver_email: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
 class FamilyDataShareCreate(BaseModel):
+    from_profile_id: int
     to_profile_id: int
-    permissions: Optional[dict] = None
+    scope: str = "all"  # all, basic, emergency_only, custom
+    custom_fields: Optional[List[str]] = None  # Para scope="custom"
+    expires_at: Optional[datetime] = None
+
+    @validator('scope')
+    def validate_scope(cls, v):
+        from utils.rbac import is_valid_scope
+        if not is_valid_scope(v):
+            raise ValueError('Escopo inválido. Use: all, basic, emergency_only ou custom')
+        return v
 
 
 class FamilyDataShareResponse(BaseModel):
@@ -296,8 +387,12 @@ class FamilyDataShareResponse(BaseModel):
     from_profile_id: int
     to_profile_id: int
     permissions: Optional[dict] = None
+    scope: Optional[str] = None
+    expires_at: Optional[datetime] = None
     created_at: datetime
     revoked_at: Optional[datetime] = None
+    from_profile_name: Optional[str] = None
+    to_profile_name: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -502,7 +597,8 @@ class EmergencyContactResponse(EmergencyContactBase):
 class DoctorVisitBase(BaseModel):
     doctor_name: str
     specialty: str
-    visit_date: datetime
+    # No modelo SQLAlchemy o campo é `date`
+    visit_date: datetime = Field(validation_alias=AliasChoices("visit_date", "date"))
     notes: Optional[str] = None
     prescription_image: Optional[str] = None
     encrypted_data: Optional[EncryptedData] = None  # Dados criptografados (zero-knowledge)
@@ -801,6 +897,102 @@ class DataDeletionRequestResponse(BaseModel):
         from_attributes = True
 
 
+# ========== PRIVACIDADE E CONSENTIMENTO ==========
+class UserConsentCreate(BaseModel):
+    """Schema para criar/atualizar consentimento"""
+    consent_type: str  # terms_accepted, data_sharing, emergency_access, analytics, etc.
+    profile_id: Optional[int] = None
+    granted: bool = True
+    consent_version: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+    @validator('consent_type')
+    def validate_consent_type(cls, v):
+        allowed_types = ['terms_accepted', 'data_sharing', 'emergency_access', 'analytics', 'marketing', 'third_party_sharing']
+        if v not in allowed_types:
+            raise ValueError(f'Tipo de consentimento invalido. Permitidos: {", ".join(allowed_types)}')
+        return v
+
+
+class UserConsentUpdate(BaseModel):
+    """Schema para atualizar consentimento"""
+    granted: bool
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class UserConsentResponse(BaseModel):
+    """Schema de resposta para consentimento"""
+    id: int
+    user_id: int
+    profile_id: Optional[int] = None
+    consent_type: str
+    consent_version: Optional[str] = None
+    granted: bool
+    granted_at: datetime
+    revoked_at: Optional[datetime] = None
+    metadata: Optional[Dict[str, Any]] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class TermsVersionResponse(BaseModel):
+    """Schema de resposta para versão dos termos"""
+    id: int
+    version: str
+    terms_type: str  # privacy_policy, terms_of_service
+    content: str
+    effective_date: datetime
+    requires_acceptance: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class TermsAcceptRequest(BaseModel):
+    """Schema para aceitar termos"""
+    version: str
+    terms_type: str = "terms_of_service"  # privacy_policy, terms_of_service
+
+
+class TermsUpdateCheckResponse(BaseModel):
+    """Schema de resposta para verificação de atualização de termos"""
+    update_required: bool
+    current_version: Optional[str] = None
+    latest_version: Optional[str] = None
+    terms_type: Optional[str] = None
+
+
+class ChildDataAccessLogResponse(BaseModel):
+    """Schema de resposta para log de acesso a dados de criança"""
+    id: int
+    profile_id: int
+    accessed_by_user_id: int
+    accessed_by_profile_id: Optional[int] = None
+    access_type: str
+    resource_type: Optional[str] = None
+    resource_id: Optional[int] = None
+    reason: Optional[str] = None
+    parent_consent_id: Optional[int] = None
+    accessed_at: datetime
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ChildConsentCreate(BaseModel):
+    """Schema para criar consentimento de responsável para dados de criança"""
+    child_profile_id: int
+    consent_type: str
+    granted: bool = True
+    metadata: Optional[Dict[str, Any]] = None
+
+
 # ========== MODO DE EMERGÊNCIA ==========
 class EmergencyProfileBase(BaseModel):
     show_blood_type: bool = True
@@ -881,4 +1073,51 @@ class EmergencyAccessLogResponse(BaseModel):
 class EmergencyQRCodeResponse(BaseModel):
     qr_data: str
     expires_at: datetime
+
+
+# ========== DASHBOARD FAMILIAR ==========
+class FamilyAlert(BaseModel):
+    """Schema para alertas do dashboard familiar"""
+    type: str  # 'medication' | 'vaccine' | 'exam' | 'appointment'
+    id: str
+    profile_id: int
+    title: str
+    description: str
+    priority: int  # 0-3 (baixa, média, alta, crítica)
+    data: Dict[str, Any]
+    timestamp: str
+
+
+class UpcomingEvent(BaseModel):
+    """Schema para eventos próximos (medicação ou consulta)"""
+    id: int
+    profile_id: int
+    type: str  # 'medication' | 'appointment'
+    name: str
+    time: Optional[str] = None
+    date: Optional[str] = None
+    minutes_from_now: Optional[int] = None
+    days_until: Optional[int] = None
+    data: Dict[str, Any]
+
+
+class DashboardSummary(BaseModel):
+    """Resumo do dashboard familiar"""
+    total_medications: int
+    upcoming_medications: int
+    total_appointments: int
+    upcoming_appointments: int
+    total_exams: int
+    pending_exams: int
+    total_alerts: int
+    critical_alerts: int
+
+
+class FamilyDashboardResponse(BaseModel):
+    """Resposta completa do dashboard familiar"""
+    medications: List[Dict[str, Any]]
+    appointments: List[Dict[str, Any]]
+    exams: List[Dict[str, Any]]
+    alerts: List[FamilyAlert]
+    summary: DashboardSummary
 
