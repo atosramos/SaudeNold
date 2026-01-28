@@ -5,13 +5,13 @@ import { useState } from 'react';
 import { getProfileItem, setProfileItem } from '../../services/profileStorageManager';
 import * as ImagePicker from 'expo-image-picker';
 import { scheduleMedicationAlarms } from '../../services/alarm';
-import { useCustomAlert } from '../../hooks/useCustomAlert';
+import { useAlert } from '../../contexts/AlertContext';
 import VoiceTextInput from '../../components/VoiceTextInput';
 import { useProfileAuthGuard } from '../../hooks/useProfileAuthGuard';
 
 export default function NewMedication() {
   const router = useRouter();
-  const { showAlert, AlertComponent } = useCustomAlert();
+  const { showAlert } = useAlert();
   // Usar sensitive: false para não redirecionar automaticamente
   // A tela de medicamentos pode funcionar sem perfil ativo (mostra mensagem se necessário)
   useProfileAuthGuard({ sensitive: false });
@@ -381,9 +381,7 @@ export default function NewMedication() {
   };
 
   return (
-    <>
-      <AlertComponent />
-      <KeyboardAvoidingView 
+    <KeyboardAvoidingView 
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
@@ -565,7 +563,7 @@ export default function NewMedication() {
           >
             <View style={styles.collapsibleHeaderLeft}>
               <Ionicons name="add-circle-outline" size={28} color="#4ECDC4" />
-              <Text style={styles.collapsibleHeaderText}>Adicionar Horário Personalizado</Text>
+              <Text style={styles.collapsibleHeaderText}>Adicionar Horário</Text>
             </View>
             <Ionicons 
               name={showCustomTime ? "chevron-up" : "chevron-down"} 
@@ -741,7 +739,6 @@ export default function NewMedication() {
       </View>
         </ScrollView>
       </KeyboardAvoidingView>
-    </>
   );
 }
 

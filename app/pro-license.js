@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Alert } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useState, useCallback } from 'react';
@@ -10,7 +10,7 @@ import {
   LICENSE_LABELS,
   LICENSE_TYPES 
 } from '../services/proLicense';
-import { useCustomAlert } from '../hooks/useCustomAlert';
+import { useAlert } from '../contexts/AlertContext';
 import { 
   purchaseLicenseWithGooglePay, 
   LICENSE_PRODUCTS, 
@@ -23,7 +23,7 @@ import VoiceTextInput from '../components/VoiceTextInput';
 
 export default function ProLicense() {
   const router = useRouter();
-  const { showAlert, AlertComponent } = useCustomAlert();
+  const { showAlert } = useAlert();
   const [licenseKey, setLicenseKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [licenseInfo, setLicenseInfo] = useState(null);
@@ -163,9 +163,10 @@ export default function ProLicense() {
   };
 
   const handleDeactivateLicense = () => {
-    Alert.alert(
+    showAlert(
       'Desativar Licença PRO',
       'Tem certeza que deseja desativar sua licença PRO? Você perderá acesso às funcionalidades PRO até ativar uma nova licença.',
+      'warning',
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -396,8 +397,6 @@ export default function ProLicense() {
           </Text>
         </View>
       </View>
-
-      <AlertComponent />
     </ScrollView>
   );
 }
