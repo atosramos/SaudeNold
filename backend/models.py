@@ -28,7 +28,7 @@ class User(Base):
     family_id = Column(Integer, index=True)
     account_type = Column(String(50), default="family_admin", index=True)
     created_by = Column(Integer, index=True)
-    permissions = Column(JSON)
+    permissions = Column(JSON, default=dict)
     role = Column(String(50), default="family_admin", index=True)
     is_active = Column(Boolean, default=True, index=True)
     email_verified = Column(Boolean, default=False, index=True)
@@ -37,6 +37,8 @@ class User(Base):
     password_reset_token_hash = Column(String(128))
     password_reset_expires_at = Column(DateTime(timezone=True))
     last_login_at = Column(DateTime(timezone=True))
+    terms_accepted_at = Column(DateTime(timezone=True), index=True)  # Timestamp de aceitação de termos
+    consent_version = Column(String(20), index=True)  # Versão dos termos aceita
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -49,80 +51,9 @@ class BiometricDevice(Base):
     device_id = Column(String(255), nullable=False, index=True)
     device_name = Column(String(255))
     public_key = Column(Text, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
     revoked_at = Column(DateTime(timezone=True))
-
-
-class RefreshToken(Base):
-    __tablename__ = "refresh_tokens"
-
-    id = Column(Integer, primary_key=True, index=True)
-    token_id = Column(String(64), unique=True, nullable=False, index=True)
-    token_hash = Column(String(128), nullable=False, index=True)
-    user_id = Column(Integer, nullable=False, index=True)
-    device_id = Column(String(255), index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
-    revoked = Column(Boolean, default=False, index=True)
-
-
-class UserSession(Base):
-    __tablename__ = "user_sessions"
-
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, nullable=False, index=True)
-    device_id = Column(String(255), nullable=False, index=True)
-    device_name = Column(String(255))
-    device_model = Column(String(255))
-    os_name = Column(String(100))
-    os_version = Column(String(100))
-    app_version = Column(String(50))
-    push_token = Column(String(255))
-    location_lat = Column(Float)
-    location_lon = Column(Float)
-    location_accuracy_km = Column(Float)
-    user_agent = Column(String(500))
-    ip_address = Column(String(45))
-    trusted = Column(Boolean, default=False, index=True)
-    trust_expires_at = Column(DateTime(timezone=True))
-    blocked = Column(Boolean, default=False, index=True)
-    blocked_at = Column(DateTime(timezone=True))
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    last_activity_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    revoked_at = Column(DateTime(timezone=True))
-
-
-class UserLoginEvent(Base):
-    __tablename__ = "user_login_events"
-
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, nullable=False, index=True)
-    device_id = Column(String(255), index=True)
-    ip_address = Column(String(45))
-    user_agent = Column(String(500))
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
-
-
-class UserLoginAttempt(Base):
-    __tablename__ = "user_login_attempts"
-
-    id = Column(Integer, primary_key=True, index=True)
-    email = Column(String(255), nullable=False, index=True)
-    ip_address = Column(String(45), index=True)
-    user_agent = Column(String(500))
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
-
-
-class UserDownloadEvent(Base):
-    __tablename__ = "user_download_events"
-
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, nullable=False, index=True)
-    resource_type = Column(String(50), nullable=False, index=True)
-    resource_id = Column(String(100))
-    ip_address = Column(String(45))
-    user_agent = Column(String(500))
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    # Nota: is_active e updated_at foram removidos para alinhar com o banco de dados
 
 
 class MedicationLog(Base):
@@ -130,27 +61,13 @@ class MedicationLog(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     profile_id = Column(Integer, index=True)
-    medication_id = Column(Integer)
+    medication_id = Column(Integer, index=True)
     medication_name = Column(String, nullable=False)
-    scheduled_time = Column(DateTime(timezone=True), nullable=False)
-    taken_at = Column(DateTime(timezone=True))
+    scheduled_time = Column(DateTime(timezone=True))
+    taken_time = Column(DateTime(timezone=True))
     status = Column(String, nullable=False)  # taken, skipped, postponed
+    notes = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-
-class EmergencyContact(Base):
-    __tablename__ = "emergency_contacts"
-
-    id = Column(Integer, primary_key=True, index=True)
-    profile_id = Column(Integer, index=True)
-    name = Column(String, nullable=False)
-    phone = Column(String, nullable=False)
-    photo_base64 = Column(Text)
-    relation = Column(String)
-    order = Column(Integer, default=0)
-    encrypted_data = Column(JSON)  # Dados criptografados (zero-knowledge)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
 
 class DoctorVisit(Base):
@@ -159,10 +76,9 @@ class DoctorVisit(Base):
     id = Column(Integer, primary_key=True, index=True)
     profile_id = Column(Integer, index=True)
     doctor_name = Column(String, nullable=False)
-    specialty = Column(String, nullable=False)
-    visit_date = Column(DateTime(timezone=True), nullable=False)
+    specialty = Column(String)
+    date = Column(DateTime(timezone=True), nullable=False)
     notes = Column(Text)
-    prescription_image = Column(Text)
     encrypted_data = Column(JSON)  # Dados criptografados (zero-knowledge)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -173,15 +89,14 @@ class MedicalExam(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     profile_id = Column(Integer, index=True)
-    exam_date = Column(DateTime(timezone=True))  # Data do exame (extraída ou informada)
-    exam_type = Column(String)  # Tipo de exame (ex: "Hemograma", "Glicemia", etc.)
-    image_base64 = Column(Text)  # Imagem ou PDF em base64
-    file_type = Column(String, default="image")  # "image" ou "pdf"
-    raw_ocr_text = Column(Text)  # Texto bruto extraído pelo OCR
-    extracted_data = Column(JSON)  # Dados estruturados extraídos (dict com parâmetros)
-    processing_status = Column(String, default="pending")  # pending, processing, completed, error
-    processing_error = Column(Text)  # Mensagem de erro se houver
+    exam_type = Column(String, nullable=False)
+    exam_date = Column(DateTime(timezone=True), nullable=False)
+    image_base64 = Column(Text)
+    notes = Column(Text)
     encrypted_data = Column(JSON)  # Dados criptografados (zero-knowledge)
+    ocr_processed = Column(Boolean, default=False)
+    ocr_text = Column(Text)
+    data_extracted = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -190,12 +105,10 @@ class ExamDataPoint(Base):
     __tablename__ = "exam_data_points"
 
     id = Column(Integer, primary_key=True, index=True)
-    exam_id = Column(Integer, nullable=False, index=True)  # FK para medical_exams
-    profile_id = Column(Integer, index=True)
-    parameter_name = Column(String, nullable=False, index=True)  # Nome do parâmetro (ex: "hemoglobina")
-    value = Column(String, nullable=False)  # Valor (pode ser número ou texto)
-    numeric_value = Column(String)  # Valor numérico extraído (para ordenação)
-    unit = Column(String)  # Unidade de medida (ex: "g/dL", "mg/dL")
+    exam_id = Column(Integer, nullable=False, index=True)
+    parameter_name = Column(String, nullable=False, index=True)
+    value = Column(String, nullable=False)
+    unit = Column(String)
     reference_range_min = Column(String)  # Valor mínimo de referência
     reference_range_max = Column(String)  # Valor máximo de referência
     exam_date = Column(DateTime(timezone=True), nullable=False, index=True)  # Data do exame (para queries temporais)
@@ -269,7 +182,7 @@ class FamilyProfile(Base):
     gender = Column(String(50))
     blood_type = Column(String(10))
     created_by = Column(Integer, index=True)
-    permissions = Column(JSON)
+    permissions = Column(JSON, default=dict)
     allow_quick_access = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -309,7 +222,7 @@ class FamilyInvite(Base):
     expires_at = Column(DateTime(timezone=True), index=True)
     accepted_at = Column(DateTime(timezone=True))
     accepted_by_user_id = Column(Integer, index=True)
-    permissions = Column(JSON)  # Permissões: {"can_view": True, "can_edit": True, "can_delete": False}
+    permissions = Column(JSON, default=dict)  # Permissões: {"can_view": True, "can_edit": True, "can_delete": False}
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -320,21 +233,317 @@ class FamilyDataShare(Base):
     family_id = Column(Integer, nullable=False, index=True)
     from_profile_id = Column(Integer, nullable=False, index=True)
     to_profile_id = Column(Integer, nullable=False, index=True)
-    permissions = Column(JSON)
+    permissions = Column(JSON, default=dict)
+    expires_at = Column(DateTime(timezone=True), index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     revoked_at = Column(DateTime(timezone=True))
 
 
+class PinResetToken(Base):
+    """Token único para redefinição de PIN por email (link seguro)."""
+    __tablename__ = "pin_reset_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    profile_id = Column(Integer, nullable=False, index=True)
+    token_hash = Column(String(128), nullable=False, index=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class AuditLog(Base):
+    """
+    Modelo de Auditoria - LGPD/HIPAA Compliance
+    
+    Armazena logs imutáveis de todas as ações importantes no sistema.
+    Retenção de 7 anos conforme requisitos legais de saúde.
+    """
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Identificação do usuário
+    user_id = Column(Integer, nullable=False, index=True)
+    profile_id = Column(Integer, index=True)  # Perfil afetado pela ação
+    
+    # Tipo de ação
+    action_type = Column(String(50), nullable=False, index=True)  # view, edit, delete, share, export, etc.
+    resource_type = Column(String(50), index=True)  # medication, exam, profile, etc.
+    resource_id = Column(Integer, index=True)  # ID do recurso afetado
+    
+    # Rastreabilidade
+    ip_address = Column(String(45), index=True)
+    user_agent = Column(String(500))
+    device_id = Column(String(255), index=True)
+    
+    # Detalhes da ação
+    action_details = Column(JSON)  # Dados adicionais sobre a ação
+    old_values = Column(JSON)  # Valores anteriores (para edições)
+    new_values = Column(JSON)  # Valores novos (para edições)
+    
+    # Resultado
+    success = Column(Boolean, default=True, index=True)
+    error_message = Column(Text)  # Mensagem de erro se houver
+    
+    # Metadados
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    
+    # Hash para garantir imutabilidade (opcional, para auditoria avançada)
+    log_hash = Column(String(64), index=True)  # SHA-256 hash do log
 
 
+class DataExport(Base):
+    """
+    Registro de exportações de dados (LGPD - Direito à Portabilidade)
+    """
+    __tablename__ = "data_exports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    export_type = Column(String(50), default="full")  # full, partial, access_report
+    format = Column(String(20), default="json")  # json, csv, pdf
+    file_path = Column(String(500))  # Caminho do arquivo gerado
+    file_hash = Column(String(64))  # Hash do arquivo para verificação
+    expires_at = Column(DateTime(timezone=True), index=True)  # Expiração do link de download
+    downloaded = Column(Boolean, default=False, index=True)
+    downloaded_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
+class DataDeletionRequest(Base):
+    """
+    Solicitações de exclusão de dados (LGPD - Direito ao Esquecimento)
+    """
+    __tablename__ = "data_deletion_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    request_type = Column(String(50), default="full")  # full, partial, account_only
+    reason = Column(Text)  # Motivo da solicitação
+    status = Column(String(20), default="pending", index=True)  # pending, processing, completed, cancelled
+    scheduled_at = Column(DateTime(timezone=True))  # Quando será executada
+    completed_at = Column(DateTime(timezone=True))
+    cancelled_at = Column(DateTime(timezone=True))
+    cancellation_reason = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    created_by = Column(Integer)  # Quem criou a solicitação (pode ser o próprio usuário ou admin)
 
 
+class EmergencyContact(Base):
+    __tablename__ = "emergency_contacts"
+    id = Column(Integer, primary_key=True, index=True)
+    profile_id = Column(Integer, index=True)
+    name = Column(String, nullable=False)
+    phone = Column(String)
+    relationship = Column(String)
+    notes = Column(Text)
+    encrypted_data = Column(JSON)  # Dados criptografados (zero-knowledge)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
 
+class EmergencyProfile(Base):
+    """
+    Configurações do Modo de Emergência para um perfil.
+    Permite acesso rápido a informações críticas sem desbloquear o aparelho.
+    """
+    __tablename__ = "emergency_profiles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    profile_id = Column(Integer, nullable=False, index=True, unique=True)
+    
+    # Emergency PIN (hash do PIN de 6 dígitos)
+    emergency_pin_hash = Column(String(255))  # Hash do PIN de 6 dígitos
+    emergency_pin_enabled = Column(Boolean, default=False, index=True)
+    
+    # Configurações de privacidade - quais dados exibir
+    show_blood_type = Column(Boolean, default=True)
+    show_allergies = Column(Boolean, default=True)
+    show_chronic_conditions = Column(Boolean, default=True)
+    show_medications = Column(Boolean, default=True)
+    show_emergency_contacts = Column(Boolean, default=True)
+    show_health_insurance = Column(Boolean, default=True)
+    show_advance_directives = Column(Boolean, default=False)
+    show_full_name = Column(Boolean, default=False)  # Se False, mostra apenas iniciais
+    
+    # Informações adicionais
+    health_insurance_name = Column(String(255))
+    health_insurance_number = Column(String(100))
+    advance_directives = Column(Text)  # Diretivas antecipadas
+    
+    # Recursos especiais
+    qr_code_enabled = Column(Boolean, default=True)
+    share_location_enabled = Column(Boolean, default=False)
+    notify_contacts_on_access = Column(Boolean, default=True)
+    
+    # Status
+    is_active = Column(Boolean, default=True, index=True)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
 
+class EmergencyAccessLog(Base):
+    """
+    Log de acessos ao modo de emergência.
+    Registra quando o modo emergência foi ativado.
+    """
+    __tablename__ = "emergency_access_logs"
 
+    id = Column(Integer, primary_key=True, index=True)
+    profile_id = Column(Integer, nullable=False, index=True)
+    
+    # Rastreabilidade
+    accessed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    ip_address = Column(String(45), index=True)
+    device_id = Column(String(255), index=True)
+    location_lat = Column(Float)
+    location_lon = Column(Float)
+    
+    # Detalhes do acesso
+    access_method = Column(String(20), default="pin")  # pin, qr_code
+    contacts_notified = Column(Boolean, default=False)
+    location_shared = Column(Boolean, default=False)
+    
+    # Metadados
+    user_agent = Column(String(500))
+    notes = Column(Text)  # Notas adicionais sobre o acesso
+
+
+class DailyTracking(Base):
+    __tablename__ = "daily_tracking"
+
+    id = Column(Integer, primary_key=True, index=True)
+    profile_id = Column(Integer, index=True)
+    date = Column(DateTime(timezone=True), nullable=False, index=True)
+    metrics = Column(JSON)  # {"weight": 70, "blood_pressure": "120/80", ...}
+    notes = Column(Text)
+    encrypted_data = Column(JSON)  # Dados criptografados (zero-knowledge)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class UserSession(Base):
+    __tablename__ = "user_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    device_id = Column(String(255), nullable=False, index=True)
+    device_name = Column(String(255))
+    device_model = Column(String(255))
+    os_name = Column(String(255))
+    os_version = Column(String(255))
+    app_version = Column(String(255))
+    ip_address = Column(String(45), index=True)
+    user_agent = Column(String(500))
+    trusted = Column(Boolean, default=False, index=True)  # Corrigido: era is_trusted
+    trust_expires_at = Column(DateTime(timezone=True))  # Campo usado em session_service
+    blocked = Column(Boolean, default=False, index=True)
+    blocked_at = Column(DateTime(timezone=True))  # Campo usado no schema
+    last_activity_at = Column(DateTime(timezone=True), index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    revoked_at = Column(DateTime(timezone=True))
+    push_token = Column(String(500))  # Campo usado em session_service
+    location_lat = Column(Float)  # Campo usado em session_service
+    location_lon = Column(Float)  # Campo usado em session_service
+    location_accuracy_km = Column(Float)  # Campo usado em session_service
+
+
+class UserLoginAttempt(Base):
+    __tablename__ = "user_login_attempts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String(255), nullable=False, index=True)
+    ip_address = Column(String(45), index=True)
+    user_agent = Column(String(500))
+    success = Column(Boolean, default=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class UserLoginEvent(Base):
+    __tablename__ = "user_login_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    device_id = Column(String(255), index=True)
+    ip_address = Column(String(45), index=True)
+    user_agent = Column(String(500))
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    # Nota: login_type, success e last_login_at foram removidos para alinhar com o banco de dados
+
+
+class RefreshToken(Base):
+    __tablename__ = "refresh_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    token_id = Column(String(255), nullable=False, index=True)
+    token_hash = Column(String(255), nullable=False, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    device_id = Column(String(255), index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    revoked = Column(Boolean, default=False, index=True)
+
+
+class UserConsent(Base):
+    """
+    Consentimentos granulares do usuário (LGPD/GDPR)
+    
+    Armazena consentimentos específicos para diferentes tipos de uso de dados.
+    """
+    __tablename__ = "user_consents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    profile_id = Column(Integer, index=True)  # Opcional: consentimento por perfil
+    consent_type = Column(String(50), nullable=False, index=True)  # terms_accepted, data_sharing, emergency_access, analytics, etc.
+    consent_version = Column(String(20))  # Versão dos termos aceita
+    granted = Column(Boolean, default=True, nullable=False, index=True)
+    granted_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    revoked_at = Column(DateTime(timezone=True), index=True)
+    # IMPORTANTE: o atributo "metadata" é reservado pela API declarativa do SQLAlchemy.
+    # Para manter o nome da coluna no banco como "metadata" sem conflitar com o atributo
+    # reservado, usamos outro nome de atributo Python e mapeamos explicitamente o nome
+    # da coluna.
+    extra_metadata = Column("metadata", JSON)  # Detalhes adicionais (ex: quais dados específicos compartilhar)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class TermsVersion(Base):
+    """
+    Versões dos termos de uso e política de privacidade
+    
+    Rastreia diferentes versões dos documentos legais.
+    """
+    __tablename__ = "terms_versions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    version = Column(String(20), nullable=False, unique=True, index=True)  # Ex: "1.0", "2.0"
+    terms_type = Column(String(50), nullable=False, index=True)  # privacy_policy, terms_of_service
+    content = Column(Text, nullable=False)  # Texto completo dos termos
+    effective_date = Column(DateTime(timezone=True), nullable=False, index=True)  # Data de vigência
+    requires_acceptance = Column(Boolean, default=True, index=True)  # Se requer nova aceitação
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class ChildDataAccessLog(Base):
+    """
+    Log de acessos a dados de crianças
+    
+    Registra todos os acessos a dados de perfis de crianças para auditoria e transparência.
+    """
+    __tablename__ = "child_data_access_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    profile_id = Column(Integer, nullable=False, index=True)  # Perfil da criança
+    accessed_by_user_id = Column(Integer, nullable=False, index=True)  # Usuário que acessou
+    accessed_by_profile_id = Column(Integer, index=True)  # Perfil que acessou
+    access_type = Column(String(50), nullable=False, index=True)  # view, edit, share, export
+    resource_type = Column(String(50), index=True)  # medication, exam, visit, etc.
+    resource_id = Column(Integer, index=True)  # ID do recurso acessado
+    reason = Column(Text)  # Motivo do acesso
+    parent_consent_id = Column(Integer, index=True)  # ID do consentimento do responsável
+    accessed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    ip_address = Column(String(45), index=True)
+    user_agent = Column(String(500))

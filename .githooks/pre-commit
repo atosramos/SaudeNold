@@ -1,0 +1,30 @@
+#!/bin/bash
+# Pre-commit hook para validar context files
+
+# Cores para output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+echo -e "${YELLOW}Validando Context Engineering...${NC}"
+
+# Verificar se estamos no diretório raiz do projeto
+if [ ! -f "scripts/validate-context.py" ]; then
+    echo -e "${RED}Erro: Script de validação não encontrado${NC}"
+    exit 1
+fi
+
+# Executar validação
+python scripts/validate-context.py
+VALIDATION_EXIT_CODE=$?
+
+if [ $VALIDATION_EXIT_CODE -ne 0 ]; then
+    echo -e "${RED}❌ Validação de contexto falhou!${NC}"
+    echo -e "${YELLOW}Por favor, corrija os problemas antes de fazer commit.${NC}"
+    echo -e "${YELLOW}Execute: python scripts/validate-context.py${NC}"
+    exit 1
+fi
+
+echo -e "${GREEN}✅ Validação de contexto passou!${NC}"
+exit 0

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, validator, Field, AliasChoices
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
@@ -39,6 +39,8 @@ class UserCreate(BaseModel):
     email: str
     password: str
     device: Optional[DeviceInfo] = None
+    terms_accepted: bool = False
+    consent_version: Optional[str] = None
 
     @validator('email')
     def validate_email(cls, v):
@@ -63,6 +65,12 @@ class UserCreate(BaseModel):
             raise ValueError('Senha deve conter numero')
         if not any(c in "!@#$%^&*" for c in v):
             raise ValueError('Senha deve conter caractere especial (!@#$%^&*)')
+        return v
+
+    @validator('terms_accepted')
+    def validate_terms_accepted(cls, v):
+        if not v:
+            raise ValueError('Aceite dos termos e politica de privacidade e obrigatorio')
         return v
 
 
@@ -171,6 +179,32 @@ class ResendVerificationRequest(BaseModel):
 
 class ForgotPasswordRequest(BaseModel):
     email: str
+
+
+class RequestPinResetRequest(BaseModel):
+    profile_id: int  # ID do perfil (backend) para o qual redefinir o PIN
+
+
+class VerifyPinResetTokenRequest(BaseModel):
+    token: str
+
+
+class VerifyPinResetTokenResponse(BaseModel):
+    profile_id: int
+    profile_name: Optional[str] = None
+
+
+class RequestPinResetRequest(BaseModel):
+    profile_id: int  # ID do perfil (backend) para o qual redefinir o PIN
+
+
+class VerifyPinResetTokenRequest(BaseModel):
+    token: str
+
+
+class VerifyPinResetTokenResponse(BaseModel):
+    profile_id: int
+    profile_name: Optional[str] = None
 
 
 class ResetPasswordRequest(BaseModel):
@@ -285,9 +319,66 @@ class FamilyLinkResponse(BaseModel):
         from_attributes = True
 
 
+class FamilyCaregiverCreate(BaseModel):
+    profile_id: int
+    caregiver_user_id: Optional[int] = None  # ID do usuário cuidador
+    caregiver_email: Optional[str] = None  # Email do cuidador (alternativa)
+    access_level: str = "full"  # read_only, read_write, full
+
+    @validator('access_level')
+    def validate_access_level(cls, v):
+        from utils.rbac import is_valid_access_level
+        if not is_valid_access_level(v):
+            raise ValueError('Nível de acesso inválido. Use: read_only, read_write ou full')
+        return v
+
+    @validator('caregiver_email')
+    def validate_email(cls, v):
+        if v is None:
+            return v
+        email = v.strip().lower()
+        if '@' not in email:
+            raise ValueError('Email inválido')
+        return email
+
+
+class FamilyCaregiverUpdate(BaseModel):
+    access_level: str
+
+    @validator('access_level')
+    def validate_access_level(cls, v):
+        from utils.rbac import is_valid_access_level
+        if not is_valid_access_level(v):
+            raise ValueError('Nível de acesso inválido. Use: read_only, read_write ou full')
+        return v
+
+
+class FamilyCaregiverResponse(BaseModel):
+    id: int
+    profile_id: int
+    caregiver_user_id: int
+    access_level: str
+    created_at: datetime
+    caregiver_name: Optional[str] = None
+    caregiver_email: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
 class FamilyDataShareCreate(BaseModel):
+    from_profile_id: int
     to_profile_id: int
-    permissions: Optional[dict] = None
+    scope: str = "all"  # all, basic, emergency_only, custom
+    custom_fields: Optional[List[str]] = None  # Para scope="custom"
+    expires_at: Optional[datetime] = None
+
+    @validator('scope')
+    def validate_scope(cls, v):
+        from utils.rbac import is_valid_scope
+        if not is_valid_scope(v):
+            raise ValueError('Escopo inválido. Use: all, basic, emergency_only ou custom')
+        return v
 
 
 class FamilyDataShareResponse(BaseModel):
@@ -296,8 +387,12 @@ class FamilyDataShareResponse(BaseModel):
     from_profile_id: int
     to_profile_id: int
     permissions: Optional[dict] = None
+    scope: Optional[str] = None
+    expires_at: Optional[datetime] = None
     created_at: datetime
     revoked_at: Optional[datetime] = None
+    from_profile_name: Optional[str] = None
+    to_profile_name: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -502,7 +597,8 @@ class EmergencyContactResponse(EmergencyContactBase):
 class DoctorVisitBase(BaseModel):
     doctor_name: str
     specialty: str
-    visit_date: datetime
+    # No modelo SQLAlchemy o campo é `date`
+    visit_date: datetime = Field(validation_alias=AliasChoices("visit_date", "date"))
     notes: Optional[str] = None
     prescription_image: Optional[str] = None
     encrypted_data: Optional[EncryptedData] = None  # Dados criptografados (zero-knowledge)
@@ -714,4 +810,314 @@ class DashboardResponse(BaseModel):
     validation_stats: ValidationStatsResponse
     purchase_stats: PurchaseStatsResponse
     last_updated: datetime
+
+
+# ========== AUDITORIA E CONFORMIDADE (LGPD/HIPAA) ==========
+class AuditLogResponse(BaseModel):
+    id: int
+    user_id: int
+    profile_id: Optional[int] = None
+    action_type: str
+    resource_type: Optional[str] = None
+    resource_id: Optional[int] = None
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+    device_id: Optional[str] = None
+    action_details: Optional[Dict[str, Any]] = None
+    old_values: Optional[Dict[str, Any]] = None
+    new_values: Optional[Dict[str, Any]] = None
+    success: bool
+    error_message: Optional[str] = None
+    created_at: datetime
+    log_hash: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class AuditLogFilter(BaseModel):
+    profile_id: Optional[int] = None
+    action_type: Optional[str] = None
+    resource_type: Optional[str] = None
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    limit: int = 100
+    offset: int = 0
+
+
+class AccessReportResponse(BaseModel):
+    user_id: int
+    period_months: int
+    start_date: str
+    end_date: str
+    total_accesses: int
+    by_action: Dict[str, int]
+    by_resource: Dict[str, int]
+    by_ip: Dict[str, int]
+    by_device: Dict[str, int]
+    logs: List[Dict[str, Any]]
+
+
+class DataExportRequest(BaseModel):
+    export_type: str = "full"  # full, partial, access_report
+    format: str = "json"  # json, csv, pdf
+    include_audit_logs: bool = True
+
+
+class DataExportResponse(BaseModel):
+    id: int
+    export_type: str
+    format: str
+    file_path: Optional[str] = None
+    download_url: Optional[str] = None
+    expires_at: Optional[datetime] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class DataDeletionRequestCreate(BaseModel):
+    request_type: str = "full"  # full, partial, account_only
+    reason: Optional[str] = None
+    scheduled_at: Optional[datetime] = None
+
+
+class DataDeletionRequestResponse(BaseModel):
+    id: int
+    user_id: int
+    request_type: str
+    reason: Optional[str] = None
+    status: str
+    scheduled_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ========== PRIVACIDADE E CONSENTIMENTO ==========
+class UserConsentCreate(BaseModel):
+    """Schema para criar/atualizar consentimento"""
+    consent_type: str  # terms_accepted, data_sharing, emergency_access, analytics, etc.
+    profile_id: Optional[int] = None
+    granted: bool = True
+    consent_version: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+    @validator('consent_type')
+    def validate_consent_type(cls, v):
+        allowed_types = ['terms_accepted', 'data_sharing', 'emergency_access', 'analytics', 'marketing', 'third_party_sharing']
+        if v not in allowed_types:
+            raise ValueError(f'Tipo de consentimento invalido. Permitidos: {", ".join(allowed_types)}')
+        return v
+
+
+class UserConsentUpdate(BaseModel):
+    """Schema para atualizar consentimento"""
+    granted: bool
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class UserConsentResponse(BaseModel):
+    """Schema de resposta para consentimento"""
+    id: int
+    user_id: int
+    profile_id: Optional[int] = None
+    consent_type: str
+    consent_version: Optional[str] = None
+    granted: bool
+    granted_at: datetime
+    revoked_at: Optional[datetime] = None
+    metadata: Optional[Dict[str, Any]] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class TermsVersionResponse(BaseModel):
+    """Schema de resposta para versão dos termos"""
+    id: int
+    version: str
+    terms_type: str  # privacy_policy, terms_of_service
+    content: str
+    effective_date: datetime
+    requires_acceptance: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class TermsAcceptRequest(BaseModel):
+    """Schema para aceitar termos"""
+    version: str
+    terms_type: str = "terms_of_service"  # privacy_policy, terms_of_service
+
+
+class TermsUpdateCheckResponse(BaseModel):
+    """Schema de resposta para verificação de atualização de termos"""
+    update_required: bool
+    current_version: Optional[str] = None
+    latest_version: Optional[str] = None
+    terms_type: Optional[str] = None
+
+
+class ChildDataAccessLogResponse(BaseModel):
+    """Schema de resposta para log de acesso a dados de criança"""
+    id: int
+    profile_id: int
+    accessed_by_user_id: int
+    accessed_by_profile_id: Optional[int] = None
+    access_type: str
+    resource_type: Optional[str] = None
+    resource_id: Optional[int] = None
+    reason: Optional[str] = None
+    parent_consent_id: Optional[int] = None
+    accessed_at: datetime
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ChildConsentCreate(BaseModel):
+    """Schema para criar consentimento de responsável para dados de criança"""
+    child_profile_id: int
+    consent_type: str
+    granted: bool = True
+    metadata: Optional[Dict[str, Any]] = None
+
+
+# ========== MODO DE EMERGÊNCIA ==========
+class EmergencyProfileBase(BaseModel):
+    show_blood_type: bool = True
+    show_allergies: bool = True
+    show_chronic_conditions: bool = True
+    show_medications: bool = True
+    show_emergency_contacts: bool = True
+    show_health_insurance: bool = True
+    show_advance_directives: bool = False
+    show_full_name: bool = False
+    health_insurance_name: Optional[str] = None
+    health_insurance_number: Optional[str] = None
+    advance_directives: Optional[str] = None
+    qr_code_enabled: bool = True
+    share_location_enabled: bool = False
+    notify_contacts_on_access: bool = True
+
+
+class EmergencyProfileResponse(EmergencyProfileBase):
+    id: int
+    profile_id: int
+    emergency_pin_enabled: bool
+    is_active: bool
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class EmergencyPinSetRequest(BaseModel):
+    pin: str  # PIN de 6 dígitos
+
+    @validator('pin')
+    def validate_pin(cls, v):
+        if len(v) != 6 or not v.isdigit():
+            raise ValueError('PIN deve ter exatamente 6 dígitos numéricos')
+        return v
+
+
+class EmergencyPinVerifyRequest(BaseModel):
+    pin: str  # PIN de 6 dígitos
+
+    @validator('pin')
+    def validate_pin(cls, v):
+        if len(v) != 6 or not v.isdigit():
+            raise ValueError('PIN deve ter exatamente 6 dígitos numéricos')
+        return v
+
+
+class EmergencyInfoResponse(BaseModel):
+    profile_id: int
+    name: str
+    blood_type: Optional[str] = None
+    allergies: Optional[List[str]] = None
+    medications: Optional[List[Dict[str, Any]]] = None
+    emergency_contacts: Optional[List[Dict[str, Any]]] = None
+    health_insurance: Optional[Dict[str, Any]] = None
+    advance_directives: Optional[str] = None
+
+
+class EmergencyAccessLogResponse(BaseModel):
+    id: int
+    profile_id: int
+    accessed_at: datetime
+    access_method: str
+    ip_address: Optional[str] = None
+    device_id: Optional[str] = None
+    location_lat: Optional[float] = None
+    location_lon: Optional[float] = None
+    contacts_notified: bool
+    location_shared: bool
+
+    class Config:
+        from_attributes = True
+
+
+class EmergencyQRCodeResponse(BaseModel):
+    qr_data: str
+    expires_at: datetime
+
+
+# ========== DASHBOARD FAMILIAR ==========
+class FamilyAlert(BaseModel):
+    """Schema para alertas do dashboard familiar"""
+    type: str  # 'medication' | 'vaccine' | 'exam' | 'appointment'
+    id: str
+    profile_id: int
+    title: str
+    description: str
+    priority: int  # 0-3 (baixa, média, alta, crítica)
+    data: Dict[str, Any]
+    timestamp: str
+
+
+class UpcomingEvent(BaseModel):
+    """Schema para eventos próximos (medicação ou consulta)"""
+    id: int
+    profile_id: int
+    type: str  # 'medication' | 'appointment'
+    name: str
+    time: Optional[str] = None
+    date: Optional[str] = None
+    minutes_from_now: Optional[int] = None
+    days_until: Optional[int] = None
+    data: Dict[str, Any]
+
+
+class DashboardSummary(BaseModel):
+    """Resumo do dashboard familiar"""
+    total_medications: int
+    upcoming_medications: int
+    total_appointments: int
+    upcoming_appointments: int
+    total_exams: int
+    pending_exams: int
+    total_alerts: int
+    critical_alerts: int
+
+
+class FamilyDashboardResponse(BaseModel):
+    """Resposta completa do dashboard familiar"""
+    medications: List[Dict[str, Any]]
+    appointments: List[Dict[str, Any]]
+    exams: List[Dict[str, Any]]
+    alerts: List[FamilyAlert]
+    summary: DashboardSummary
 

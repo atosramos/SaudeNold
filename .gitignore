@@ -34,3 +34,19 @@ yarn-error.*
 
 # typescript
 *.tsbuildinfo
+
+# Backend migration artifacts (local/dev only)
+backend/migration_backup_*.json
+backend/migration_*.log
+backend/*.log
+
+# Local logs
+logs/
+
+# Android build/cache artifacts
+android/.gradle/
+android/app/build/
+android/.cxx/
+
+# Tooling artifacts
+**/*.salive

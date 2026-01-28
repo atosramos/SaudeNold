@@ -1,0 +1,69 @@
+# Context Engineering Rules - SaudeNold
+
+## Project Overview
+SaudeNold is a React Native (Expo) mobile health management app optimized for elderly users, with a FastAPI backend. The app is offline-first with optional backend synchronization.
+
+## Key Architectural Principles
+1. **Offline-First**: All data stored locally in AsyncStorage, backend is optional
+2. **Multi-Tenant**: Family profiles system with complete data isolation
+3. **Security**: JWT tokens, RBAC permissions, rate limiting, CSRF protection
+4. **Accessibility**: Large fonts, high contrast, simple navigation for elderly users
+
+## Technology Stack
+- **Frontend**: Expo 54, React Native, Expo Router (file-based routing)
+- **Backend**: FastAPI (Python), PostgreSQL, Redis
+- **AI**: Google Gemini AI for medical exam data extraction
+- **Storage**: AsyncStorage (local), PostgreSQL (server), Redis (cache)
+
+## Critical Context Files
+- `.cursor/context/PROJECT-OVERVIEW.md` - High-level project overview
+- `.cursor/context/ARCHITECTURE.md` - System architecture details
+- `.cursor/context/BACKEND-CONTEXT.md` - Backend-specific context
+- `.cursor/context/FRONTEND-CONTEXT.md` - Frontend-specific context
+- `.cursor/context/MULTIEMPRESA-CONTEXT.md` - Multi-tenant system context
+- `.cursor/context/CURRENT-STATE.md` - Current implementation state
+
+## Code Style Guidelines
+- **Backend**: Python with FastAPI, SQLAlchemy ORM, Pydantic schemas
+- **Frontend**: React Native with Expo, functional components, hooks
+- **Naming**: camelCase for JS, snake_case for Python
+- **Error Handling**: Always use try-catch, return meaningful error messages
+- **Security**: Always validate input, sanitize data, check permissions
+
+## Important Patterns
+- **Profile Isolation**: Always use `X-Profile-Id` header, filter by `profile_id`
+- **Offline Support**: Save to AsyncStorage first, sync to backend when available
+- **Token Management**: Automatic refresh every 13 minutes, handle 401 errors
+- **Data Migration**: Use dry-run mode, create backups, validate after migration
+
+## Common Tasks
+- When adding new endpoints: Add to `main.py`, create schema in `schemas.py`, add tests
+- When adding new screens: Create in `app/` directory, use Expo Router conventions
+- When modifying data models: Update `models.py`, create migration script, update tests
+- When working with profiles: Always check `profile_id`, validate family access
+
+## Testing Requirements
+- Unit tests for all models and services
+- Integration tests for critical endpoints
+- Isolation tests for multi-tenant features (100% coverage required)
+- Test offline scenarios and sync behavior
+
+## Documentation Standards
+- Update relevant docs in `docs/` directory
+- Document API endpoints in `docs/multiempresa/API.md`
+- Update `.issues/` files when completing tasks
+- Keep `ESTADO-ATUAL-APLICACAO.md` updated
+
+## Security Considerations
+- Never expose sensitive data in logs
+- Always validate user permissions before data access
+- Use rate limiting on sensitive endpoints
+- Implement CSRF protection for state-changing operations
+- Validate and sanitize all user input
+
+## Performance Guidelines
+- Use indexes on frequently queried columns
+- Implement pagination for large datasets
+- Cache frequently accessed data in Redis
+- Optimize queries to avoid N+1 problems
+- Use background tasks for non-critical operations
