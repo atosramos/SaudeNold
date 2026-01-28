@@ -1,9 +1,11 @@
-import { StyleSheet, Text, View, TextInput, TouchableOpacity, ActivityIndicator, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { StyleSheet, Text, View, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { registerUser, resendVerification } from '../../services/auth';
 import PasswordStrengthIndicator, { isPasswordStrong } from '../../components/PasswordStrengthIndicator';
 import VoiceTextInput from '../../components/VoiceTextInput';
+import TermsAcceptance from '../../components/TermsAcceptance';
+import { useAlert } from '../../contexts/AlertContext';
 
 const resolveRegisterError = (error) => {
   const data = error?.response?.data;
@@ -33,28 +35,35 @@ const resolveRegisterError = (error) => {
 
 export default function Register() {
   const router = useRouter();
+  const { showAlert, showError, showWarning } = useAlert();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [loading, setLoading] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
 
   const handleRegister = async () => {
     if (!email.trim() || !password) {
-      Alert.alert('Erro', 'Informe email e senha');
+      showError('Informe email e senha');
       return;
     }
     if (password !== confirm) {
-      Alert.alert('Erro', 'As senhas nao conferem');
+      showError('As senhas nao conferem');
       return;
     }
     if (!isPasswordStrong(password)) {
-      Alert.alert('Erro', 'Senha fraca. Atenda todos os requisitos.');
+      showError('Senha fraca. Atenda todos os requisitos.');
+      return;
+    }
+    if (!termsAccepted) {
+      showWarning('Você precisa aceitar os termos de uso e política de privacidade para continuar.');
       return;
     }
 
     setLoading(true);
     try {
-        const result = await registerUser(email.trim(), password);
+        const result = await registerUser(email.trim(), password, true); // terms_accepted = true
         if (result?.verification_required) {
           const emailValue = email.trim();
           const tokenValue = result?.verification_token || '';
@@ -66,9 +75,10 @@ export default function Register() {
             params.set('token', tokenValue);
           }
           const verifyPath = `/auth/verify-email${params.toString() ? `?${params.toString()}` : ''}`;
-          Alert.alert(
+          showAlert(
             'Verificacao de email',
-            'Enviamos um link de verificacao para seu email. Verifique para continuar.'
+            'Enviamos um link de verificacao para seu email. Verifique para continuar.',
+            'info'
           );
           router.replace(verifyPath);
           return;
@@ -84,9 +94,10 @@ export default function Register() {
           params.set('email', emailValue);
         }
         const verifyPath = `/auth/verify-email${params.toString() ? `?${params.toString()}` : ''}`;
-        Alert.alert(
+        showAlert(
           'Email ja cadastrado',
           'Esse email ja possui cadastro. Se nao verificou, podemos reenviar o token.',
+          'warning',
           [
             {
               text: 'Reenviar token',
@@ -94,11 +105,11 @@ export default function Register() {
                 try {
                   if (emailValue) {
                     await resendVerification(emailValue);
-                    Alert.alert('Token reenviado', 'Enviamos um novo token para seu email.');
+                    showAlert('Token reenviado', 'Enviamos um novo token para seu email.', 'info');
                   }
                 } catch (resendError) {
                   const resendMessage = resolveRegisterError(resendError);
-                  Alert.alert('Erro', resendMessage);
+                  showError(resendMessage);
                 } finally {
                   router.push(verifyPath);
                 }
@@ -111,7 +122,7 @@ export default function Register() {
         return;
       }
       const message = resolveRegisterError(error);
-      Alert.alert('Erro', message);
+      showError(message);
     } finally {
       setLoading(false);
     }
@@ -165,7 +176,16 @@ export default function Register() {
           />
         </View>
 
-        <TouchableOpacity style={styles.primaryButton} onPress={handleRegister} disabled={loading}>
+        <TouchableOpacity 
+          style={[styles.termsButton, { borderColor: termsAccepted ? '#4ECDC4' : '#e0e0e0' }]}
+          onPress={() => setShowTermsModal(true)}
+        >
+          <Text style={[styles.termsText, { color: termsAccepted ? '#4ECDC4' : '#666' }]}>
+            {termsAccepted ? '✓ Termos aceitos' : 'Ler e aceitar termos de uso e política de privacidade'}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.primaryButton} onPress={handleRegister} disabled={loading || !termsAccepted}>
           {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryButtonText}>Cadastrar</Text>}
         </TouchableOpacity>
 
@@ -173,6 +193,16 @@ export default function Register() {
           <Text style={styles.linkText}>Ja tenho conta</Text>
         </TouchableOpacity>
       </View>
+
+      <TermsAcceptance
+        visible={showTermsModal}
+        onAccept={() => {
+          setTermsAccepted(true);
+          setShowTermsModal(false);
+        }}
+        onCancel={() => setShowTermsModal(false)}
+        required={true}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -249,5 +279,16 @@ const styles = StyleSheet.create({
   linkText: {
     color: '#4ECDC4',
     fontWeight: 'bold',
+  },
+  termsButton: {
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+    alignItems: 'center',
+  },
+  termsText: {
+    fontSize: 14,
+    textAlign: 'center',
   },
 });

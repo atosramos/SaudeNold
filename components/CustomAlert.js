@@ -1,19 +1,22 @@
 import { StyleSheet, Text, View, TouchableOpacity, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTheme } from '../contexts/ThemeContext';
 
 export default function CustomAlert({ visible, title, message, type = 'info', buttons = [], onClose }) {
+  const { colors } = useTheme();
+
   if (!visible) return null;
 
   const getIcon = () => {
     switch (type) {
       case 'success':
-        return { name: 'checkmark-circle', color: '#4ECDC4' };
+        return { name: 'checkmark-circle', color: colors.success };
       case 'error':
-        return { name: 'close-circle', color: '#FF6B6B' };
+        return { name: 'close-circle', color: colors.error };
       case 'warning':
-        return { name: 'warning', color: '#FFA07A' };
+        return { name: 'warning', color: colors.warning };
       default:
-        return { name: 'information-circle', color: '#4ECDC4' };
+        return { name: 'information-circle', color: colors.primary };
     }
   };
 
@@ -30,17 +33,17 @@ export default function CustomAlert({ visible, title, message, type = 'info', bu
       onRequestClose={onClose}
     >
       <View style={styles.overlay}>
-        <View style={styles.alertContainer}>
+        <View style={[styles.alertContainer, { backgroundColor: colors.surface }]}>
           <View style={styles.iconContainer}>
             <Ionicons name={icon.name} size={64} color={icon.color} />
           </View>
           
           {title && (
-            <Text style={styles.title}>{title}</Text>
+            <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
           )}
           
           {message && (
-            <Text style={styles.message}>{message}</Text>
+            <Text style={[styles.message, { color: colors.textSecondary }]}>{message}</Text>
           )}
 
           <View style={styles.buttonsContainer}>
@@ -49,8 +52,9 @@ export default function CustomAlert({ visible, title, message, type = 'info', bu
                 key={index}
                 style={[
                   styles.button,
-                  button.style === 'destructive' && styles.destructiveButton,
-                  button.style === 'cancel' && styles.cancelButton,
+                  { backgroundColor: colors.primary },
+                  button.style === 'destructive' && { backgroundColor: colors.error },
+                  button.style === 'cancel' && [styles.cancelButton, { backgroundColor: colors.border }],
                   displayButtons.length === 1 && styles.singleButton
                 ]}
                 onPress={() => {
@@ -65,7 +69,7 @@ export default function CustomAlert({ visible, title, message, type = 'info', bu
                 <Text style={[
                   styles.buttonText,
                   button.style === 'destructive' && styles.destructiveButtonText,
-                  button.style === 'cancel' && styles.cancelButtonText
+                  button.style === 'cancel' && [styles.cancelButtonText, { color: colors.text }]
                 ]}>
                   {button.text}
                 </Text>
@@ -87,7 +91,6 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   alertContainer: {
-    backgroundColor: '#fff',
     borderRadius: 24,
     padding: 32,
     width: '100%',
@@ -108,13 +111,11 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#333',
     marginBottom: 16,
     textAlign: 'center',
   },
   message: {
     fontSize: 22,
-    color: '#666',
     textAlign: 'center',
     marginBottom: 32,
     lineHeight: 30,
@@ -126,7 +127,6 @@ const styles = StyleSheet.create({
   },
   button: {
     flex: 1,
-    backgroundColor: '#4ECDC4',
     borderRadius: 12,
     padding: 20,
     alignItems: 'center',
@@ -137,12 +137,7 @@ const styles = StyleSheet.create({
     flex: 0,
     minWidth: 120,
   },
-  destructiveButton: {
-    backgroundColor: '#FF6B6B',
-  },
-  cancelButton: {
-    backgroundColor: '#e0e0e0',
-  },
+  cancelButton: {},
   buttonText: {
     fontSize: 22,
     fontWeight: 'bold',
@@ -151,9 +146,7 @@ const styles = StyleSheet.create({
   destructiveButtonText: {
     color: '#fff',
   },
-  cancelButtonText: {
-    color: '#333',
-  },
+  cancelButtonText: {},
 });
 
 

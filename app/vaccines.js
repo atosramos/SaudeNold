@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Modal, Alert, Platform, KeyboardAvoidingView } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Modal, Platform, KeyboardAvoidingView, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useProfileChange } from '../hooks/useProfileChange';
@@ -9,6 +9,10 @@ import { scheduleVaccineAlarms, calculateNextVaccineDate, cancelVaccineAlarms } 
 import VoiceTextInput from '../components/VoiceTextInput';
 import { useProfileAuthGuard } from '../hooks/useProfileAuthGuard';
 import { useTheme } from '../contexts/ThemeContext';
+import { useAlert } from '../contexts/AlertContext';
+
+// URL oficial do Calendário Nacional de Vacinação (Ministério da Saúde)
+const GOV_CALENDAR_URL = 'https://www.gov.br/saude/pt-br/vacinacao/calendario';
 
 // Calendário Nacional de Vacinação - Criança (0 a 9 anos, 11 meses e 29 dias)
 // Fonte: https://www.gov.br/saude/pt-br/vacinacao/calendario
@@ -84,7 +88,7 @@ const PREGNANT_VACCINE_CALENDAR = [
   { id: 'pregnant-5', age: 'Durante a gestação', vaccine: 'dT (Dupla adulto)', dose: 'Se não recebeu dTpa, usar dT', diseases: 'difteria, tétano' },
 ];
 
-// Outras vacinas recomendadas
+// Outras vacinas recomendadas (podem ser filtradas para não repetir as do calendário)
 const RECOMMENDED_VACCINES = [
   { id: 'rec-1', name: 'Gripe (Influenza)', description: 'Recomendada anualmente para todas as idades', frequency: 'Anual' },
   { id: 'rec-2', name: 'Hepatite A', description: 'Recomendada para crianças e adultos não vacinados', frequency: '2 doses com intervalo de 6 meses' },
@@ -94,6 +98,75 @@ const RECOMMENDED_VACCINES = [
   { id: 'rec-6', name: 'Meningocócica ACWY', description: 'Recomendada para adolescentes e adultos jovens', frequency: '1 dose' },
   { id: 'rec-7', name: 'Pneumocócica 23-valente', description: 'Recomendada para idosos e grupos de risco', frequency: '1 dose (reforço após 5 anos)' },
 ];
+
+// Mapeamento de nomes/variantes para uma chave única (evita repetição calendário vs recomendadas)
+const VACCINE_NAME_CANONICAL = {
+  'influenza': ['influenza', 'gripe', 'influenza trivalente', 'influenza (gripe)'],
+  'hepatite a': ['hepatite a'],
+  'hepatite b': ['hepatite b'],
+  'febre amarela': ['febre amarela'],
+  'covid-19': ['covid-19'],
+  'meningocócica acwy': ['meningocócica acwy'],
+  'pneumocócica 23-valente': ['pneumocócica 23-valente'],
+  'dupla adulto': ['dupla adulto (dt)', 'dt', 'dt', 'tríplice bacteriana (dt)', 'dupla adulto'],
+  'tríplice viral': ['tríplice viral (scr)', 'tríplice viral scr', 'tríplice viral', 'scr'],
+  'dtpa': ['dtpa', 'tríplice bacteriana acelular', 'dtpa'],
+  'hpv4': ['hpv4', 'hpv'],
+  'varicela': ['varicela', 'catapora'],
+  'bcg': ['bcg'],
+  'penta': ['penta', 'dtp+hib+hb'],
+  'poliomielite': ['poliomielite', 'poliomielite inativada vip', 'vip'],
+  'rotavírus': ['rotavírus', 'rotavírus humano'],
+  'pneumocócica 10-valente': ['pneumocócica 10-valente'],
+  'meningocócica c': ['meningocócica c'],
+};
+
+function normalizeForComparison(str) {
+  if (!str || typeof str !== 'string') return '';
+  return str
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Retorna um Set de chaves canônicas das vacinas que já aparecem nos calendários exibidos. */
+function getCalendarVaccineCanonicalKeys(calendars) {
+  const keys = new Set();
+  const normalizedToCanonical = {};
+  Object.entries(VACCINE_NAME_CANONICAL).forEach(([canon, variants]) => {
+    variants.forEach((v) => { normalizedToCanonical[normalizeForComparison(v)] = canon; });
+  });
+
+  calendars.forEach((cal) => {
+    (cal.vaccines || []).forEach((v) => {
+      const name = (v.vaccine || v.name || '').trim();
+      const n = normalizeForComparison(name);
+      if (!n) return;
+      const canon = normalizedToCanonical[n] || n;
+      keys.add(canon);
+      const firstWord = n.split(/\s+/)[0];
+      if (normalizedToCanonical[firstWord]) keys.add(normalizedToCanonical[firstWord]);
+    });
+  });
+  return keys;
+}
+
+/** Retorna true se a vacina recomendada já está coberta por algum calendário exibido. */
+function isRecommendedVaccineInCalendar(recommendedVaccine, calendarKeys) {
+  const name = (recommendedVaccine.name || '').trim();
+  const n = normalizeForComparison(name);
+  if (!n) return false;
+  const normalizedToCanonical = {};
+  Object.entries(VACCINE_NAME_CANONICAL).forEach(([canon, variants]) => {
+    variants.forEach((v) => { normalizedToCanonical[normalizeForComparison(v)] = canon; });
+  });
+  const canon = normalizedToCanonical[n] || n;
+  if (calendarKeys.has(canon)) return true;
+  const firstWord = n.split(/\s+/)[0];
+  return calendarKeys.has(firstWord);
+}
 
 // Status possíveis: 'scheduled' (Agendada), 'applied' (Aplicada), 'pending' (Pendente)
 const VACCINE_STATUS = {
@@ -105,8 +178,7 @@ const VACCINE_STATUS = {
 export default function Vaccines() {
   const router = useRouter();
   const { colors } = useTheme();
-  // Usar sensitive: false para não redirecionar automaticamente
-  // A tela de vacinas pode funcionar sem perfil ativo (mostra mensagem se necessário)
+  const { showAlert, showSuccess, showError, showWarning } = useAlert();
   useProfileAuthGuard({ sensitive: false });
   const [customVaccines, setCustomVaccines] = useState([]);
   const [vaccineRecords, setVaccineRecords] = useState({}); // Registros das vacinas do calendário
@@ -226,9 +298,10 @@ export default function Vaccines() {
     }
     
     if (isPregnant === null) {
-      Alert.alert(
+      showAlert(
         'Informação Importante',
         'Você está em período de gestação? Isso nos ajuda a mostrar o calendário de vacinação adequado.',
+        'info',
         [
           {
             text: 'Não',
@@ -297,7 +370,7 @@ export default function Vaccines() {
       setVaccineRecords(records);
     } catch (error) {
       console.error('Erro ao salvar registros de vacinas:', error);
-      Alert.alert('Erro', 'Não foi possível salvar o registro.');
+      showError('Não foi possível salvar o registro.');
     }
   };
 
@@ -307,7 +380,7 @@ export default function Vaccines() {
       setCustomVaccines(vaccines);
     } catch (error) {
       console.error('Erro ao salvar vacinas customizadas:', error);
-      Alert.alert('Erro', 'Não foi possível salvar a vacina.');
+      showError('Não foi possível salvar a vacina.');
     }
   };
 
@@ -380,18 +453,18 @@ export default function Vaccines() {
 
   const handleSaveVaccine = async () => {
     if (!formData.name.trim()) {
-      Alert.alert('Atenção', 'Por favor, informe o nome da vacina.');
+      showWarning('Por favor, informe o nome da vacina.');
       return;
     }
 
     // Validações baseadas no status
     if (formData.status === VACCINE_STATUS.SCHEDULED && !formData.scheduledDate) {
-      Alert.alert('Atenção', 'Por favor, informe a data de agendamento.');
+      showWarning('Por favor, informe a data de agendamento.');
       return;
     }
 
     if (formData.status === VACCINE_STATUS.APPLIED && !formData.appliedDate) {
-      Alert.alert('Atenção', 'Por favor, informe a data de aplicação.');
+      showWarning('Por favor, informe a data de aplicação.');
       return;
     }
 
@@ -440,7 +513,7 @@ export default function Vaccines() {
         }
       }
       
-      Alert.alert('Sucesso', 'Registro de vacina atualizado com sucesso!');
+      showSuccess('Registro de vacina atualizado com sucesso!');
       resetForm();
       setShowAddModal(false);
       return;
@@ -477,10 +550,10 @@ export default function Vaccines() {
     let updated;
     if (editingVaccine) {
       updated = customVaccines.map(v => v.id === editingVaccine.id ? vaccineData : v);
-      Alert.alert('Sucesso', 'Vacina atualizada com sucesso!');
+      showSuccess('Vacina atualizada com sucesso!');
     } else {
       updated = [...customVaccines, vaccineData];
-      Alert.alert('Sucesso', 'Vacina adicionada com sucesso!');
+      showSuccess('Vacina adicionada com sucesso!');
     }
 
     saveCustomVaccines(updated);
@@ -489,9 +562,10 @@ export default function Vaccines() {
   };
 
   const handleDeleteVaccine = (id) => {
-    Alert.alert(
+    showAlert(
       'Confirmar exclusão',
       'Tem certeza que deseja excluir esta vacina?',
+      'warning',
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -568,9 +642,37 @@ export default function Vaccines() {
     }
   };
 
-  const filteredVaccines = filterStatus === 'all' 
-    ? customVaccines 
-    : customVaccines.filter(v => v.status === filterStatus);
+  // Prioridade de exibição: Agendadas > Pendentes > Aplicadas
+  const getStatusPriority = (status) => {
+    switch (status) {
+      case VACCINE_STATUS.SCHEDULED:
+        return 3;
+      case VACCINE_STATUS.PENDING:
+        return 2;
+      case VACCINE_STATUS.APPLIED:
+        return 1;
+      default:
+        return 0;
+    }
+  };
+
+  const sortByStatusAndDate = (a, b) => {
+    const pa = getStatusPriority(a.status);
+    const pb = getStatusPriority(b.status);
+    if (pa !== pb) {
+      // Maior prioridade primeiro (agendadas no topo)
+      return pb - pa;
+    }
+    const dateA = a.appliedDate || a.scheduledDate || '';
+    const dateB = b.appliedDate || b.scheduledDate || '';
+    // Datas mais recentes primeiro
+    return (dateB || '').localeCompare(dateA || '');
+  };
+
+  const filteredVaccines = (filterStatus === 'all'
+    ? customVaccines
+    : customVaccines.filter(v => v.status === filterStatus)
+  ).slice().sort(sortByStatusAndDate);
 
   const renderVaccineCard = (vaccine, isCustom = false) => {
     // Se é vacina do calendário, verificar se tem registro
@@ -762,6 +864,26 @@ export default function Vaccines() {
       </View>
 
       <View style={styles.content}>
+        {/* Observação: responsabilidade e fonte dos dados do calendário */}
+        <View style={[styles.govNotice, { backgroundColor: colors.primary + '15', borderColor: colors.primary + '40' }]}>
+          <Ionicons name="information-circle-outline" size={22} color={colors.primary} />
+          <View style={styles.govNoticeTextBlock}>
+            <Text style={[styles.govNoticeText, { color: colors.text }]}>
+              Os dados do calendário nacional de vacinação são de responsabilidade do Ministério da Saúde do governo brasileiro.
+            </Text>
+            <TouchableOpacity
+              onPress={() => Linking.openURL(GOV_CALENDAR_URL)}
+              activeOpacity={0.7}
+              style={styles.govNoticeLinkWrap}
+            >
+              <Text style={[styles.govNoticeLink, { color: colors.primary }]}>
+                Fonte oficial: Calendário Nacional de Vacinação (gov.br)
+              </Text>
+              <Ionicons name="open-outline" size={16} color={colors.primary} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
         {/* Informações do usuário */}
         {anamnesisData?.birthDate && (
           <View style={[styles.userInfoContainer, { backgroundColor: colors.success + '20' }]}>
@@ -819,35 +941,64 @@ export default function Vaccines() {
             );
           }
           
-          return calendars.map((calendar, index) => (
-            <View key={index} style={[styles.section, { backgroundColor: colors.surface }]}>
-              <View style={styles.sectionHeader}>
-                <Ionicons name="shield-checkmark" size={28} color={colors.success} />
-                <Text style={[styles.sectionTitle, { color: colors.text }]}>{calendar.title}</Text>
+          return calendars.map((calendar, index) => {
+            // Ordenar vacinas do calendário: agendadas primeiro, depois pendentes, depois aplicadas
+            const vaccinesSorted = [...calendar.vaccines].sort((a, b) => {
+              const recA = vaccineRecords[a.id];
+              const recB = vaccineRecords[b.id];
+              const pa = getStatusPriority(recA?.status || VACCINE_STATUS.PENDING);
+              const pb = getStatusPriority(recB?.status || VACCINE_STATUS.PENDING);
+              if (pa !== pb) {
+                return pb - pa;
+              }
+              const nameA = (a.vaccine || a.name || '').toString();
+              const nameB = (b.vaccine || b.name || '').toString();
+              return nameA.localeCompare(nameB);
+            });
+
+            return (
+              <View key={index} style={[styles.section, { backgroundColor: colors.surface }]}>
+                <View style={styles.sectionHeader}>
+                  <Ionicons name="shield-checkmark" size={28} color={colors.success} />
+                  <Text style={[styles.sectionTitle, { color: colors.text }]}>{calendar.title}</Text>
+                </View>
+                <Text style={[styles.sectionDescription, { color: colors.textSecondary }]}>
+                  Toque em uma vacina para registrar informações da carteira de vacinação.
+                </Text>
+                <View style={styles.vaccinesList}>
+                  {vaccinesSorted.map(vaccine => renderVaccineCard(vaccine))}
+                </View>
               </View>
-              <Text style={[styles.sectionDescription, { color: colors.textSecondary }]}>
-                Toque em uma vacina para registrar informações da carteira de vacinação.
-              </Text>
-              <View style={styles.vaccinesList}>
-                {calendar.vaccines.map(vaccine => renderVaccineCard(vaccine))}
-              </View>
-            </View>
-          ));
+            );
+          });
         })()}
 
-        {/* Vacinas Recomendadas */}
-        <View style={[styles.section, { backgroundColor: colors.surface }]}>
-          <View style={styles.sectionHeader}>
-            <Ionicons name="star" size={28} color={colors.warning} />
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>Outras Vacinas Recomendadas</Text>
-          </View>
-          <Text style={[styles.sectionDescription, { color: colors.textSecondary }]}>
-            Toque em uma vacina para registrar informações da carteira de vacinação.
-          </Text>
-          <View style={styles.vaccinesList}>
-            {RECOMMENDED_VACCINES.map((vaccine) => renderVaccineCard(vaccine))}
-          </View>
-        </View>
+        {/* Outras Vacinas Recomendadas (excluindo as que já aparecem no calendário acima) */}
+        {(() => {
+          const calendars = getVaccineCalendars();
+          const calendarKeys = getCalendarVaccineCanonicalKeys(calendars);
+          const recommendedFiltered = RECOMMENDED_VACCINES.filter(
+            (rec) => !isRecommendedVaccineInCalendar(rec, calendarKeys)
+          );
+          return (
+            <View style={[styles.section, { backgroundColor: colors.surface }]}>
+              <View style={styles.sectionHeader}>
+                <Ionicons name="star" size={28} color={colors.warning} />
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>Outras Vacinas Recomendadas</Text>
+              </View>
+              <Text style={[styles.sectionDescription, { color: colors.textSecondary }]}>
+                {recommendedFiltered.length === 0
+                  ? 'Todas as vacinas recomendadas já constam nos calendários exibidos acima.'
+                  : 'Toque em uma vacina para registrar informações da carteira de vacinação.'}
+              </Text>
+              {recommendedFiltered.length > 0 && (
+                <View style={styles.vaccinesList}>
+                  {recommendedFiltered.map((vaccine) => renderVaccineCard(vaccine))}
+                </View>
+              )}
+            </View>
+          );
+        })()}
 
         {/* Minhas Vacinas */}
         <View style={[styles.section, { backgroundColor: colors.surface }]}>
@@ -1220,9 +1371,7 @@ export default function Vaccines() {
                 style={[styles.modalButton, styles.saveButton]}
                 onPress={handleSaveVaccine}
               >
-                <Text style={styles.saveButtonText}>
-                  {editingVaccine || editingCalendarVaccine ? 'Atualizar' : 'Salvar'}
-                </Text>
+                <Text style={styles.saveButtonText}>Salvar</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1236,6 +1385,35 @@ export default function Vaccines() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  govNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    padding: 14,
+    marginHorizontal: 16,
+    marginTop: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 10,
+  },
+  govNoticeTextBlock: {
+    flex: 1,
+  },
+  govNoticeText: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 8,
+  },
+  govNoticeLinkWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+  },
+  govNoticeLink: {
+    fontSize: 14,
+    fontWeight: '600',
+    textDecorationLine: 'underline',
   },
   userInfoContainer: {
     flexDirection: 'row',

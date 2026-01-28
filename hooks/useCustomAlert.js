@@ -1,6 +1,11 @@
 import { useState, useCallback } from 'react';
 import CustomAlert from '../components/CustomAlert';
 
+/**
+ * @deprecated Use useAlert() from contexts/AlertContext em vez disso.
+ * O AlertProvider já renderiza um único CustomAlert global; não é necessário
+ * AlertComponent por tela. Migre para useAlert e remova <AlertComponent />.
+ */
 export function useCustomAlert() {
   const [alert, setAlert] = useState({
     visible: false,

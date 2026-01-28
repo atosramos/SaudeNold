@@ -4,7 +4,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useState, useEffect } from 'react';
 import { getTrackingRecordsForChart, TRACKING_TYPES } from '../../services/dailyTracking';
 import LineChart from '../../components/LineChart';
-import { useCustomAlert } from '../../hooks/useCustomAlert';
+import { useAlert } from '../../contexts/AlertContext';
 
 const TYPE_LABELS = {
   [TRACKING_TYPES.BLOOD_PRESSURE]: 'Pressão Arterial',
@@ -29,7 +29,7 @@ const REFERENCE_RANGES = {
 export default function DailyTrackingChart() {
   const router = useRouter();
   const { type } = useLocalSearchParams();
-  const { showAlert } = useCustomAlert();
+  const { showError } = useAlert();
   const [loading, setLoading] = useState(true);
   const [chartData, setChartData] = useState(null);
 
@@ -58,7 +58,7 @@ export default function DailyTrackingChart() {
       });
     } catch (error) {
       console.error('Erro ao carregar dados do gráfico:', error);
-      showAlert('Erro', 'Não foi possível carregar os dados do gráfico', 'error');
+      showError('Não foi possível carregar os dados do gráfico');
       setChartData(null);
     } finally {
       setLoading(false);
